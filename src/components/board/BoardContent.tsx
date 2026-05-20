@@ -22,6 +22,12 @@ import { GroupBlock } from './table/GroupBlock';
 import { AddGroupRow } from './table/AddGroupRow';
 import { BulkActionBar } from './table/BulkActionBar';
 import { LabelsEditorModal } from './table/LabelsEditorModal';
+import {
+  GUTTER_WIDTH,
+  COMMENT_COL_WIDTH,
+  TASK_CODE_COL_WIDTH,
+  ADD_COL_WIDTH,
+} from './table/tableLayout';
 import type { BoardWithOwner } from '@/hooks/boards';
 import type { ColumnRow, GroupRow, ItemRow } from '@/lib/database.types';
 
@@ -261,14 +267,23 @@ export function BoardContent({ board }: BoardContentProps) {
 
   // Shared width used by every row across the table so the column headers
   // and all group rows stay column-aligned inside the single horizontal
-  // scroll container.  Gutter (40) + sum of visible column widths.
-  // The "+ Add column" button sits in its own 40-px cell at the right edge,
-  // adding ADD_COL_WIDTH to the header row's natural width.
-  const GUTTER_WIDTH = 40;
-  const ADD_COL_WIDTH = 40;
+  // scroll container.
+  //   Gutter + task_name column + synthetic columns (comment + task code)
+  //   + all other user-defined columns + "+ Add column" cell.
+  // The synthetic comment + task-code cells live in ItemRow between the
+  // task_name column and the rest, so we add them once to the row width
+  // here too.  Layout constants are centralised in `tableLayout.ts`.
   const dataWidth =
-    GUTTER_WIDTH + visibleColumns.reduce((sum, c) => sum + c.width, 0);
+    GUTTER_WIDTH
+    + visibleColumns.reduce((sum, c) => sum + c.width, 0)
+    + COMMENT_COL_WIDTH
+    + TASK_CODE_COL_WIDTH;
   const tableMinWidth = dataWidth + (canEdit ? ADD_COL_WIDTH : 0);
+
+  // Split visible columns the same way ItemRow does so the header row
+  // renders Task name first, then the synthetic columns, then the rest.
+  const taskNameCol = visibleColumns.find((c) => c.column_type === 'task_name');
+  const otherCols   = visibleColumns.filter((c) => c.column_type !== 'task_name');
 
   return (
     <div className="px-8 py-4">
@@ -285,8 +300,38 @@ export function BoardContent({ board }: BoardContentProps) {
               className="shrink-0 border-r border-border-light sticky left-0 z-[5] bg-app/95 backdrop-blur-sm"
               style={{ width: GUTTER_WIDTH }}
             />
+
+            {/* Task-name header is rendered first and stays sticky-left after
+                the gutter — its layout/sticky positioning lives inside
+                ColumnHeader. The synthetic comment + task-code headers come
+                after, then the remaining user-defined columns. */}
             <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-              {visibleColumns.map((col) => (
+              {taskNameCol && (
+                <ColumnHeader
+                  key={taskNameCol.id}
+                  column={taskNameCol}
+                  boardId={board.id}
+                  canEdit={canEdit}
+                  onOpenLabelsEditor={setLabelsForColumn}
+                />
+              )}
+
+              {/* Synthetic header cells — empty title for the comment column,
+                  "Code" for the task-code column. Centered, same uppercase
+                  style as ColumnHeader's text. */}
+              <div
+                style={{ width: COMMENT_COL_WIDTH }}
+                className="shrink-0 border-r border-border-light flex items-center justify-center"
+                aria-hidden="true"
+              />
+              <div
+                style={{ width: TASK_CODE_COL_WIDTH }}
+                className="shrink-0 border-r border-border-light flex items-center justify-center text-xs uppercase tracking-wide text-text-secondary font-medium"
+              >
+                Code
+              </div>
+
+              {otherCols.map((col) => (
                 <ColumnHeader
                   key={col.id}
                   column={col}

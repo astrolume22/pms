@@ -36,20 +36,28 @@ export function LabelCell({
     }
   };
 
+  const isEmpty = selectedLabels.length === 0;
+  const isSingleSelect = !multi;
+
   return (
     <>
       <div
         ref={anchorRef}
         className={cn(
-          'w-full h-full flex items-center px-1 gap-1 overflow-hidden',
+          'w-full h-full flex items-center overflow-hidden',
+          // Single-select empty: subtle grey fill (matches Monday's reference)
+          isEmpty && isSingleSelect && 'bg-label-grey/25',
           !readonly && 'cursor-pointer',
         )}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
-        {selectedLabels.length === 0 ? (
-          <span className="text-xs text-text-disabled px-1">—</span>
+        {isEmpty ? (
+          // For multi-select we keep a clean white cell with a centered dash.
+          isSingleSelect ? null : (
+            <span className="w-full text-center text-xs text-text-disabled">—</span>
+          )
         ) : multi ? (
-          <div className="flex items-center gap-1 overflow-hidden">
+          <div className="flex items-center gap-1 overflow-hidden px-1">
             {selectedLabels.slice(0, 3).map((l) => (
               <span
                 key={l.id}
@@ -65,9 +73,9 @@ export function LabelCell({
             )}
           </div>
         ) : (
-          // Status/Priority: full-cell colored pill
+          // Status/Priority: full-cell saturated color, white centered label
           <span
-            className="block w-full h-full rounded-sm text-xs font-medium text-white text-center flex items-center justify-center px-1"
+            className="block w-full h-full text-xs font-medium text-white flex items-center justify-center px-2"
             style={{ background: selectedLabels[0].color }}
             title={selectedLabels[0].name}
           >

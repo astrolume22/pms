@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ChevronRight, GripVertical, ChevronDown } from 'lucide-react';
+import { ChevronRight, GripVertical, ChevronDown, MessageSquare } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { CellRenderer } from './cells/CellRenderer';
 import { useUpdateCellValue } from '@/hooks/items';
 import { useBoardViewStore, ITEM_HEIGHT_PX } from '@/state/boardViewStore';
+import { COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH, GUTTER_WIDTH } from './tableLayout';
 import { cn } from '@/lib/cn';
 
 interface ItemRowProps {
@@ -23,9 +25,10 @@ interface ItemRowProps {
 }
 
 export function ItemRow({
-  item, columns, visibleColumns, labelsByColumnId, valuesByItemColumn,
+  item, visibleColumns, labelsByColumnId, valuesByItemColumn,
   boardId, canEdit, isSubitem, hasSubitems, onToggleSubitems, onOpenLabelsEditor,
 }: ItemRowProps) {
+  const navigate = useNavigate();
   const sortable = useSortable({ id: item.id, disabled: !canEdit || isSubitem });
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
@@ -41,8 +44,17 @@ export function ItemRow({
   const updateCell = useUpdateCellValue();
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
 
-  // Find task_name column code display
-  const taskNameCol = columns.find((c) => c.column_type === 'task_name');
+  const openTaskPanel = () => {
+    navigate({
+      to: '/w/$workspace/b/$boardId',
+      params: { workspace: 'main', boardId },
+      search: { p: item.id },
+    });
+  };
+
+  // Split columns into task_name (rendered first, sticky-left) and the rest.
+  const taskNameCol = visibleColumns.find((c) => c.column_type === 'task_name');
+  const otherCols = visibleColumns.filter((c) => c.column_type !== 'task_name');
 
   return (
     <div
@@ -60,7 +72,7 @@ export function ItemRow({
           'shrink-0 flex items-center justify-center gap-0.5 border-r border-border-light bg-surface sticky left-0 z-[3]',
           isSelected && 'bg-selected',
         )}
-        style={{ width: 40 }}
+        style={{ width: GUTTER_WIDTH }}
       >
         {canEdit && !isSubitem && (
           <button
@@ -92,19 +104,64 @@ export function ItemRow({
         )}
       </div>
 
-      {/* Visible columns */}
-      {visibleColumns.map((col) => {
+      {/* Task-name cell (sticky-left after the gutter) */}
+      {taskNameCol && (
+        <div
+          style={{ width: taskNameCol.width }}
+          className={cn(
+            'shrink-0 border-r border-border-light sticky z-[2]',
+            isSelected ? 'bg-selected' : 'bg-surface',
+          )}
+        >
+          <CellRenderer
+            item={item}
+            column={taskNameCol}
+            value={valuesByItemColumn.get(`${item.id}:${taskNameCol.id}`)}
+            labelsForColumn={labelsByColumnId.get(taskNameCol.id)}
+            boardId={boardId}
+            readonly={!canEdit}
+            isEditing={editingColumnId === taskNameCol.id}
+            onStartEdit={() => setEditingColumnId(taskNameCol.id)}
+            onEndEdit={() => setEditingColumnId(null)}
+            onCommit={(v) => updateCell.mutate({ boardId, itemId: item.id, columnId: taskNameCol.id, value: v })}
+            onOpenLabelsEditor={onOpenLabelsEditor}
+          />
+        </div>
+      )}
+
+      {/* Synthetic comment-indicator column */}
+      <div
+        style={{ width: COMMENT_COL_WIDTH }}
+        className="shrink-0 border-r border-border-light flex items-center justify-center"
+      >
+        <button
+          type="button"
+          onClick={openTaskPanel}
+          title="Open task / see updates"
+          aria-label="Open task"
+          className="h-6 w-6 inline-flex items-center justify-center rounded-pill border border-border-light bg-app/40 text-text-secondary hover:bg-brand/10 hover:text-brand hover:border-brand/40 transition-colors duration-100"
+        >
+          <MessageSquare className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* Synthetic task-code column (read-only, sourced from item.task_code) */}
+      <div
+        style={{ width: TASK_CODE_COL_WIDTH }}
+        className="shrink-0 border-r border-border-light flex items-center justify-center text-[11px] font-mono text-text-secondary"
+      >
+        {item.task_code}
+      </div>
+
+      {/* Remaining user-defined columns */}
+      {otherCols.map((col) => {
         const key = `${item.id}:${col.id}`;
         const val = valuesByItemColumn.get(key);
         return (
           <div
             key={col.id}
             style={{ width: col.width }}
-            className={cn(
-              'shrink-0 border-r border-border-light last:border-r-0 relative',
-              col.column_type === 'task_name' && 'sticky z-[2] bg-surface',
-              col.column_type === 'task_name' && isSelected && 'bg-selected',
-            )}
+            className="shrink-0 border-r border-border-light"
           >
             <CellRenderer
               item={item}
@@ -116,17 +173,9 @@ export function ItemRow({
               isEditing={editingColumnId === col.id}
               onStartEdit={() => setEditingColumnId(col.id)}
               onEndEdit={() => setEditingColumnId(null)}
-              onCommit={(v) => {
-                updateCell.mutate({ boardId, itemId: item.id, columnId: col.id, value: v });
-              }}
+              onCommit={(v) => updateCell.mutate({ boardId, itemId: item.id, columnId: col.id, value: v })}
               onOpenLabelsEditor={onOpenLabelsEditor}
             />
-            {/* For task_name col: show task code under the name in a tiny font */}
-            {col.column_type === 'task_name' && taskNameCol?.id === col.id && (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-text-disabled font-mono pointer-events-none">
-                {item.task_code}
-              </span>
-            )}
           </div>
         );
       })}

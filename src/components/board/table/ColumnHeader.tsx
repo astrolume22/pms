@@ -100,15 +100,19 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(
-        'group/col relative shrink-0 border-r border-border-light last:border-r-0 flex items-center px-2',
+        'group/col relative shrink-0 border-r border-border-light flex items-center px-2',
         'bg-app/60 text-xs uppercase tracking-wide text-text-secondary font-medium',
         sortable.isDragging && 'z-10',
         isTaskName && 'sticky left-10 z-[5] bg-app/95 backdrop-blur-sm',
       )}
     >
-      {/* drag handle (the whole header is the drag target except for the resize handle/menu) */}
+      {/* drag handle (the whole header is the drag target except for the resize handle/menu).
+          Non-task_name columns center their text to match Monday's reference. */}
       <div
-        className="flex-1 min-w-0 flex items-center gap-1 py-2"
+        className={cn(
+          'flex-1 min-w-0 flex items-center gap-1 py-2',
+          isTaskName ? 'justify-start' : 'justify-center',
+        )}
         {...(canEdit && !isTaskName ? { ...sortable.attributes, ...sortable.listeners } : {})}
       >
         {renaming && canEdit ? (
@@ -121,7 +125,10 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
               if (e.key === 'Enter') void commitName();
               else if (e.key === 'Escape') { setDraft(column.name); setRenaming(false); }
             }}
-            className="flex-1 min-w-0 h-6 px-1 text-xs uppercase tracking-wide bg-surface border border-brand rounded-sm outline-none"
+            className={cn(
+              'flex-1 min-w-0 h-6 px-1 text-xs uppercase tracking-wide bg-surface border border-brand rounded-sm outline-none',
+              !isTaskName && 'text-center',
+            )}
           />
         ) : (
           <button

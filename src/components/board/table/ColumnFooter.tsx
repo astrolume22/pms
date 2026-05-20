@@ -1,6 +1,7 @@
 import { useActiveUsers } from '@/hooks/users';
 import { Avatar } from '@/components/Avatar';
 import type { ColumnLabelRow, ColumnRow, ItemRow } from '@/lib/database.types';
+import { GUTTER_WIDTH, COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH } from './tableLayout';
 
 interface ColumnFooterProps {
   visibleColumns: ColumnRow[];
@@ -12,15 +13,24 @@ interface ColumnFooterProps {
 export function ColumnFooter({
   visibleColumns, items, valuesByItemColumn, labelsByColumnId,
 }: ColumnFooterProps) {
+  // Mirror ItemRow's order: gutter → task_name → comment → task_code → others.
+  const taskNameCol = visibleColumns.find((c) => c.column_type === 'task_name');
+  const otherCols   = visibleColumns.filter((c) => c.column_type !== 'task_name');
+
+  const cellClass = 'shrink-0 border-r border-border-light px-2 py-1.5 flex items-center';
+
   return (
     <div className="flex items-stretch border-t border-border-light bg-app/40 text-xs">
-      <div className="w-10 shrink-0 border-r border-border-light" />
-      {visibleColumns.map((col) => (
-        <div
-          key={col.id}
-          style={{ width: col.width }}
-          className="shrink-0 border-r border-border-light last:border-r-0 px-2 py-1.5 flex items-center"
-        >
+      <div className={cellClass} style={{ width: GUTTER_WIDTH }} />
+      {taskNameCol && (
+        <div className={cellClass} style={{ width: taskNameCol.width }}>
+          <FooterCell column={taskNameCol} items={items} valuesByItemColumn={valuesByItemColumn} labelsByColumnId={labelsByColumnId} />
+        </div>
+      )}
+      <div className={cellClass} style={{ width: COMMENT_COL_WIDTH }} />
+      <div className={cellClass} style={{ width: TASK_CODE_COL_WIDTH }} />
+      {otherCols.map((col) => (
+        <div key={col.id} className={cellClass} style={{ width: col.width }}>
           <FooterCell column={col} items={items} valuesByItemColumn={valuesByItemColumn} labelsByColumnId={labelsByColumnId} />
         </div>
       ))}

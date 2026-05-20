@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, MessageSquare } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { useRenameItem } from '@/hooks/items';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
 
+/**
+ * Task name cell — inline-editable text. The task-code display and the
+ * "open task panel" button now live in their own synthetic columns
+ * rendered by `ItemRow`, so this cell is intentionally minimal.
+ */
 export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, onEndEdit }: CellProps) {
-  const navigate = useNavigate();
   const rename = useRenameItem();
   const [draft, setDraft] = useState(item.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,42 +62,11 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
             'flex-1 min-w-0 text-sm font-medium truncate',
             readonly ? 'cursor-default' : 'cursor-text',
           )}
+          title={item.name}
         >
           {item.name}
         </span>
       )}
-      {/* Open task panel via search param */}
-      <button
-        type="button"
-        title="Open task"
-        onClick={(e) => {
-          e.stopPropagation();
-          navigate({
-            to: '/w/$workspace/b/$boardId',
-            params: { workspace: 'main', boardId },
-            search: { p: item.id },
-          });
-        }}
-        className="opacity-0 group-hover/cell:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover"
-      >
-        <ExternalLink className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        title="View updates"
-        onClick={(e) => {
-          e.stopPropagation();
-          navigate({
-            to: '/w/$workspace/b/$boardId',
-            params: { workspace: 'main', boardId },
-            search: { p: item.id },
-          });
-        }}
-        className="opacity-0 group-hover/cell:opacity-100 inline-flex items-center gap-0.5 text-xs text-text-secondary px-1 rounded-sm hover:bg-hover"
-      >
-        <MessageSquare className="h-3 w-3" />
-        <span>·</span>
-      </button>
     </div>
   );
 }
