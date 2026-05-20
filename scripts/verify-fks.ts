@@ -49,6 +49,22 @@ const expected: ExpectedFk[] = [
   { table: 'item_subscribers',   column: 'item_id',       references: 'public.items(id)' },
   { table: 'item_subscribers',   column: 'user_id',       references: 'public.users(id)' },
   { table: 'board_counters',     column: 'board_id',      references: 'public.boards(id)' },
+  // Phase 4
+  { table: 'updates',           column: 'item_id',           references: 'public.items(id)' },
+  { table: 'updates',           column: 'author_id',         references: 'public.users(id)' },
+  { table: 'update_reactions',  column: 'update_id',         references: 'public.updates(id)' },
+  { table: 'update_reactions',  column: 'user_id',           references: 'public.users(id)' },
+  { table: 'update_mentions',   column: 'update_id',         references: 'public.updates(id)' },
+  { table: 'update_mentions',   column: 'mentioned_user_id', references: 'public.users(id)' },
+  { table: 'files',             column: 'uploader_id',       references: 'public.users(id)' },
+  { table: 'files',             column: 'item_id',           references: 'public.items(id)' },
+  { table: 'files',             column: 'update_id',         references: 'public.updates(id)' },
+  { table: 'files',             column: 'column_id',         references: 'public.columns(id)' },
+  { table: 'notifications',     column: 'recipient_id',      references: 'public.users(id)' },
+  { table: 'notifications',     column: 'actor_id',          references: 'public.users(id)' },
+  { table: 'notifications',     column: 'item_id',           references: 'public.items(id)' },
+  { table: 'notifications',     column: 'update_id',         references: 'public.updates(id)' },
+  { table: 'notifications',     column: 'board_id',          references: 'public.boards(id)' },
 ];
 
 const QUERY = `
@@ -75,7 +91,8 @@ const QUERY = `
       'users','workspace_members','activity_log',
       'boards','board_subscribers','board_favorites','board_last_viewed',
       'groups','columns','column_labels',
-      'items','item_column_values','item_subscribers','board_counters'
+      'items','item_column_values','item_subscribers','board_counters',
+      'updates','update_reactions','update_mentions','files','notifications'
     )
   order by cls_src.relname, att_src.attname;
 `;

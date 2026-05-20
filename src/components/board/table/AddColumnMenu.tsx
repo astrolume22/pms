@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Plus, Type, AlignLeft, Hash, CheckSquare, Flag, Calendar, User, List, Link as LinkIcon, ListChecks,
+  Plus, Type, AlignLeft, Hash, CheckSquare, Flag, Calendar, User, Link as LinkIcon, ListChecks, Paperclip,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ColumnType } from '@/lib/database.types';
@@ -39,6 +39,7 @@ const TYPES: Group[] = [
     items: [
       { type: 'date',     label: 'Date',     icon: <Calendar className="h-4 w-4" />, description: 'Pick a date' },
       { type: 'link',     label: 'Link',     icon: <LinkIcon className="h-4 w-4" />, description: 'URL + display text' },
+      { type: 'files',    label: 'Files',    icon: <Paperclip className="h-4 w-4" />, description: 'Attach files in cells' },
     ],
   },
 ];
@@ -53,6 +54,7 @@ const ICON: Record<AddableType, React.ReactNode> = {
   people:   <User className="h-4 w-4" />,
   date:     <Calendar className="h-4 w-4" />,
   link:     <LinkIcon className="h-4 w-4" />,
+  files:    <Paperclip className="h-4 w-4" />,
 };
 
 interface AddColumnMenuProps {

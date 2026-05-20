@@ -4,6 +4,8 @@ import { Bell, Inbox, Search, Sun, Moon, LogOut, User as UserIcon, Shield } from
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
 import { Avatar } from '@/components/Avatar';
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel';
+import { useUnreadCount } from '@/hooks/notifications';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -16,6 +18,8 @@ export function TopBar() {
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const { data: unreadCount = 0 } = useUnreadCount();
 
   useEffect(() => {
     if (!open) return;
@@ -70,14 +74,22 @@ export function TopBar() {
         >
           <Inbox className="h-[18px] w-[18px]" />
         </button>
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="h-8 w-8 inline-flex items-center justify-center rounded-base hover:bg-white/10 text-white/90"
-          disabled
-        >
-          <Bell className="h-[18px] w-[18px]" />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="Notifications"
+            onClick={() => setNotifOpen((v) => !v)}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-base hover:bg-white/10 text-white/90 relative"
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-pill bg-error text-white text-[10px] font-medium inline-flex items-center justify-center">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+          {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
+        </div>
 
         {/* Avatar dropdown */}
         <div className="relative" ref={ref}>

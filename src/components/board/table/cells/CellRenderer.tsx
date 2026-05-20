@@ -6,6 +6,7 @@ import { DateCell } from './DateCell';
 import { NumbersCell } from './NumbersCell';
 import { CheckboxCell } from './CheckboxCell';
 import { LinkCell } from './LinkCell';
+import { FilesCell } from './FilesCell';
 import type { CellProps } from './cellTypes';
 
 export function CellRenderer(props: CellProps) {
@@ -20,6 +21,7 @@ export function CellRenderer(props: CellProps) {
     case 'numbers':   return <NumbersCell {...props} />;
     case 'checkbox':  return <CheckboxCell {...props} />;
     case 'link':      return <LinkCell {...props} />;
+    case 'files':     return <FilesCell {...props} />;
     default:          return <TextCell {...props} />;
   }
 }

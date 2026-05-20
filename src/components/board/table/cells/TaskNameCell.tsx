@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, MessageSquare } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { useRenameItem } from '@/hooks/items';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
 
 export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, onEndEdit }: CellProps) {
+  const navigate = useNavigate();
   const rename = useRenameItem();
   const [draft, setDraft] = useState(item.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,22 +64,38 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
           {item.name}
         </span>
       )}
-      {/* Hover actions (Phase 4 will wire these up). Placeholders for now. */}
+      {/* Open task panel via search param */}
       <button
         type="button"
-        title="Open task — Phase 4"
-        disabled
-        className="opacity-0 group-hover/cell:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover disabled:cursor-not-allowed"
+        title="Open task"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate({
+            to: '/w/$workspace/b/$boardId',
+            params: { workspace: 'main', boardId },
+            search: { p: item.id },
+          });
+        }}
+        className="opacity-0 group-hover/cell:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover"
       >
         <ExternalLink className="h-3.5 w-3.5" />
       </button>
-      <span
-        className="opacity-0 group-hover/cell:opacity-100 inline-flex items-center gap-0.5 text-xs text-text-secondary"
-        title="Updates — Phase 4"
+      <button
+        type="button"
+        title="View updates"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate({
+            to: '/w/$workspace/b/$boardId',
+            params: { workspace: 'main', boardId },
+            search: { p: item.id },
+          });
+        }}
+        className="opacity-0 group-hover/cell:opacity-100 inline-flex items-center gap-0.5 text-xs text-text-secondary px-1 rounded-sm hover:bg-hover"
       >
         <MessageSquare className="h-3 w-3" />
-        0
-      </span>
+        <span>·</span>
+      </button>
     </div>
   );
 }

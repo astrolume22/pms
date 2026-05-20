@@ -93,3 +93,32 @@ input, textarea, select {
     @apply inline-flex items-center justify-center h-9 px-3 rounded-base bg-transparent text-text-primary text-sm font-medium hover:bg-hover transition-colors duration-100;
   }
 }
+
+/* ---------- Tiptap prose styling ---------- */
+.ProseMirror {
+  outline: none;
+}
+.ProseMirror p { margin: 0.25rem 0; }
+.ProseMirror p:first-child { margin-top: 0; }
+.ProseMirror p:last-child  { margin-bottom: 0; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.25rem; margin: 0.25rem 0; }
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ol { list-style: decimal; }
+.ProseMirror code { background: var(--bg-app); padding: 0 4px; border-radius: 3px; font-size: 12px; }
+.ProseMirror a { color: var(--primary-blue); text-decoration: underline; }
+.ProseMirror strong { font-weight: 600; }
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-disabled);
+  pointer-events: none;
+  height: 0;
+}
+
+/* ---------- Slide-in animation for task panel ---------- */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.task-panel-enter { animation: slideInRight 250ms cubic-bezier(0.32, 0.72, 0, 1); }

@@ -18,6 +18,7 @@ const DEFAULT_WIDTH: Record<ColumnType, number> = {
   checkbox: 80,
   dropdown: 180,
   link: 180,
+  files: 140,
 };
 
 const DEFAULT_NAME: Record<ColumnType, string> = {
@@ -31,6 +32,7 @@ const DEFAULT_NAME: Record<ColumnType, string> = {
   checkbox: 'Done',
   dropdown: 'Tags',
   link: 'Link',
+  files: 'Files',
 };
 
 export function useColumns(boardId: string | undefined) {

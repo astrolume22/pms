@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { createFileRoute, useParams } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router';
 import { Lock, FileQuestion, ArchiveRestore, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
@@ -10,17 +10,33 @@ import { BoardHeader } from '@/components/board/BoardHeader';
 import { BoardTabs } from '@/components/board/BoardTabs';
 import { BoardToolbar } from '@/components/board/BoardToolbar';
 import { BoardContent } from '@/components/board/BoardContent';
+import { TaskPanel } from '@/components/task/TaskPanel';
+
+interface BoardSearch {
+  p?: string;       // ?p=<itemId> opens the slide-in task panel
+}
 
 export const Route = createFileRoute('/_app/w/$workspace/b/$boardId')({
+  validateSearch: (search: Record<string, unknown>): BoardSearch => ({
+    p: typeof search.p === 'string' ? search.p : undefined,
+  }),
   component: BoardPage,
 });
 
 function BoardPage() {
   const { boardId } = useParams({ from: '/_app/w/$workspace/b/$boardId' });
+  const { p: panelItemId } = Route.useSearch();
+  const navigate = useNavigate();
   const profile = useAuthStore((s) => s.profile);
   const { data: board, isLoading, error } = useBoard(boardId);
   const updateLastViewed = useUpdateLastViewed();
   const restore = useRestoreBoard();
+
+  const closePanel = () => navigate({
+    to: '/w/$workspace/b/$boardId',
+    params: { workspace: 'main', boardId },
+    search: {},
+  });
 
   // Bump "last viewed" once per mount per board.
   useEffect(() => {
@@ -107,6 +123,9 @@ function BoardPage() {
       <BoardTabs />
       <BoardToolbar boardId={board.id} canEdit={!!canManage || profile?.role === 'manager'} />
       <BoardContent board={board} />
+      {panelItemId && (
+        <TaskPanel board={board} itemId={panelItemId} onClose={closePanel} />
+      )}
     </div>
   );
 }

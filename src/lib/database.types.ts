@@ -64,7 +64,7 @@ export type BoardSubscriberRole = 'owner' | 'member' | 'viewer';
 export type NotificationLevel = 'everything' | 'replies_mentions' | 'nothing';
 export type ColumnType =
   | 'task_name' | 'text' | 'status' | 'people' | 'date'
-  | 'priority' | 'numbers' | 'checkbox' | 'dropdown' | 'link';
+  | 'priority' | 'numbers' | 'checkbox' | 'dropdown' | 'link' | 'files';
 
 export interface BoardRow {
   id: string;
@@ -183,7 +183,65 @@ export type CellValue =
   | { user_ids: string[] }                            // people
   | { date: string | null }                           // date (YYYY-MM-DD)
   | { checked: boolean }                              // checkbox
-  | { url: string; text: string };                    // link
+  | { url: string; text: string }                     // link
+  | { file_ids: string[] };                           // files
+
+// ---------- Phase 4 ----------
+export interface UpdateRow {
+  id: string;
+  item_id: string;
+  author_id: string;
+  body_html: string;
+  body_json: unknown;
+  created_at: string;
+  updated_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface UpdateReactionRow {
+  update_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+export interface UpdateMentionRow {
+  update_id: string;
+  mentioned_user_id: string;
+  created_at: string;
+}
+
+export interface FileRow {
+  id: string;
+  uploader_id: string;
+  item_id: string | null;
+  update_id: string | null;
+  column_id: string | null;
+  storage_path: string;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  thumbnail_path: string | null;
+  created_at: string;
+  deleted_at: string | null;
+}
+
+export type NotificationType =
+  | 'mention' | 'comment' | 'assigned' | 'status_changed' | 'due_date' | 'task_updated';
+
+export interface NotificationRow {
+  id: string;
+  recipient_id: string;
+  actor_id: string | null;
+  type: NotificationType;
+  item_id: string | null;
+  update_id: string | null;
+  board_id: string | null;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+}
 
 export interface Database {
   public: {

@@ -218,6 +218,83 @@ Open <http://localhost:5173>. You should land on `/login`.
 - [ ] As pm1 on admin's private board (if subscribed as viewer): cells render but click does nothing
 - [ ] Viewer cannot delete columns/groups (menu hidden)
 
+### Phase 4 (Task details + Comments + Files + Activity) manual test checklist
+
+**Opening the task panel**
+- [ ] Hover a task row → ⤢ icon appears in the task-name cell; click → URL becomes `…?p=<itemId>`; slide-in panel animates from the right (~250 ms)
+- [ ] ESC or backdrop click closes the panel; URL drops the `?p=` query
+- [ ] Click the small message-icon next to ⤢ → also opens the panel
+- [ ] Panel header shows breadcrumb (workspace → board) + task name + monospaced task code
+
+**Inline editing inside the panel**
+- [ ] Task name in panel header inline-editable (Enter saves, Esc cancels)
+- [ ] Fields zone shows every non-task_name column as Label → Editor; edits propagate to the table in real time
+
+**Updates tab (Tiptap)**
+- [ ] Composer toolbar: Bold, Italic, Bulleted list, Numbered list, Link
+- [ ] Bold/italic toggles render in saved HTML
+- [ ] Bulleted/numbered lists render correctly after posting
+- [ ] Link button prompts for URL, autoprepends `https://`, opens in new tab
+- [ ] Type `@` → mention dropdown opens with up to 8 matching active users; up/down arrows + Enter, or click to insert; chip styled with brand color
+- [ ] Submitting empty content → toast "Write something first"
+- [ ] Posting an update with a mention to `pm2` → `pm2` sees the notification badge update within 30 s (or immediately on next bell click)
+- [ ] Updates list shows author avatar + full name + `@username` + relative time
+- [ ] Edit own update → opens editor inline; saves with "(edited)" indicator
+- [ ] Delete own update → confirmation → row disappears
+- [ ] Admin can delete any update; manager/viewer can't
+- [ ] Reactions: click 🙂 next to an update → emoji palette (6 options); clicking an emoji toggles your reaction; counts aggregate
+
+**Files tab**
+- [ ] Drag a file from desktop onto the drop zone → uploads, appears in list
+- [ ] "Click to browse" → file picker; multi-file upload works
+- [ ] Image MIME type → inline thumbnail in the list
+- [ ] Click the download icon → opens signed URL in new tab; signed URL is fresh on each render (60 min expiry)
+- [ ] Uploader can delete own file; admin can delete any; others get no trash icon
+- [ ] Storage path is `boards/<board>/items/<item>/<uuid>-<name>` — visible in the Supabase Storage dashboard
+- [ ] Attempt to access a file from a board you don't have access to (try the signed URL after losing access) → fails with 403 from storage
+
+**Activity tab**
+- [ ] After creating the task → "Created this task" appears
+- [ ] Edit task name → "renamed it from X to Y"
+- [ ] Change Status cell → "changed Status from "Working on it" to "Done""
+- [ ] Post an update → "posted an update"
+- [ ] Upload a file → "uploaded <filename>"
+- [ ] Assign a person (people column) → activity row + the assignee gets an "assigned you to a task" notification
+
+**Subitems section (in panel, top-level items only)**
+- [ ] Lists subitems with `Task 1-A`, `Task 1-B` codes
+- [ ] "+ Add subitem" input → Enter creates a subitem with the right code
+- [ ] Click a subitem row → panel re-opens for that subitem (URL `?p=<subitemId>`)
+- [ ] Subitems are NOT shown for items that are themselves subitems
+
+**Files column type**
+- [ ] Toolbar → + (add column) → Other → **Files** → new column appears
+- [ ] Cell shows `📎 —` when empty; click opens upload popover
+- [ ] Drag file onto popover → uploads → cell shows `📎 1` + thumbnail (for images)
+- [ ] Cell can hold multiple files; thumbnail row shows up to 3
+- [ ] Files in this column appear at `boards/<board>/items/<item>/<uuid>-…` and are visible only when you have board access
+
+**Full-page task view**
+- [ ] In the panel, click the ⛶ Maximize icon → navigates to `/w/main/b/<board>/i/<item>`
+- [ ] Wider layout (max-w 1000 px), Back to board link, same fields + tabs
+- [ ] Editing on the full page reflects in the board's table
+- [ ] Browser Back → returns to the board
+
+**Notifications**
+- [ ] Bell icon shows red badge with unread count; `99+` if over 99
+- [ ] Click bell → dropdown panel anchored top-right
+- [ ] Unread rows have a tiny blue dot + lighter selected background
+- [ ] Click a notification → marks read (badge decrements), navigates to its task panel
+- [ ] "Mark all read" link clears all unread
+- [ ] Empty state shows "You rock!"
+- [ ] As `pm2`: receive a `mention` notif when `admin` mentions you in an update
+- [ ] As `pm2`: receive a `comment` notif when someone replies on a task you created
+- [ ] As `pm2`: receive an `assigned` notif when someone adds you to a people cell
+
+**RLS**
+- [ ] Updates / files / mentions / reactions are invisible to users without board access (URL-poking returns nothing via PostgREST)
+- [ ] Notifications are visible only to the recipient (each user sees only their own)
+
 ---
 
 ## Project layout
@@ -239,6 +316,7 @@ src/
 │   ├── boards.ts                (TanStack Query hooks for boards)
 │   ├── items.ts                 (items + cell values + bulk actions)
 │   ├── groups.ts, columns.ts, labels.ts, users.ts
+│   ├── updates.ts, files.ts, notifications.ts, activity.ts
 ├── routes/                       (file-based, TanStack Router)
 │   ├── __root.tsx
 │   ├── _bare.tsx                (no shell — login/signup)
@@ -248,7 +326,8 @@ src/
 │   ├── _app.index.tsx           (workspace home — / )
 │   ├── _app.profile.tsx         (/profile)
 │   ├── _app.admin.tsx           (/admin — admin-only stub)
-│   └── _app.w.$workspace.b.$boardId.tsx  (board page)
+│   ├── _app.w.$workspace.b.$boardId.tsx          (board page + ?p= panel)
+│   └── _app.w.$workspace.b.$boardId.i.$itemId.tsx (full-page task view)
 ├── components/board/
 │   ├── BoardHeader.tsx          (icon, name/description inline-edit, favorite, menu)
 │   ├── BoardTabs.tsx            (Main table tab + V2 add-view stub)
@@ -269,7 +348,20 @@ src/
 │           ├── CellRenderer.tsx (dispatcher)
 │           ├── TaskNameCell.tsx, TextCell.tsx, LabelCell.tsx
 │           ├── PeopleCell.tsx, DateCell.tsx, NumbersCell.tsx
-│           └── CheckboxCell.tsx, LinkCell.tsx
+│           ├── CheckboxCell.tsx, LinkCell.tsx
+│           └── FilesCell.tsx
+├── components/task/
+│   ├── TaskPanel.tsx            (slide-in right panel, backdrop, ESC)
+│   ├── TaskDetail.tsx           (shared body for panel + full-page)
+│   ├── TaskFieldsZone.tsx       (vertical column editors)
+│   ├── UpdatesTab.tsx           (Tiptap composer + feed + reactions + edit/delete)
+│   ├── FilesTab.tsx             (drag-drop upload + signed URL downloads)
+│   ├── ActivityTab.tsx          (rendered activity_log with relative times)
+│   ├── SubitemsSection.tsx      (collapsible, inline add)
+│   ├── RichTextEditor.tsx       (Tiptap + @mentions, no tippy.js)
+│   └── MentionList.tsx          (keyboard-navigable mention picker)
+├── components/notifications/
+│   └── NotificationsPanel.tsx   (anchored dropdown from the bell)
 ├── components/
 │   ├── Modal.tsx, EmojiPicker.tsx, CreateBoardModal.tsx, EmptyMessage.tsx
 │   └── shell/
