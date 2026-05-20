@@ -1,0 +1,153 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
+import type { ColumnRow, ColumnType } from '@/lib/database.types';
+
+export const columnKeys = {
+  all: ['columns'] as const,
+  board: (boardId: string) => [...columnKeys.all, 'board', boardId] as const,
+};
+
+const DEFAULT_WIDTH: Record<ColumnType, number> = {
+  task_name: 280,
+  text: 200,
+  status: 140,
+  priority: 130,
+  people: 140,
+  date: 130,
+  numbers: 120,
+  checkbox: 80,
+  dropdown: 180,
+  link: 180,
+};
+
+const DEFAULT_NAME: Record<ColumnType, string> = {
+  task_name: 'Task',
+  text: 'Text',
+  status: 'Status',
+  priority: 'Priority',
+  people: 'Person',
+  date: 'Date',
+  numbers: 'Number',
+  checkbox: 'Done',
+  dropdown: 'Tags',
+  link: 'Link',
+};
+
+export function useColumns(boardId: string | undefined) {
+  return useQuery({
+    queryKey: boardId ? columnKeys.board(boardId) : ['columns', '_'],
+    enabled: !!boardId,
+    queryFn: async (): Promise<ColumnRow[]> => {
+      const { data, error } = await supabase
+        .from('columns')
+        .select('*')
+        .eq('board_id', boardId!)
+        .is('archived_at', null)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as ColumnRow[];
+    },
+  });
+}
+
+export function useCreateColumn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ boardId, type }: { boardId: string; type: Exclude<ColumnType, 'task_name'> }) => {
+      // Determine next sort_order.
+      const { data: existing } = await supabase
+        .from('columns')
+        .select('sort_order')
+        .eq('board_id', boardId)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+      const nextSort = ((existing?.[0] as { sort_order?: number })?.sort_order ?? -1) + 1;
+      const insert = {
+        board_id: boardId,
+        name: DEFAULT_NAME[type],
+        column_type: type,
+        sort_order: nextSort,
+        width: DEFAULT_WIDTH[type],
+      };
+      const { data, error } = await supabase
+        .from('columns')
+        .insert(insert as never)
+        .select('*')
+        .single();
+      if (error) throw error;
+      const col = data as ColumnRow;
+
+      // For label-bearing columns, seed an empty default label so the cell
+      // renders meaningfully on first click.
+      if (type === 'status' || type === 'priority' || type === 'dropdown') {
+        const seeds = type === 'priority'
+          ? [
+              { name: 'Low',      color: '#579BFC', sort_order: 0, is_default: true  },
+              { name: 'Medium',   color: '#FFCB00', sort_order: 1, is_default: false },
+              { name: 'High',     color: '#FDAB3D', sort_order: 2, is_default: false },
+              { name: 'Critical', color: '#E2445C', sort_order: 3, is_default: false },
+            ]
+          : type === 'status'
+          ? [
+              { name: 'Not Started',    color: '#C4C4C4', sort_order: 0, is_default: true  },
+              { name: 'Working on it',  color: '#FDAB3D', sort_order: 1, is_default: false },
+              { name: 'Stuck',          color: '#E2445C', sort_order: 2, is_default: false },
+              { name: 'Done',           color: '#00C875', sort_order: 3, is_default: false },
+            ]
+          : [
+              { name: 'Tag 1', color: '#0086C0', sort_order: 0, is_default: false },
+              { name: 'Tag 2', color: '#9CD326', sort_order: 1, is_default: false },
+            ];
+        await supabase
+          .from('column_labels')
+          .insert(seeds.map((s) => ({ column_id: col.id, ...s })) as never);
+      }
+      return col;
+    },
+    onSuccess: (c) => void qc.invalidateQueries({ queryKey: columnKeys.board(c.board_id) }),
+  });
+}
+
+export function useUpdateColumn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, patch }: {
+      id: string; boardId: string;
+      patch: Partial<Pick<ColumnRow, 'name' | 'width' | 'sort_order' | 'is_pinned_left' | 'is_pinned_right' | 'settings'>>;
+    }) => {
+      const { error } = await supabase.from('columns').update(patch as never).eq('id', id);
+      if (error) throw error;
+    },
+    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+  });
+}
+
+export function useReorderColumns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ boardId, orderedIds }: { boardId: string; orderedIds: string[] }) => {
+      // task_name must remain first. Caller is responsible for keeping it pinned.
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        const { error } = await supabase
+          .from('columns')
+          .update({ sort_order: i } as never)
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+      return boardId;
+    },
+    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+  });
+}
+
+export function useDeleteColumn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; boardId: string }) => {
+      // The DB trigger guard_task_name_column will reject task_name deletes.
+      const { error } = await supabase.from('columns').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+  });
+}

@@ -148,6 +148,76 @@ Open <http://localhost:5173>. You should land on `/login`.
 - [ ] Visit `/w/main/b/00000000-0000-0000-0000-000000000000` → admin sees "Board not found"; pm sees "You don't have access"
 - [ ] Theme toggle still works on the board page
 
+### Phase 3 (Tasks + Columns) manual test checklist
+
+**Task code generation**
+- [ ] Create a board → first row "+ Add task" types "Implement login" + Enter → row appears with code `Task 1`
+- [ ] Add another → `Task 2`. Codes increment per board even after deletes (counter is monotonic).
+- [ ] Expand the row → "+ Add subitem" creates `Task 1-A`, `Task 1-B`, ...
+
+**Inline editing — all 10 column types**
+- [ ] Task name (sticky-left): click to edit, Enter saves, Esc cancels. Code shown right-aligned in same cell.
+- [ ] Text cell: click → input, Enter saves. Clearing text wipes the value (row disappears from values).
+- [ ] Status cell: full-cell colored pill, click opens picker, single-select.
+- [ ] Priority cell: same picker behaviour, different default labels.
+- [ ] Dropdown cell: multi-select, shows up to 3 pills + "+N" overflow.
+- [ ] People cell: click → searchable user picker, multi-select, avatars overlap.
+- [ ] Date cell: calendar popover; Today/Clear buttons; **overdue dates render red**, today renders brand-blue.
+- [ ] Numbers cell: right-aligned, Enter saves; unit prefix/suffix respected via `column.settings`.
+- [ ] Checkbox cell: click toggles immediately (no edit mode).
+- [ ] Link cell: popover with URL + display text; opens in new tab; `https://` auto-prepended.
+
+**Label management**
+- [ ] On a status/priority/dropdown cell picker, click **Edit Labels** → modal opens
+- [ ] Rename via inline input (color of pill matches preview), pick a color from the 18-color palette
+- [ ] Set a default label (star icon — only one default per column)
+- [ ] Delete a label → confirms; rows referencing it lose the label silently
+- [ ] Reorder via ▲▼ buttons; Apply saves
+
+**Columns**
+- [ ] **+** at end of header row opens type picker grouped by Essentials / Labels / People / Other
+- [ ] Pick "Text" → new column appears at end with default name "Text"; double-click to rename
+- [ ] Drag a column header sideways → reorders (task_name stays pinned first)
+- [ ] Drag right edge of header → resize; release persists width
+- [ ] Column ⋯ menu: Rename / Edit labels (for label types) / Hide column / Delete column with confirm
+- [ ] Try to delete task_name → blocked by DB trigger; error toast shows
+- [ ] Hide a column via Hide toolbar menu (with checkboxes) → it disappears; chip at bottom says "1 column hidden"; toggle back to restore
+
+**Groups**
+- [ ] "+ Add new group" → inline input → creates with random color
+- [ ] Click group title to collapse; state persists across reloads (localStorage)
+- [ ] Group ⋯ menu: Rename / Change color (12-color palette) / Delete with confirmation if group has tasks
+- [ ] Drag group header sideways/vertically → reorders board groups (use the grip handle on hover)
+
+**Drag & drop**
+- [ ] Drag an item by the grip handle → reorders within its group (sort_order persists)
+- [ ] dragging across groups in V1 is not supported (will arrive in V2 — drop-into-another-group)
+- [ ] Subitems drag within parent — same handle pattern
+
+**Bulk select**
+- [ ] Click row checkboxes → floating bar at bottom shows "N selected"
+- [ ] Bar actions: Archive (bulk) / Move to (dropdown of groups) / Delete (confirm)
+- [ ] **X** on bar clears selection
+
+**Toolbar**
+- [ ] New task → adds a task to the first group
+- [ ] Search "task 1" → filters down to matches (matches name or task_code; expands buckets with hits)
+- [ ] Sort → menu lets you pick a column + direction; column header shows a chevron indicator
+- [ ] Hide → checkbox list; task_name can't be hidden
+- [ ] Group by → groups by Status / Priority / People labels (virtual buckets, default "By group" restores)
+- [ ] Density → compact/comfortable/spacious changes row height live (persists per board+user)
+
+**Column footers**
+- [ ] Numbers column: shows Σ sum
+- [ ] Checkbox column: shows done/total
+- [ ] Status/Priority/Dropdown: shows colored distribution bar
+- [ ] People column: shows assignee avatar stack with overflow
+
+**Permissions**
+- [ ] As pm1 on admin's main board: can create tasks, edit cells, drag-reorder
+- [ ] As pm1 on admin's private board (if subscribed as viewer): cells render but click does nothing
+- [ ] Viewer cannot delete columns/groups (menu hidden)
+
 ---
 
 ## Project layout
@@ -166,7 +236,9 @@ src/
 │   ├── supabase.ts              (browser client w/ anon key)
 │   └── database.types.ts        (hand-curated until `supabase gen types`)
 ├── hooks/
-│   └── boards.ts                (TanStack Query hooks for boards)
+│   ├── boards.ts                (TanStack Query hooks for boards)
+│   ├── items.ts                 (items + cell values + bulk actions)
+│   ├── groups.ts, columns.ts, labels.ts, users.ts
 ├── routes/                       (file-based, TanStack Router)
 │   ├── __root.tsx
 │   ├── _bare.tsx                (no shell — login/signup)
@@ -180,8 +252,24 @@ src/
 ├── components/board/
 │   ├── BoardHeader.tsx          (icon, name/description inline-edit, favorite, menu)
 │   ├── BoardTabs.tsx            (Main table tab + V2 add-view stub)
-│   ├── BoardToolbar.tsx         (search/filter/sort/hide/group-by toolbar)
-│   └── BoardContent.tsx         (groups + column headers + empty state)
+│   ├── BoardToolbar.tsx         (search/sort/hide/group-by/density toolbar)
+│   ├── BoardContent.tsx         (DnDContext orchestrator + bucket logic)
+│   └── table/
+│       ├── ColumnHeader.tsx     (rename / resize / reorder / menu)
+│       ├── AddColumnMenu.tsx    (Essentials / Labels / People / Other type picker)
+│       ├── GroupBlock.tsx       (sortable group with rows + footer)
+│       ├── ItemRow.tsx          (gutter + sticky task-name + sortable + cell strip)
+│       ├── AddItemRow.tsx       (inline "+ Add task")
+│       ├── AddGroupRow.tsx      (inline "+ Add new group")
+│       ├── BulkActionBar.tsx    (floating bottom bar — archive/move/delete)
+│       ├── ColumnFooter.tsx     (Σ / distribution / avatar stack summaries)
+│       ├── LabelPicker.tsx, LabelsEditorModal.tsx
+│       ├── PersonPicker.tsx, DatePopover.tsx, Popover.tsx
+│       └── cells/
+│           ├── CellRenderer.tsx (dispatcher)
+│           ├── TaskNameCell.tsx, TextCell.tsx, LabelCell.tsx
+│           ├── PeopleCell.tsx, DateCell.tsx, NumbersCell.tsx
+│           └── CheckboxCell.tsx, LinkCell.tsx
 ├── components/
 │   ├── Modal.tsx, EmojiPicker.tsx, CreateBoardModal.tsx, EmptyMessage.tsx
 │   └── shell/

@@ -105,8 +105,8 @@ function BoardPage() {
       )}
       <BoardHeader board={board} />
       <BoardTabs />
-      <BoardToolbar />
-      <BoardContent boardId={board.id} />
+      <BoardToolbar boardId={board.id} canEdit={!!canManage || profile?.role === 'manager'} />
+      <BoardContent board={board} />
     </div>
   );
 }

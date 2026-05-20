@@ -142,6 +142,49 @@ export interface ColumnLabelRow {
   created_at: string;
 }
 
+// ---------- Phase 3 ----------
+export interface ItemRow {
+  id: string;
+  board_id: string;
+  group_id: string;
+  parent_item_id: string | null;
+  name: string;
+  task_code: string;
+  sort_order: number;
+  created_by: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface ItemColumnValueRow {
+  id: string;
+  item_id: string;
+  column_id: string;
+  value: unknown;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface ItemSubscriberRow {
+  item_id: string;
+  user_id: string;
+  subscribed_at: string;
+}
+
+// Column value shapes (typed) — what gets stored in item_column_values.value
+export type CellValue =
+  | { text: string }                                  // text
+  | { value: number | null }                          // numbers
+  | { label_id: string | null }                       // status / priority
+  | { label_ids: string[] }                           // dropdown
+  | { user_ids: string[] }                            // people
+  | { date: string | null }                           // date (YYYY-MM-DD)
+  | { checked: boolean }                              // checkbox
+  | { url: string; text: string };                    // link
+
 export interface Database {
   public: {
     Tables: {

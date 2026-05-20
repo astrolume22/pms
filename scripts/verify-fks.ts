@@ -37,6 +37,18 @@ const expected: ExpectedFk[] = [
   { table: 'groups',            column: 'board_id',     references: 'public.boards(id)' },
   { table: 'columns',           column: 'board_id',     references: 'public.boards(id)' },
   { table: 'column_labels',     column: 'column_id',    references: 'public.columns(id)' },
+  // Phase 3
+  { table: 'items',              column: 'board_id',      references: 'public.boards(id)' },
+  { table: 'items',              column: 'group_id',      references: 'public.groups(id)' },
+  { table: 'items',              column: 'parent_item_id',references: 'public.items(id)' },
+  { table: 'items',              column: 'created_by',    references: 'public.users(id)' },
+  { table: 'items',              column: 'updated_by',    references: 'public.users(id)' },
+  { table: 'item_column_values', column: 'item_id',       references: 'public.items(id)' },
+  { table: 'item_column_values', column: 'column_id',     references: 'public.columns(id)' },
+  { table: 'item_column_values', column: 'updated_by',    references: 'public.users(id)' },
+  { table: 'item_subscribers',   column: 'item_id',       references: 'public.items(id)' },
+  { table: 'item_subscribers',   column: 'user_id',       references: 'public.users(id)' },
+  { table: 'board_counters',     column: 'board_id',      references: 'public.boards(id)' },
 ];
 
 const QUERY = `
@@ -62,7 +74,8 @@ const QUERY = `
     and cls_src.relname in (
       'users','workspace_members','activity_log',
       'boards','board_subscribers','board_favorites','board_last_viewed',
-      'groups','columns','column_labels'
+      'groups','columns','column_labels',
+      'items','item_column_values','item_subscribers','board_counters'
     )
   order by cls_src.relname, att_src.attname;
 `;
