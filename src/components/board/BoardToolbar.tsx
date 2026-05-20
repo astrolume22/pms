@@ -32,22 +32,17 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
 
   return (
     <div className="px-8 py-3 bg-surface flex items-center gap-1.5 border-b border-border-light flex-wrap">
-      <button
-        type="button"
-        disabled={!canEdit || !groups || groups.length === 0}
-        onClick={async () => {
-          if (!groups || groups.length === 0) return;
+      <NewTaskButton
+        canEdit={canEdit}
+        groups={groups ?? []}
+        onCreate={async (groupId) => {
           try {
-            await create.mutateAsync({ boardId, groupId: groups[0].id, name: 'New task' });
+            await create.mutateAsync({ boardId, groupId, name: 'New task' });
           } catch (err) {
             toast.error(err instanceof Error ? err.message : 'Could not add task');
           }
         }}
-        className="inline-flex items-center gap-1 h-8 px-3 rounded-base bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        New task
-        <ChevronDown className="h-3.5 w-3.5" />
-      </button>
+      />
 
       <div className="h-5 w-px bg-border-light mx-1" />
 
@@ -264,6 +259,89 @@ function HeightMenu({ value, onChange }: { value: ItemHeight; onChange: (h: Item
         </div>
       )}
     </ToolbarMenu>
+  );
+}
+
+// ---------- New task split button ----------
+function NewTaskButton({
+  canEdit, groups, onCreate,
+}: {
+  canEdit: boolean;
+  groups: { id: string; name: string; color: string }[];
+  onCreate: (groupId: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const disabled = !canEdit || groups.length === 0;
+  const firstGroup = groups[0];
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      {/* Main action: adds to the first group at the bottom (default). */}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={async () => {
+          if (!firstGroup) return;
+          await onCreate(firstGroup.id);
+        }}
+        className="inline-flex items-center h-8 pl-3 pr-2 rounded-l-base bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        New task
+      </button>
+      {/* Chevron toggles the per-group dropdown. */}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Choose group for new task"
+        className={cn(
+          'inline-flex items-center justify-center h-8 w-7 rounded-r-base bg-brand text-white text-sm border-l border-white/20 hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed',
+          open && 'bg-brand-hover',
+        )}
+      >
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-9 z-30 w-56 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden py-1"
+        >
+          <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-text-disabled font-medium">
+            Add to group
+          </p>
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={async () => {
+                setOpen(false);
+                await onCreate(g.id);
+              }}
+              className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-hover"
+            >
+              <span className="h-3 w-3 rounded-sm shrink-0" style={{ background: g.color }} />
+              <span className="truncate">{g.name}</span>
+            </button>
+          ))}
+          {groups.length === 0 && (
+            <p className="px-3 py-2 text-xs text-text-disabled">No groups on this board</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

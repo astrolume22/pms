@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -24,6 +24,9 @@ interface GroupBlockProps {
   canEdit: boolean;
   subitemsByParent: Map<string, ItemRow[]>;
   onOpenLabelsEditor: (col: ColumnRow) => void;
+  // Pixel width that every row in the table needs to occupy so the rows line up
+  // with the column-header row inside the single horizontal scroll container.
+  rowMinWidth: number;
 }
 
 const COLORS = [
@@ -33,7 +36,7 @@ const COLORS = [
 
 export function GroupBlock({
   group, items, columns, visibleColumns, labelsByColumnId, valuesByItemColumn,
-  boardId, canEdit, subitemsByParent, onOpenLabelsEditor,
+  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth,
 }: GroupBlockProps) {
   const sortable = useSortable({ id: `group:${group.id}`, disabled: !canEdit });
   const style = {
@@ -78,11 +81,6 @@ export function GroupBlock({
     }
   };
 
-  const totalWidth = useMemo(
-    () => 40 + visibleColumns.reduce((s, c) => s + c.width, 0),
-    [visibleColumns],
-  );
-
   const itemIds = items.map((i) => i.id);
 
   return (
@@ -90,14 +88,15 @@ export function GroupBlock({
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'mb-6 bg-surface rounded-md border border-border-light overflow-x-auto',
+        'border-b border-border-light last:border-b-0',
         sortable.isDragging && 'opacity-50',
       )}
     >
-      {/* Group header */}
+      {/* Group header — sticky to the LEFT edge of the scroll container so the
+          title/menu/etc. stay visible when the user scrolls horizontally. */}
       <div
-        className="flex items-center gap-2 py-2 pl-2 pr-3 border-l-4"
-        style={{ borderLeftColor: group.color }}
+        className="sticky left-0 z-[4] flex items-center gap-2 py-2 pl-2 pr-3 bg-surface border-l-4"
+        style={{ borderLeftColor: group.color, maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
           <button
@@ -225,62 +224,59 @@ export function GroupBlock({
       </div>
 
       {!collapsed && (
-        <div className="border-t border-border-light">
-          {/* No empty-state per group beyond the "+ Add task" row */}
+        <div className="border-t border-border-light" style={{ minWidth: rowMinWidth }}>
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <div style={{ minWidth: totalWidth }}>
-              {items.map((it) => {
-                const kids = subitemsByParent.get(it.id) ?? [];
-                const isExp = expandedItemIds.has(it.id);
-                return (
-                  <div key={it.id}>
-                    <ItemRowComp
-                      item={it}
-                      columns={columns}
-                      visibleColumns={visibleColumns}
-                      labelsByColumnId={labelsByColumnId}
-                      valuesByItemColumn={valuesByItemColumn}
-                      boardId={boardId}
-                      canEdit={canEdit}
-                      hasSubitems={kids.length > 0}
-                      onToggleSubitems={() => toggleExpanded(it.id)}
-                      onOpenLabelsEditor={onOpenLabelsEditor}
-                    />
-                    {isExp && (
-                      <div className="pl-10 bg-app/30">
-                        {kids.map((sub) => (
-                          <ItemRowComp
-                            key={sub.id}
-                            item={sub}
-                            columns={columns}
-                            visibleColumns={visibleColumns}
-                            labelsByColumnId={labelsByColumnId}
-                            valuesByItemColumn={valuesByItemColumn}
-                            boardId={boardId}
-                            canEdit={canEdit}
-                            isSubitem
-                            onOpenLabelsEditor={onOpenLabelsEditor}
-                          />
-                        ))}
-                        <AddItemRow
+            {items.map((it) => {
+              const kids = subitemsByParent.get(it.id) ?? [];
+              const isExp = expandedItemIds.has(it.id);
+              return (
+                <div key={it.id}>
+                  <ItemRowComp
+                    item={it}
+                    columns={columns}
+                    visibleColumns={visibleColumns}
+                    labelsByColumnId={labelsByColumnId}
+                    valuesByItemColumn={valuesByItemColumn}
+                    boardId={boardId}
+                    canEdit={canEdit}
+                    hasSubitems={kids.length > 0}
+                    onToggleSubitems={() => toggleExpanded(it.id)}
+                    onOpenLabelsEditor={onOpenLabelsEditor}
+                  />
+                  {isExp && (
+                    <div className="pl-10 bg-app/30">
+                      {kids.map((sub) => (
+                        <ItemRowComp
+                          key={sub.id}
+                          item={sub}
+                          columns={columns}
+                          visibleColumns={visibleColumns}
+                          labelsByColumnId={labelsByColumnId}
+                          valuesByItemColumn={valuesByItemColumn}
                           boardId={boardId}
-                          groupId={group.id}
-                          parentItemId={it.id}
-                          totalWidth={totalWidth}
-                          placeholder="+ Add subitem"
-                          disabled={!canEdit}
+                          canEdit={canEdit}
+                          isSubitem
+                          onOpenLabelsEditor={onOpenLabelsEditor}
                         />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      ))}
+                      <AddItemRow
+                        boardId={boardId}
+                        groupId={group.id}
+                        parentItemId={it.id}
+                        totalWidth={rowMinWidth}
+                        placeholder="+ Add subitem"
+                        disabled={!canEdit}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </SortableContext>
           <AddItemRow
             boardId={boardId}
             groupId={group.id}
-            totalWidth={totalWidth}
+            totalWidth={rowMinWidth}
             disabled={!canEdit}
           />
           {/* Column footer summaries */}

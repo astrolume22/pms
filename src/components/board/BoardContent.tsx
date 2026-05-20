@@ -259,13 +259,32 @@ export function BoardContent({ board }: BoardContentProps) {
   const orderedGroupIds = (groups ?? []).map((g) => `group:${g.id}`);
   const columnIds = (columns ?? []).slice().sort((a, b) => a.sort_order - b.sort_order).map((c) => c.id);
 
+  // Shared width used by every row across the table so the column headers
+  // and all group rows stay column-aligned inside the single horizontal
+  // scroll container.  Gutter (40) + sum of visible column widths.
+  // The "+ Add column" button sits in its own 40-px cell at the right edge,
+  // adding ADD_COL_WIDTH to the header row's natural width.
+  const GUTTER_WIDTH = 40;
+  const ADD_COL_WIDTH = 40;
+  const dataWidth =
+    GUTTER_WIDTH + visibleColumns.reduce((sum, c) => sum + c.width, 0);
+  const tableMinWidth = dataWidth + (canEdit ? ADD_COL_WIDTH : 0);
+
   return (
     <div className="px-8 py-4">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        {/* Column headers — sticky-ish, scrolls with each group's content via shared widths */}
-        <div className="mb-3 bg-surface border border-border-light rounded-md overflow-x-auto">
-          <div className="flex items-stretch">
-            <div className="w-10 shrink-0 border-r border-border-light bg-app/60" />
+        {/* Single horizontal scroll container — column headers and every
+            group row share this scroll and stay aligned column-by-column. */}
+        <div className="bg-surface border border-border-light rounded-md overflow-x-auto">
+          {/* Column-header row */}
+          <div
+            className="flex items-stretch bg-app/60 border-b border-border-light"
+            style={{ minWidth: tableMinWidth }}
+          >
+            <div
+              className="shrink-0 border-r border-border-light sticky left-0 z-[5] bg-app/95 backdrop-blur-sm"
+              style={{ width: GUTTER_WIDTH }}
+            />
             <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
               {visibleColumns.map((col) => (
                 <ColumnHeader
@@ -277,14 +296,12 @@ export function BoardContent({ board }: BoardContentProps) {
                 />
               ))}
             </SortableContext>
-            <AddColumnMenu boardId={board.id} disabled={!canEdit} />
+            {canEdit && <AddColumnMenu boardId={board.id} disabled={!canEdit} />}
           </div>
-        </div>
 
-        {/* Buckets (real groups or virtual) */}
-        {groupByColumnId ? (
-          <div>
-            {buckets.map((b) => (
+          {/* Buckets (real groups or virtual) */}
+          {groupByColumnId ? (
+            buckets.map((b) => (
               <VirtualBucket
                 key={b.id}
                 bucket={b}
@@ -296,34 +313,42 @@ export function BoardContent({ board }: BoardContentProps) {
                 canEdit={canEdit}
                 subitemsByParent={subitemsByParent}
                 onOpenLabelsEditor={setLabelsForColumn}
+                rowMinWidth={tableMinWidth}
               />
-            ))}
-          </div>
-        ) : (
-          <SortableContext items={orderedGroupIds} strategy={verticalListSortingStrategy}>
-            {buckets.map((b) => {
-              const grp = (groups ?? []).find((g) => g.id === b.id);
-              if (!grp) return null;
-              return (
-                <GroupBlock
-                  key={b.id}
-                  group={grp}
-                  items={b.items}
-                  columns={columns ?? []}
-                  visibleColumns={visibleColumns}
-                  labelsByColumnId={labelsByColumnId ?? new Map()}
-                  valuesByItemColumn={itemsData?.valuesByItemColumn ?? new Map()}
-                  boardId={board.id}
-                  canEdit={canEdit}
-                  subitemsByParent={subitemsByParent}
-                  onOpenLabelsEditor={setLabelsForColumn}
-                />
-              );
-            })}
-          </SortableContext>
-        )}
+            ))
+          ) : (
+            <SortableContext items={orderedGroupIds} strategy={verticalListSortingStrategy}>
+              {buckets.map((b) => {
+                const grp = (groups ?? []).find((g) => g.id === b.id);
+                if (!grp) return null;
+                return (
+                  <GroupBlock
+                    key={b.id}
+                    group={grp}
+                    items={b.items}
+                    columns={columns ?? []}
+                    visibleColumns={visibleColumns}
+                    labelsByColumnId={labelsByColumnId ?? new Map()}
+                    valuesByItemColumn={itemsData?.valuesByItemColumn ?? new Map()}
+                    boardId={board.id}
+                    canEdit={canEdit}
+                    subitemsByParent={subitemsByParent}
+                    onOpenLabelsEditor={setLabelsForColumn}
+                    rowMinWidth={tableMinWidth}
+                  />
+                );
+              })}
+            </SortableContext>
+          )}
+        </div>
 
-        {!groupByColumnId && <AddGroupRow boardId={board.id} disabled={!canEdit} />}
+        {/* "+ Add new group" lives below the table so adding a group doesn't
+            depend on the table's horizontal scroll position. */}
+        {!groupByColumnId && (
+          <div className="mt-3">
+            <AddGroupRow boardId={board.id} disabled={!canEdit} />
+          </div>
+        )}
       </DndContext>
 
       {/* Hidden-columns chip */}
@@ -353,7 +378,7 @@ export function BoardContent({ board }: BoardContentProps) {
 // ---------------------------------------------------------------------
 function VirtualBucket({
   bucket, columns, visibleColumns, labelsByColumnId, valuesByItemColumn,
-  boardId, canEdit, subitemsByParent, onOpenLabelsEditor,
+  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth,
 }: {
   bucket: { id: string; name: string; color: string; items: ItemRow[] };
   columns: ColumnRow[];
@@ -364,6 +389,7 @@ function VirtualBucket({
   canEdit: boolean;
   subitemsByParent: Map<string, ItemRow[]>;
   onOpenLabelsEditor: (col: ColumnRow) => void;
+  rowMinWidth: number;
 }) {
   // Reuse GroupBlock with a synthesised group row.
   const fakeGroup: GroupRow = {
@@ -390,6 +416,7 @@ function VirtualBucket({
       canEdit={canEdit && bucket.id !== 'unset'}  // can't add to "No value" bucket
       subitemsByParent={subitemsByParent}
       onOpenLabelsEditor={onOpenLabelsEditor}
+      rowMinWidth={rowMinWidth}
     />
   );
 }

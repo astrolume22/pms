@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Plus, Type, AlignLeft, Hash, CheckSquare, Flag, Calendar, User, Link as LinkIcon, ListChecks, Paperclip,
 } from 'lucide-react';
@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn';
 import type { ColumnType } from '@/lib/database.types';
 import { useCreateColumn } from '@/hooks/columns';
 import { toast } from 'sonner';
+import { Popover } from './Popover';
 
 type AddableType = Exclude<ColumnType, 'task_name'>;
 
@@ -65,33 +66,30 @@ interface AddColumnMenuProps {
 export function AddColumnMenu({ boardId, disabled }: AddColumnMenuProps) {
   const create = useCreateColumn();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [open]);
+  // Popover anchors against this button — fixed positioning escapes the
+  // table's overflow-x-auto clipping context.
+  const anchorRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={anchorRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
-        className="h-9 w-9 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed"
+        className={cn(
+          'h-9 w-10 shrink-0 inline-flex items-center justify-center',
+          'text-text-secondary hover:bg-hover hover:text-text-primary',
+          'border-l border-border-light',
+          'disabled:opacity-40 disabled:cursor-not-allowed',
+        )}
         aria-label="Add column"
         title="Add column"
       >
         <Plus className="h-4 w-4" />
       </button>
-      {open && (
-        <div
-          className="absolute left-0 top-10 z-30 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden w-[300px] max-h-[400px] overflow-y-auto"
-        >
+      <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={300}>
+        <div className="w-[300px] max-h-[400px] overflow-y-auto">
           {TYPES.map((g) => (
             <div key={g.label} className="py-1">
               <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-text-disabled font-medium">{g.label}</div>
@@ -108,9 +106,7 @@ export function AddColumnMenu({ boardId, disabled }: AddColumnMenuProps) {
                       toast.error(err instanceof Error ? err.message : 'Add column failed');
                     }
                   }}
-                  className={cn(
-                    'w-full text-left px-3 py-1.5 inline-flex items-center gap-2 hover:bg-hover text-sm',
-                  )}
+                  className="w-full text-left px-3 py-1.5 inline-flex items-center gap-2 hover:bg-hover text-sm"
                 >
                   <span className="text-text-secondary">{ICON[it.type]}</span>
                   <span className="flex-1 min-w-0">
@@ -122,7 +118,7 @@ export function AddColumnMenu({ boardId, disabled }: AddColumnMenuProps) {
             </div>
           ))}
         </div>
-      )}
-    </div>
+      </Popover>
+    </>
   );
 }
