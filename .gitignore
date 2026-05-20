@@ -61,3 +61,6 @@ coverage/
 # --------------------------------------------------------------------
 .netlify/
 .supabase/
+
+# Claude Code agent working state
+.claude/
