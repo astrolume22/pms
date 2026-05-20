@@ -179,8 +179,11 @@ const useStore = create<BoardViewState>((set, get) => {
 
 export const useBoardViewStore = useStore;
 
+// Row heights tuned to Monday's reference: comfortable rows are ~44px,
+// not the snug 40px we had before. Compact and spacious bumped in
+// proportion.
 export const ITEM_HEIGHT_PX: Record<ItemHeight, number> = {
-  compact: 32,
-  comfortable: 40,
-  spacious: 56,
+  compact: 38,
+  comfortable: 46,
+  spacious: 64,
 };

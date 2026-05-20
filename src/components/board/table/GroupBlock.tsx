@@ -93,9 +93,10 @@ export function GroupBlock({
       )}
     >
       {/* Group header — sticky to the LEFT edge of the scroll container so the
-          title/menu/etc. stay visible when the user scrolls horizontally. */}
+          title/menu/etc. stay visible when the user scrolls horizontally.
+          Taller padding to match Monday's roomier group bar. */}
       <div
-        className="sticky left-0 z-[4] flex items-center gap-2 py-2 pl-2 pr-3 bg-surface border-l-4"
+        className="sticky left-0 z-[4] flex items-center gap-2 py-2.5 pl-2 pr-3 bg-surface border-l-[5px]"
         style={{ borderLeftColor: group.color, maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
@@ -127,21 +128,21 @@ export function GroupBlock({
               if (e.key === 'Enter') void commitName();
               else if (e.key === 'Escape') { setDraftName(group.name); setRenaming(false); }
             }}
-            className="text-sm font-semibold bg-surface border border-brand rounded-sm px-1 outline-none"
+            className="text-base font-bold tracking-tight bg-surface border border-brand rounded-sm px-1 outline-none"
             style={{ color: group.color }}
           />
         ) : (
           <button
             type="button"
             onDoubleClick={() => canEdit && setRenaming(true)}
-            className="text-sm font-semibold"
+            className="text-base font-bold tracking-tight"
             style={{ color: group.color }}
             title={canEdit ? 'Double-click to rename' : ''}
           >
             {group.name}
           </button>
         )}
-        <span className="text-xs text-text-disabled">{items.length} task{items.length === 1 ? '' : 's'}</span>
+        <span className="text-sm text-text-disabled font-medium">{items.length} task{items.length === 1 ? '' : 's'}</span>
 
         {canEdit && (
           <div ref={menuRef} className="relative ml-auto">

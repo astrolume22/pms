@@ -32,14 +32,14 @@ export function TextCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
           if (e.key === 'Enter') commit();
           else if (e.key === 'Escape') { setDraft(raw); onEndEdit(); }
         }}
-        className="w-full h-full px-2 bg-surface border border-brand rounded-sm text-sm outline-none"
+        className="w-full h-full px-3 bg-surface border border-brand rounded-sm text-[14px] outline-none"
         autoFocus
       />
     );
   }
   return (
     <div
-      className={cn('w-full h-full px-2 flex items-center text-sm truncate', !readonly && 'cursor-text')}
+      className={cn('w-full h-full px-3 flex items-center text-[14px] truncate', !readonly && 'cursor-text')}
       onClick={() => !readonly && onStartEdit()}
       title={raw}
     >

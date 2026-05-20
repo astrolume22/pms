@@ -28,7 +28,7 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
     <>
       <div
         ref={anchorRef}
-        className={cn('w-full h-full px-2 flex items-center text-sm gap-1', !readonly && 'cursor-pointer')}
+        className={cn('w-full h-full px-3 flex items-center text-[14px] gap-1', !readonly && 'cursor-pointer')}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {cur.url ? (

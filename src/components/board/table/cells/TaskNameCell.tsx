@@ -37,7 +37,7 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
 
   return (
     <div
-      className="group/cell flex items-center gap-1 px-2 h-full w-full"
+      className="group/cell flex items-center gap-1 px-3 h-full w-full"
       onClick={() => !readonly && !isEditing && onStartEdit()}
     >
       {isEditing && !readonly ? (
@@ -53,13 +53,13 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
               onEndEdit();
             }
           }}
-          className="flex-1 min-w-0 h-7 bg-surface border border-brand rounded-sm px-1 text-sm outline-none"
+          className="flex-1 min-w-0 h-8 bg-surface border border-brand rounded-sm px-1 text-[14px] outline-none"
           autoFocus
         />
       ) : (
         <span
           className={cn(
-            'flex-1 min-w-0 text-sm font-medium truncate',
+            'flex-1 min-w-0 text-[14px] truncate',
             readonly ? 'cursor-default' : 'cursor-text',
           )}
           title={item.name}

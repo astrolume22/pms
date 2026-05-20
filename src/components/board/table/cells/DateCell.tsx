@@ -38,14 +38,14 @@ export function DateCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
         {iso ? (
           <span
             className={cn(
-              'text-xs font-medium',
+              'text-[13px] font-medium',
               isOverdue ? 'text-error' : isToday ? 'text-brand' : 'text-text-primary',
             )}
           >
             {fmt(iso)}
           </span>
         ) : (
-          <span className="text-xs text-text-disabled">—</span>
+          <span className="text-[13px] text-text-disabled">—</span>
         )}
       </div>
       <Popover anchorRef={anchorRef} open={isEditing} onClose={onEndEdit} minWidth={280}>

@@ -45,7 +45,7 @@ export function NumbersCell({ column, value, readonly, isEditing, onStartEdit, o
           if (e.key === 'Enter') commit();
           else if (e.key === 'Escape') { setDraft(raw == null ? '' : String(raw)); onEndEdit(); }
         }}
-        className="w-full h-full px-2 text-right bg-surface border border-brand rounded-sm text-sm outline-none"
+        className="w-full h-full px-3 text-right bg-surface border border-brand rounded-sm text-[14px] outline-none"
         autoFocus
       />
     );
@@ -59,7 +59,7 @@ export function NumbersCell({ column, value, readonly, isEditing, onStartEdit, o
 
   return (
     <div
-      className={cn('w-full h-full px-2 flex items-center justify-end text-sm', !readonly && 'cursor-text')}
+      className={cn('w-full h-full px-3 flex items-center justify-end text-[14px]', !readonly && 'cursor-text')}
       onClick={() => !readonly && onStartEdit()}
     >
       {display == null ? (

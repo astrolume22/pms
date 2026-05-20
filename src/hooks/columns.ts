@@ -7,18 +7,21 @@ export const columnKeys = {
   board: (boardId: string) => [...columnKeys.all, 'board', boardId] as const,
 };
 
+// Widths tuned to match Monday's roomier proportions — colored label
+// blocks need to feel substantial. Migration 0015 widens existing
+// columns on the live DB; these defaults govern brand-new columns.
 const DEFAULT_WIDTH: Record<ColumnType, number> = {
-  task_name: 280,
-  text: 200,
-  status: 140,
-  priority: 130,
-  people: 140,
-  date: 130,
-  numbers: 120,
-  checkbox: 80,
-  dropdown: 180,
-  link: 180,
-  files: 140,
+  task_name: 320,
+  text: 220,
+  status: 180,
+  priority: 180,
+  people: 160,
+  date: 140,
+  numbers: 140,
+  checkbox: 90,
+  dropdown: 200,
+  link: 200,
+  files: 160,
 };
 
 const DEFAULT_NAME: Record<ColumnType, string> = {

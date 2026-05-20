@@ -61,7 +61,7 @@ export function ItemRow({
       ref={sortable.setNodeRef}
       style={{ ...style, height: rowHeight, opacity: sortable.isDragging ? 0.4 : 1 }}
       className={cn(
-        'group/row flex items-stretch border-b border-border-light text-sm',
+        'group/row flex items-stretch border-b border-border-light text-[14px]',
         isSelected ? 'bg-selected' : 'hover:bg-hover',
         isSubitem && 'bg-app/40',
       )}
@@ -148,7 +148,7 @@ export function ItemRow({
       {/* Synthetic task-code column (read-only, sourced from item.task_code) */}
       <div
         style={{ width: TASK_CODE_COL_WIDTH }}
-        className="shrink-0 border-r border-border-light flex items-center justify-center text-[11px] font-mono text-text-secondary"
+        className="shrink-0 border-r border-border-light flex items-center justify-center text-[12px] font-mono text-text-secondary"
       >
         {item.task_code}
       </div>

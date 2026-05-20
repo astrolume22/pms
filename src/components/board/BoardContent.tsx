@@ -326,7 +326,7 @@ export function BoardContent({ board }: BoardContentProps) {
               />
               <div
                 style={{ width: TASK_CODE_COL_WIDTH }}
-                className="shrink-0 border-r border-border-light flex items-center justify-center text-xs uppercase tracking-wide text-text-secondary font-medium"
+                className="shrink-0 border-r border-border-light flex items-center justify-center text-[12px] uppercase tracking-[0.04em] text-text-secondary font-semibold"
               >
                 Code
               </div>

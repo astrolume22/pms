@@ -57,11 +57,11 @@ export function LabelCell({
             <span className="w-full text-center text-xs text-text-disabled">—</span>
           )
         ) : multi ? (
-          <div className="flex items-center gap-1 overflow-hidden px-1">
+          <div className="flex items-center gap-1 overflow-hidden px-2">
             {selectedLabels.slice(0, 3).map((l) => (
               <span
                 key={l.id}
-                className="inline-flex items-center h-5 px-2 rounded-sm text-[11px] font-medium text-white truncate max-w-[100px]"
+                className="inline-flex items-center h-6 px-2.5 rounded-sm text-[12px] font-semibold text-white truncate max-w-[110px]"
                 style={{ background: l.color }}
                 title={l.name}
               >
@@ -69,13 +69,13 @@ export function LabelCell({
               </span>
             ))}
             {selectedLabels.length > 3 && (
-              <span className="text-[11px] text-text-secondary">+{selectedLabels.length - 3}</span>
+              <span className="text-[12px] text-text-secondary">+{selectedLabels.length - 3}</span>
             )}
           </div>
         ) : (
           // Status/Priority: full-cell saturated color, white centered label
           <span
-            className="block w-full h-full text-xs font-medium text-white flex items-center justify-center px-2"
+            className="block w-full h-full text-[13px] font-semibold text-white flex items-center justify-center px-3 tracking-[0.005em]"
             style={{ background: selectedLabels[0].color }}
             title={selectedLabels[0].name}
           >
