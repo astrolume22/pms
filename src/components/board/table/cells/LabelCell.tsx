@@ -92,6 +92,7 @@ export function LabelCell({
           multi={multi}
           onChange={handleChange}
           onOpenLabelsEditor={() => { onEndEdit(); onOpenLabelsEditor?.(column); }}
+          onDone={onEndEdit}
         />
       </Popover>
     </>

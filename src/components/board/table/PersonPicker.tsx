@@ -8,9 +8,11 @@ interface PersonPickerProps {
   selectedUserIds: string[];
   multi: boolean;
   onChange: (userIds: string[]) => void;
+  // Multi-select: shows a "Done" button to close the popover.
+  onDone?: () => void;
 }
 
-export function PersonPicker({ selectedUserIds, multi, onChange }: PersonPickerProps) {
+export function PersonPicker({ selectedUserIds, multi, onChange, onDone }: PersonPickerProps) {
   const { data: users } = useActiveUsers();
   const [q, setQ] = useState('');
   const list = (users ?? []).filter((u) => {
@@ -72,6 +74,17 @@ export function PersonPicker({ selectedUserIds, multi, onChange }: PersonPickerP
           );
         })}
       </ul>
+      {multi && onDone && (
+        <div className="p-2 border-t border-border-light">
+          <button
+            type="button"
+            onClick={onDone}
+            className="w-full h-7 rounded-base bg-brand text-white text-xs font-medium hover:bg-brand-hover"
+          >
+            Done
+          </button>
+        </div>
+      )}
     </div>
   );
 }

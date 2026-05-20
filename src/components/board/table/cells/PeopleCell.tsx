@@ -52,6 +52,7 @@ export function PeopleCell({ value, readonly, isEditing, onStartEdit, onEndEdit,
           onChange={(ids) => {
             onCommit(ids.length > 0 ? { user_ids: ids } : null);
           }}
+          onDone={onEndEdit}
         />
       </Popover>
     </>

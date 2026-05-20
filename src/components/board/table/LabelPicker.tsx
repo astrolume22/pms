@@ -12,10 +12,13 @@ interface LabelPickerProps {
   multi: boolean;
   onChange: (ids: string[]) => void;
   onOpenLabelsEditor: () => void;
+  // Multi-select pickers stay open while you toggle; "Done" tells us the
+  // user is finished so we can close the popover.
+  onDone?: () => void;
 }
 
 export function LabelPicker({
-  boardId, columnId, labels, selectedIds, multi, onChange, onOpenLabelsEditor,
+  boardId, columnId, labels, selectedIds, multi, onChange, onOpenLabelsEditor, onDone,
 }: LabelPickerProps) {
   const create = useCreateLabel();
   const [newName, setNewName] = useState('');
@@ -100,6 +103,15 @@ export function LabelPicker({
         <Settings className="h-3.5 w-3.5" />
         Edit Labels
       </button>
+      {multi && onDone && (
+        <button
+          type="button"
+          onClick={onDone}
+          className="mt-2 w-full h-7 rounded-base bg-brand text-white text-xs font-medium hover:bg-brand-hover"
+        >
+          Done
+        </button>
+      )}
     </div>
   );
 }

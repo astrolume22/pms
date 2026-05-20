@@ -34,9 +34,13 @@ export function BulkActionBar({ boardId, groups, canEdit }: BulkActionBarProps) 
     <div
       role="region"
       aria-label="Bulk actions"
-      className="fixed left-1/2 -translate-x-1/2 bottom-6 z-40 bg-text-primary text-white rounded-md shadow-xl flex items-center gap-1 px-2 py-2"
+      // Hard-code a near-black bg so it stays dark in BOTH light and dark
+      // mode. Using bg-text-primary would flip to a light grey in dark mode
+      // and the white text would disappear into the background.
+      style={{ background: '#1F2128' }}
+      className="fixed left-1/2 -translate-x-1/2 bottom-6 z-40 text-white rounded-md shadow-xl flex items-center gap-1 px-2 py-2"
     >
-      <span className="px-3 text-sm font-medium">{ids.length} selected</span>
+      <span className="px-3 text-sm font-medium text-white">{ids.length} selected</span>
       <div className="h-5 w-px bg-white/20 mx-1" />
       <BulkBtn
         icon={<Archive className="h-3.5 w-3.5" />}
@@ -125,11 +129,14 @@ function BulkBtn({ icon, label, onClick, destructive, disabled }: {
       disabled={disabled}
       className={
         'h-7 px-2 inline-flex items-center gap-1.5 rounded-sm text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed '
-        + (destructive ? 'text-error' : 'text-white')
+        // Use a bright coral for destructive so it stays readable on the
+        // near-black bar in both light + dark themes (the regular --error
+        // var renders too dim against #1F2128 in dark mode).
+        + (destructive ? 'text-[#FF7A8A]' : 'text-white')
       }
     >
       {icon}
-      {label}
+      <span>{label}</span>
     </button>
   );
 }
