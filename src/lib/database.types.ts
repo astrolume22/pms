@@ -58,6 +58,90 @@ export interface ActivityLogRow {
   created_at: string;
 }
 
+// ---------- Phase 2 ----------
+export type BoardType = 'main' | 'private';
+export type BoardSubscriberRole = 'owner' | 'member' | 'viewer';
+export type NotificationLevel = 'everything' | 'replies_mentions' | 'nothing';
+export type ColumnType =
+  | 'task_name' | 'text' | 'status' | 'people' | 'date'
+  | 'priority' | 'numbers' | 'checkbox' | 'dropdown' | 'link';
+
+export interface BoardRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  icon_emoji: string;
+  board_type: BoardType;
+  owner_id: string;
+  created_by: string;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface BoardSubscriberRow {
+  board_id: string;
+  user_id: string;
+  role: BoardSubscriberRole;
+  notification_level: NotificationLevel;
+  subscribed_at: string;
+}
+
+export interface BoardFavoriteRow {
+  user_id: string;
+  board_id: string;
+  favorited_at: string;
+}
+
+export interface BoardLastViewedRow {
+  board_id: string;
+  user_id: string;
+  last_viewed_at: string;
+}
+
+export interface GroupRow {
+  id: string;
+  board_id: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  is_collapsed_default: boolean;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface ColumnRow {
+  id: string;
+  board_id: string;
+  name: string;
+  column_type: ColumnType;
+  sort_order: number;
+  width: number;
+  is_required: boolean;
+  is_pinned_left: boolean;
+  is_pinned_right: boolean;
+  default_value: unknown;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface ColumnLabelRow {
+  id: string;
+  column_id: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  is_default: boolean;
+  created_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

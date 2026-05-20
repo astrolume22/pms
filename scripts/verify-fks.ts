@@ -19,10 +19,24 @@ interface ExpectedFk {
 }
 
 const expected: ExpectedFk[] = [
+  // Phase 1
   { table: 'users',             column: 'id',           references: 'auth.users(id)' },
   { table: 'workspace_members', column: 'workspace_id', references: 'public.workspaces(id)' },
   { table: 'workspace_members', column: 'user_id',      references: 'public.users(id)' },
   { table: 'activity_log',      column: 'actor_id',     references: 'public.users(id)' },
+  // Phase 2
+  { table: 'boards',            column: 'workspace_id', references: 'public.workspaces(id)' },
+  { table: 'boards',            column: 'owner_id',     references: 'public.users(id)' },
+  { table: 'boards',            column: 'created_by',   references: 'public.users(id)' },
+  { table: 'board_subscribers', column: 'board_id',     references: 'public.boards(id)' },
+  { table: 'board_subscribers', column: 'user_id',      references: 'public.users(id)' },
+  { table: 'board_favorites',   column: 'user_id',      references: 'public.users(id)' },
+  { table: 'board_favorites',   column: 'board_id',     references: 'public.boards(id)' },
+  { table: 'board_last_viewed', column: 'board_id',     references: 'public.boards(id)' },
+  { table: 'board_last_viewed', column: 'user_id',      references: 'public.users(id)' },
+  { table: 'groups',            column: 'board_id',     references: 'public.boards(id)' },
+  { table: 'columns',           column: 'board_id',     references: 'public.boards(id)' },
+  { table: 'column_labels',     column: 'column_id',    references: 'public.columns(id)' },
 ];
 
 const QUERY = `
@@ -45,7 +59,11 @@ const QUERY = `
   join pg_attribute  att_ref on att_ref.attrelid = c.confrelid and att_ref.attnum = ref_keys.attnum
   where c.contype = 'f'
     and nsp_src.nspname = 'public'
-    and cls_src.relname in ('users','workspace_members','activity_log')
+    and cls_src.relname in (
+      'users','workspace_members','activity_log',
+      'boards','board_subscribers','board_favorites','board_last_viewed',
+      'groups','columns','column_labels'
+    )
   order by cls_src.relname, att_src.attname;
 `;
 

@@ -125,6 +125,29 @@ Open <http://localhost:5173>. You should land on `/login`.
 - [ ] Dark mode toggle in avatar dropdown → flips instantly; saved to `users.theme`; persists across reload
 - [ ] `/signup` → redirects to `/login` (no public signup)
 
+### Phase 2 (Boards) manual test checklist
+
+- [ ] As `admin`: sidebar **+ Add new** dropdown opens; Board enabled, Dashboard/Doc/Folder show "V2" badge and are disabled
+- [ ] Create board modal opens; icon picker shows 32 emojis; default type is **Main**
+- [ ] Submit with empty name → toast "Board name is required"
+- [ ] Create a board "Demo board" → toast "Board "Demo board" created", redirects to `/w/main/b/<uuid>`
+- [ ] Default group "Group Title" renders with collapse arrow + status/owner/date/priority column headers
+- [ ] Sidebar now lists the new board with its emoji; clicking it navigates back; active board has selected highlight
+- [ ] Hover board row → ⋯ menu appears; Favorite toggles star (also shown in Favorites section); Rename inline-edits in place
+- [ ] Copy link writes `<origin>/w/main/b/<uuid>` to clipboard → toast "Link copied"
+- [ ] Board header: click name to inline-edit (Enter saves, Esc cancels); description placeholder is "Add description..." until edited
+- [ ] Star button in board header mirrors favorite state
+- [ ] As `pm1`: only sees main boards + boards they created/were invited to; cannot see admin's private boards
+- [ ] As `pm1`: can create boards from sidebar
+- [ ] Create a **Private** board as `pm1` → shows lock + "Private" badge in header; admin sees it (admin sees all), other pms don't
+- [ ] Archive a board as owner → board disappears from sidebar; visiting its URL shows archived banner with **Restore** button
+- [ ] Restore → banner goes away; sidebar re-includes it
+- [ ] Delete a board → confirmation prompt; on success, redirects to `/`
+- [ ] Workspace home **Recents** tab lists boards in last-viewed order (timestamp updates each visit)
+- [ ] Workspace home **Content** tab shows Name / Type / Owner / Created / Updated columns; clicking a row navigates to the board
+- [ ] Visit `/w/main/b/00000000-0000-0000-0000-000000000000` → admin sees "Board not found"; pm sees "You don't have access"
+- [ ] Theme toggle still works on the board page
+
 ---
 
 ## Project layout
@@ -142,6 +165,8 @@ src/
 │   ├── cn.ts
 │   ├── supabase.ts              (browser client w/ anon key)
 │   └── database.types.ts        (hand-curated until `supabase gen types`)
+├── hooks/
+│   └── boards.ts                (TanStack Query hooks for boards)
 ├── routes/                       (file-based, TanStack Router)
 │   ├── __root.tsx
 │   ├── _bare.tsx                (no shell — login/signup)
@@ -150,7 +175,18 @@ src/
 │   ├── _app.tsx                 (auth-gated layout)
 │   ├── _app.index.tsx           (workspace home — / )
 │   ├── _app.profile.tsx         (/profile)
-│   └── _app.admin.tsx           (/admin — admin-only stub)
+│   ├── _app.admin.tsx           (/admin — admin-only stub)
+│   └── _app.w.$workspace.b.$boardId.tsx  (board page)
+├── components/board/
+│   ├── BoardHeader.tsx          (icon, name/description inline-edit, favorite, menu)
+│   ├── BoardTabs.tsx            (Main table tab + V2 add-view stub)
+│   ├── BoardToolbar.tsx         (search/filter/sort/hide/group-by toolbar)
+│   └── BoardContent.tsx         (groups + column headers + empty state)
+├── components/
+│   ├── Modal.tsx, EmojiPicker.tsx, CreateBoardModal.tsx, EmptyMessage.tsx
+│   └── shell/
+│       ├── BoardRowMenu.tsx     (sidebar ⋯ menu per board)
+│       └── AddNewMenu.tsx       (+ Add new dropdown in sidebar)
 ├── state/
 │   ├── authStore.ts             (Zustand: status/session/profile/signIn/signOut)
 │   └── themeStore.ts            (light/dark, persists to localStorage + users.theme)
