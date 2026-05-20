@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- Design tokens (light) ---------- */
+:root {
+  /* Neutrals */
+  --bg-app: #F6F7FB;
+  --bg-surface: #FFFFFF;
+  --bg-hover: #F5F6FA;
+  --bg-selected: #E6F0FA;
+  --bg-dark: #292F4C;
+  --border-light: #E6E9EF;
+  --border-medium: #C3C6D4;
+  --text-primary: #323338;
+  --text-secondary: #676879;
+  --text-disabled: #9699A6;
+  --text-on-dark: #FFFFFF;
+
+  /* Brand */
+  --primary-blue: #0073EA;
+  --primary-blue-hover: #0060BD;
+  --primary-blue-active: #004B95;
+}
+
+/* ---------- Design tokens (dark) ---------- */
+.dark {
+  --bg-app: #1A1B22;
+  --bg-surface: #2A2C36;
+  --bg-hover: #353845;
+  --bg-selected: #1B3145;
+  --bg-dark: #0F1018;
+  --border-light: #3A3D4A;
+  --border-medium: #4A4D5A;
+  --text-primary: #E4E5EA;
+  --text-secondary: #A0A3B0;
+  --text-disabled: #6E707A;
+  --text-on-dark: #FFFFFF;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Roboto', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* Focus ring uses brand blue */
+:focus-visible {
+  outline: 2px solid var(--primary-blue);
+  outline-offset: 2px;
+}
+
+/* ---------- Shared component classes (Monday-style) ---------- */
+@layer components {
+  .input {
+    @apply h-9 w-full px-3 rounded-base text-sm bg-surface border border-border-medium text-text-primary placeholder:text-text-disabled outline-none transition-colors duration-100;
+  }
+  .input:focus {
+    @apply border-brand;
+    box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.2);
+  }
+  .input:disabled {
+    @apply bg-app text-text-disabled cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center h-9 px-4 rounded-base bg-brand text-white text-sm font-medium hover:bg-brand-hover active:bg-brand-active transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center h-9 px-4 rounded-base bg-surface border border-border-medium text-text-primary text-sm font-medium hover:bg-hover transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center h-9 px-3 rounded-base bg-transparent text-text-primary text-sm font-medium hover:bg-hover transition-colors duration-100;
+  }
+}

@@ -1,0 +1,63 @@
+# --------------------------------------------------------------------
+# Dependencies & build output
+# --------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+build/
+.cache/
+.parcel-cache/
+.vite/
+
+# Generated route tree (TanStack Router)
+src/routeTree.gen.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# --------------------------------------------------------------------
+# Environment / secrets — NEVER commit
+# --------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.local
+
+# Private keys / certs
+*.pem
+*.key
+*.p12
+*.pfx
+
+# --------------------------------------------------------------------
+# Editor & OS
+# --------------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# --------------------------------------------------------------------
+# Logs
+# --------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# --------------------------------------------------------------------
+# Coverage / test artefacts
+# --------------------------------------------------------------------
+coverage/
+.nyc_output/
+
+# --------------------------------------------------------------------
+# Netlify CLI / Supabase CLI local state (not the configs themselves)
+# --------------------------------------------------------------------
+.netlify/
+.supabase/
