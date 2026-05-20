@@ -4,45 +4,54 @@ import { Lock, FileQuestion, ArchiveRestore, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
+import { useViews } from '@/hooks/views';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import { BoardHeader } from '@/components/board/BoardHeader';
 import { BoardTabs } from '@/components/board/BoardTabs';
 import { BoardToolbar } from '@/components/board/BoardToolbar';
 import { BoardContent } from '@/components/board/BoardContent';
+import { KanbanView } from '@/components/board/views/KanbanView';
+import { CalendarView } from '@/components/board/views/CalendarView';
 import { TaskPanel } from '@/components/task/TaskPanel';
 
 interface BoardSearch {
   p?: string;       // ?p=<itemId> opens the slide-in task panel
+  v?: string;       // ?v=<viewId> switches to a non-default view
 }
 
 export const Route = createFileRoute('/_app/w/$workspace/b/$boardId')({
   validateSearch: (search: Record<string, unknown>): BoardSearch => ({
     p: typeof search.p === 'string' ? search.p : undefined,
+    v: typeof search.v === 'string' ? search.v : undefined,
   }),
   component: BoardPage,
 });
 
 function BoardPage() {
   const { boardId } = useParams({ from: '/_app/w/$workspace/b/$boardId' });
-  const { p: panelItemId } = Route.useSearch();
+  const { p: panelItemId, v: activeViewId = null } = Route.useSearch();
   const navigate = useNavigate();
   const profile = useAuthStore((s) => s.profile);
   const { data: board, isLoading, error } = useBoard(boardId);
+  const { data: views = [] } = useViews(boardId);
   const updateLastViewed = useUpdateLastViewed();
   const restore = useRestoreBoard();
 
   const closePanel = () => navigate({
     to: '/w/$workspace/b/$boardId',
     params: { workspace: 'main', boardId },
-    search: {},
+    search: (prev) => ({ ...prev, p: undefined }),
   });
 
-  // Bump "last viewed" once per mount per board.
+  const switchView = (viewId: string | null) => navigate({
+    to: '/w/$workspace/b/$boardId',
+    params: { workspace: 'main', boardId },
+    search: (prev) => ({ ...prev, v: viewId ?? undefined }),
+  });
+
   useEffect(() => {
-    if (board && profile) {
-      void updateLastViewed.mutateAsync(board.id);
-    }
+    if (board && profile) void updateLastViewed.mutateAsync(board.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board?.id, profile?.id]);
 
@@ -54,10 +63,6 @@ function BoardPage() {
     );
   }
 
-  // Distinguish "doesn't exist" from "forbidden" by examining the error code.
-  // RLS-blocked boards return null with no error (PostgREST hides them),
-  // so we treat null + access denied identically. We can refine in V2 once
-  // we surface a separate admin-only "exists check" RPC.
   if (error) {
     return (
       <EmptyMessage
@@ -69,7 +74,6 @@ function BoardPage() {
   }
 
   if (!board) {
-    // Either truly nonexistent or RLS-hidden. Show 404 to non-admins, 403 hint to admins.
     const isAdmin = profile?.role === 'admin' || profile?.is_super_admin;
     if (isAdmin) {
       return (
@@ -93,6 +97,10 @@ function BoardPage() {
 
   const canManage =
     profile && (profile.role === 'admin' || profile.is_super_admin || board.owner_id === profile.id);
+  const canEdit = !!canManage || profile?.role === 'manager';
+
+  const activeView = activeViewId ? views.find((v) => v.id === activeViewId) : null;
+  const viewType = activeView?.type ?? 'table';
 
   return (
     <div className="flex flex-col">
@@ -120,9 +128,18 @@ function BoardPage() {
         </div>
       )}
       <BoardHeader board={board} />
-      <BoardTabs />
-      <BoardToolbar boardId={board.id} canEdit={!!canManage || profile?.role === 'manager'} />
-      <BoardContent board={board} />
+      <BoardTabs
+        boardId={board.id}
+        activeViewId={activeViewId}
+        onSwitch={switchView}
+        canEdit={canEdit}
+      />
+      {/* Toolbar (search/sort/hide/group-by/density) is table-specific in V1.
+          Kanban + Calendar each manage their own internal controls. */}
+      {viewType === 'table'    && <BoardToolbar boardId={board.id} canEdit={canEdit} />}
+      {viewType === 'table'    && <BoardContent board={board} />}
+      {viewType === 'kanban'   && <KanbanView boardId={board.id} canEdit={canEdit} />}
+      {viewType === 'calendar' && <CalendarView boardId={board.id} />}
       {panelItemId && (
         <TaskPanel board={board} itemId={panelItemId} onClose={closePanel} />
       )}

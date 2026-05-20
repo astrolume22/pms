@@ -243,6 +243,42 @@ export interface NotificationRow {
   created_at: string;
 }
 
+// ---------- Phase 5 ----------
+export type ViewType = 'table' | 'kanban' | 'calendar';
+
+export interface ViewRow {
+  id: string;
+  board_id: string;
+  name: string;
+  type: ViewType;
+  sort_order: number;
+  is_default: boolean;
+  created_by: string;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export type AiFeature = 'create_board' | 'create_tasks' | 'chat' | 'suggest';
+export type AiRunStatus = 'success' | 'error' | 'not_configured';
+
+export interface AiRunRow {
+  id: string;
+  user_id: string;
+  feature: AiFeature;
+  prompt: string | null;
+  response: string | null;
+  model: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  target_type: string | null;
+  target_id: string | null;
+  status: AiRunStatus;
+  error_message: string | null;
+  ran_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

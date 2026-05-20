@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe } from 'lucide-react';
+import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles } from 'lucide-react';
+import { AiPanel } from '@/components/ai/AiPanel';
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/Avatar';
@@ -39,6 +40,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const [description, setDescription] = useState(board.description ?? '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   useEffect(() => setName(board.name), [board.name]);
   useEffect(() => setDescription(board.description ?? ''), [board.description]);
@@ -179,6 +181,16 @@ export function BoardHeader({ board }: BoardHeaderProps) {
         <div className="flex items-center gap-1">
           <button
             type="button"
+            onClick={() => setAiOpen(true)}
+            className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-base text-sm font-medium text-brand hover:bg-brand/10"
+            title="AI Sidekick"
+            aria-label="Open AI Sidekick"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>AI</span>
+          </button>
+          <button
+            type="button"
             aria-label={board.is_favorite ? 'Unfavorite' : 'Favorite'}
             onClick={async () => {
               try {
@@ -269,6 +281,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           </div>
         </div>
       </div>
+      <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} board={board} />
     </div>
   );
 }

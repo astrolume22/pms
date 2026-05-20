@@ -65,6 +65,10 @@ const expected: ExpectedFk[] = [
   { table: 'notifications',     column: 'item_id',           references: 'public.items(id)' },
   { table: 'notifications',     column: 'update_id',         references: 'public.updates(id)' },
   { table: 'notifications',     column: 'board_id',          references: 'public.boards(id)' },
+  // Phase 5
+  { table: 'views',             column: 'board_id',          references: 'public.boards(id)' },
+  { table: 'views',             column: 'created_by',        references: 'public.users(id)' },
+  { table: 'ai_runs',           column: 'user_id',           references: 'public.users(id)' },
 ];
 
 const QUERY = `
@@ -92,7 +96,8 @@ const QUERY = `
       'boards','board_subscribers','board_favorites','board_last_viewed',
       'groups','columns','column_labels',
       'items','item_column_values','item_subscribers','board_counters',
-      'updates','update_reactions','update_mentions','files','notifications'
+      'updates','update_reactions','update_mentions','files','notifications',
+      'views','ai_runs'
     )
   order by cls_src.relname, att_src.attname;
 `;
