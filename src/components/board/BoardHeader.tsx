@@ -7,6 +7,9 @@ import { useDuplicateBoard } from '@/hooks/duplicate';
 const AiPanel     = lazy(() => import('@/components/ai/AiPanel').then((m)     => ({ default: m.AiPanel })));
 // InviteModal is only used by admins / owners / managers — defer.
 const InviteModal = lazy(() => import('@/components/board/InviteModal').then((m) => ({ default: m.InviteModal })));
+// "Build with AI" (Version B) — admin-only. The modal pulls in the
+// applier + Zod-validated AI plan rendering, so defer until needed.
+const BuildWithAiModal = lazy(() => import('@/components/board/BuildWithAiModal').then((m) => ({ default: m.BuildWithAiModal })));
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { EmojiPicker } from '@/components/EmojiPicker';
@@ -48,6 +51,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const [editingDesc, setEditingDesc] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
 
   useEffect(() => setName(board.name), [board.name]);
@@ -211,6 +215,20 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               <Star className={cn('h-4 w-4', board.is_favorite && 'fill-warning text-warning')} />
             </button>
           )}
+          {/* Build with AI — admin only. Calls the Gemini engine via
+              /api/ai-build, previews the plan, then applies via the
+              client applier (see docs/AI-ENGINE.md). */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setBuildOpen(true)}
+              className="btn-secondary h-8 px-3 inline-flex items-center gap-1.5 text-brand"
+              title="Build groups + columns + tasks from a prompt"
+            >
+              <Sparkles className="h-4 w-4" />
+              Build with AI
+            </button>
+          )}
           {/* Invite — admin only (RLS will also block managers if they
               somehow trigger create_invite via the network). */}
           {isAdmin && (
@@ -322,6 +340,16 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           <InviteModal
             open={inviteOpen}
             onClose={() => setInviteOpen(false)}
+            boardId={board.id}
+            boardName={board.name}
+          />
+        </Suspense>
+      )}
+      {buildOpen && (
+        <Suspense fallback={null}>
+          <BuildWithAiModal
+            open={buildOpen}
+            onClose={() => setBuildOpen(false)}
             boardId={board.id}
             boardName={board.name}
           />
