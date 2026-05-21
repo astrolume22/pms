@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles } from 'lucide-react';
+import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles, Copy } from 'lucide-react';
+import { useDuplicateBoard } from '@/hooks/duplicate';
 
 // AiPanel pulls in markdown parsing + the Gemini chat machinery — only
 // load it the first time the user opens the AI Sidekick.
@@ -35,6 +36,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const canManage = isAdmin;
 
   const update = useUpdateBoard();
+  const duplicate = useDuplicateBoard();
   const toggleFav = useToggleFavorite();
   const archive = useArchiveBoard();
   const restore = useRestoreBoard();
@@ -238,6 +240,24 @@ export function BoardHeader({ board }: BoardHeaderProps) {
                 className="absolute right-0 top-9 w-56 z-30 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden"
                 onMouseLeave={() => setMenuOpen(false)}
               >
+                <MenuItem
+                  icon={<Copy className="h-4 w-4" />}
+                  label="Duplicate board"
+                  disabled={!canManage || duplicate.isPending}
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    try {
+                      const newId = await duplicate.mutateAsync(board.id);
+                      toast.success('Board duplicated');
+                      navigate({
+                        to: '/w/$workspace/b/$boardId',
+                        params: { workspace: 'main', boardId: newId },
+                      });
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : 'Duplicate failed');
+                    }
+                  }}
+                />
                 {board.archived_at ? (
                   <MenuItem
                     icon={<ArchiveRestore className="h-4 w-4" />}

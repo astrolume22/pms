@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Trash2, Pencil, Copy, Palette, Check,
 } from 'lucide-react';
+import { useDuplicateGroup } from '@/hooks/duplicate';
 import type { GroupRow, ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { ItemRow as ItemRowComp } from './ItemRow';
 import { AddItemRow } from './AddItemRow';
@@ -54,6 +55,7 @@ export function GroupBlock({
 
   const update = useUpdateGroup();
   const remove = useDeleteGroup();
+  const duplicate = useDuplicateGroup();
 
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState(group.name);
@@ -206,9 +208,17 @@ export function GroupBlock({
                   <Palette className="h-3.5 w-3.5 text-text-secondary" /> Change color
                 </button>
                 <button
-                  onClick={() => { setMenuOpen(false); toast.info('Duplicate group arrives in V2'); }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover opacity-60"
-                  disabled
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    try {
+                      await duplicate.mutateAsync({ groupId: group.id, boardId });
+                      toast.success('Group duplicated');
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : 'Duplicate failed');
+                    }
+                  }}
+                  disabled={duplicate.isPending}
+                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover disabled:opacity-50"
                 >
                   <Copy className="h-3.5 w-3.5 text-text-secondary" /> Duplicate
                 </button>

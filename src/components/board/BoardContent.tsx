@@ -298,7 +298,7 @@ export function BoardContent({ board }: BoardContentProps) {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         {/* Single horizontal scroll container — column headers and every
             group row share this scroll and stay aligned column-by-column. */}
-        <div className="bg-surface border border-border-light rounded-md overflow-x-auto">
+        <div className="bg-surface border border-border-light rounded-md overflow-x-auto scroll-x-slim">
           {/* Column-header row */}
           <div
             className="flex items-stretch bg-app/60 border-b border-border-light"

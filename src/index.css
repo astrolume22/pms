@@ -173,3 +173,32 @@ input, textarea, select {
   to   { transform: translateX(0); }
 }
 .task-panel-enter { animation: slideInRight 250ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+/* ---------- Custom slim scrollbar (board table x-axis) ----------
+   The default chunky browser scrollbar disrupts the dense data grid.
+   We restyle webkit + firefox to a slim, rounded, low-contrast bar
+   that only pops on hover. Applied to the single horizontal scroll
+   container in BoardContent. */
+.scroll-x-slim {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+.scroll-x-slim::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.scroll-x-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-x-slim::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scroll-x-slim::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+.scroll-x-slim::-webkit-scrollbar-corner {
+  background: transparent;
+}

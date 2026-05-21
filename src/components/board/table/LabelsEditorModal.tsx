@@ -1,4 +1,18 @@
-import { useEffect, useState } from 'react';
+/**
+ * Labels editor — admin only (per docs/PERMISSIONS-REDESIGN-PLAN.md).
+ *
+ * Matches Monday's label manager:
+ *   - Grid of colored label chips, each one inline-editable.
+ *   - Swatch tile on the right opens a 18-color picker; click to recolor.
+ *   - Reorder via up/down arrows on the left.
+ *   - Trash icon deletes immediately.
+ *   - "+ New label" adds a fresh row using the next unused palette
+ *     color, then focuses the new row's name input so the admin can
+ *     type a name in one motion. No "Apply" friction — every edit
+ *     auto-saves on blur / click. The Close button just dismisses
+ *     the modal.
+ */
+import { useEffect, useRef, useState } from 'react';
 import { Trash2, Check, Plus, Star } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import {
@@ -13,19 +27,13 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
-// Monday-night chip palette — grouped semantically so admins can scan
-// "warm = effort / cool = chill / purple = priority" while picking.
-// Hover the swatch to see why each shade was chosen.
+// Monday-night chip palette — grouped semantically (status / type /
+// time / priority / accents) so picking a color reads as semantic.
 const COLOR_PALETTE = [
-  // Status (warm → cool → done)
   '#F8BD6D', '#D0728A', '#787F92', '#33C481',
-  // Task type / ownership lanes
   '#3DA0CA', '#1F5A62', '#B17FE0', '#265565',
-  // Time / effort spectrum
   '#F9885E', '#F74EA1', '#7DAFF8', '#459CC7', '#71BCA5',
-  // Priority ramp (purple intensity)
   '#6646A7', '#51458F', '#3E3A6B',
-  // Hero accents
   '#FF3D8B', '#FFCB00',
 ];
 
@@ -38,9 +46,9 @@ interface LabelsEditorModalProps {
 
 export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEditorModalProps) {
   const { data: labelsMap } = useColumnLabels(boardId);
-  const labels: ColumnLabelRow[] = (labelsMap?.get(column.id) ?? []).slice().sort(
-    (a, b) => a.sort_order - b.sort_order,
-  );
+  const labels: ColumnLabelRow[] = (labelsMap?.get(column.id) ?? [])
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order);
 
   const create = useCreateLabel();
   const update = useUpdateLabel();
@@ -48,59 +56,35 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
   const setDefault = useSetDefaultLabel();
   const reorder = useReorderLabels();
 
-  // local working copy — apply on Save
-  const [working, setWorking] = useState<ColumnLabelRow[]>(labels);
-  useEffect(() => {
-    if (open) setWorking(labels);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, labelsMap]);
-
-  const onSave = async () => {
-    try {
-      // Apply renames / color changes
-      for (const cur of working) {
-        const original = labels.find((l) => l.id === cur.id);
-        if (!original) continue;
-        const patch: Record<string, unknown> = {};
-        if (cur.name !== original.name) patch.name = cur.name;
-        if (cur.color !== original.color) patch.color = cur.color;
-        if (Object.keys(patch).length > 0) {
-          await update.mutateAsync({ id: cur.id, columnId: column.id, boardId, patch });
-        }
-      }
-      // Reorder if needed
-      const orderChanged =
-        working.length === labels.length && working.some((w, i) => w.id !== labels[i].id);
-      if (orderChanged) {
-        await reorder.mutateAsync({
-          boardId, columnId: column.id, orderedIds: working.map((w) => w.id),
-        });
-      }
-      toast.success('Labels updated');
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not save labels');
-    }
-  };
+  // After "+ New label", we want the new row's input focused. Track
+  // the most-recently-created id and let LabelRow pick it up.
+  const [focusId, setFocusId] = useState<string | null>(null);
 
   const onAdd = async () => {
     try {
-      await create.mutateAsync({
-        boardId, columnId: column.id, name: 'New label', color: '#0073EA',
+      const used = new Set(labels.map((l) => l.color));
+      const color = COLOR_PALETTE.find((c) => !used.has(c)) ?? '#2B7FFF';
+      const created = await create.mutateAsync({
+        boardId, columnId: column.id, name: 'New label', color,
       });
+      setFocusId(created.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not add label');
     }
   };
 
-  const move = (idx: number, dir: -1 | 1) => {
-    setWorking((prev) => {
-      const next = prev.slice();
-      const dst = idx + dir;
-      if (dst < 0 || dst >= next.length) return prev;
-      [next[idx], next[dst]] = [next[dst], next[idx]];
-      return next;
-    });
+  const onMove = async (idx: number, dir: -1 | 1) => {
+    const dst = idx + dir;
+    if (dst < 0 || dst >= labels.length) return;
+    const next = labels.slice();
+    [next[idx], next[dst]] = [next[dst], next[idx]];
+    try {
+      await reorder.mutateAsync({
+        boardId, columnId: column.id, orderedIds: next.map((l) => l.id),
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not reorder');
+    }
   };
 
   return (
@@ -110,107 +94,183 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
       title={`Edit labels — ${column.name}`}
       size="md"
       footer={
-        <>
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => void onSave()}>Apply</button>
-        </>
+        <button className="btn-primary" onClick={onClose}>Done</button>
       }
     >
       <div className="space-y-2">
-        {working.map((l, idx) => (
-          <div
-            key={l.id}
-            className="flex items-center gap-2 border border-border-light rounded-base p-2 bg-app/40"
-          >
-            {/* Reorder buttons (keyboard-friendly substitute for drag) */}
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => move(idx, -1)}
-                disabled={idx === 0}
-                className="h-3 text-text-disabled hover:text-text-primary disabled:opacity-30"
-                aria-label="Move up"
-              >▲</button>
-              <button
-                type="button"
-                onClick={() => move(idx, 1)}
-                disabled={idx === working.length - 1}
-                className="h-3 text-text-disabled hover:text-text-primary disabled:opacity-30"
-                aria-label="Move down"
-              >▼</button>
-            </div>
+        {labels.length === 0 && (
+          <p className="text-sm text-text-secondary text-center py-4">
+            No labels yet. Click <span className="font-medium text-text-primary">+ New label</span> below to add the first one.
+          </p>
+        )}
 
-            {/* Pill preview + inline rename */}
-            <input
-              value={l.name}
-              onChange={(e) =>
-                setWorking((prev) => prev.map((x) => (x.id === l.id ? { ...x, name: e.target.value } : x)))
+        {labels.map((label, idx) => (
+          <LabelRow
+            key={label.id}
+            label={label}
+            isFirst={idx === 0}
+            isLast={idx === labels.length - 1}
+            shouldFocus={focusId === label.id}
+            onConsumeFocus={() => setFocusId(null)}
+            onRename={async (name) => {
+              if (name === label.name) return;
+              try {
+                await update.mutateAsync({
+                  id: label.id, columnId: column.id, boardId,
+                  patch: { name },
+                });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Rename failed');
               }
-              className="flex-1 h-7 px-2 rounded-base text-xs font-medium text-white outline-none border-none"
-              style={{ background: l.color }}
-            />
-
-            {/* Color picker */}
-            <ColorSwatch
-              value={l.color}
-              onChange={(c) =>
-                setWorking((prev) => prev.map((x) => (x.id === l.id ? { ...x, color: c } : x)))
+            }}
+            onColorChange={async (color) => {
+              try {
+                await update.mutateAsync({
+                  id: label.id, columnId: column.id, boardId,
+                  patch: { color },
+                });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Color change failed');
               }
-            />
-
-            {/* Default */}
-            <button
-              type="button"
-              title={l.is_default ? 'Default label' : 'Set as default'}
-              onClick={async () => {
-                if (l.is_default) return;
-                try {
-                  await setDefault.mutateAsync({ id: l.id, columnId: column.id, boardId });
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : 'Failed');
-                }
-              }}
-              className={cn(
-                'h-6 w-6 inline-flex items-center justify-center rounded-sm',
-                l.is_default ? 'text-warning' : 'text-text-disabled hover:text-text-primary',
-              )}
-            >
-              <Star className={cn('h-3.5 w-3.5', l.is_default && 'fill-warning')} />
-            </button>
-
-            {/* Delete */}
-            <button
-              type="button"
-              onClick={async () => {
-                if (!window.confirm(`Delete label "${l.name}"? Items using it will lose this label.`)) return;
-                try {
-                  await remove.mutateAsync({ id: l.id, columnId: column.id, boardId });
-                  setWorking((prev) => prev.filter((x) => x.id !== l.id));
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : 'Delete failed');
-                }
-              }}
-              className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-error hover:bg-error/10"
-              aria-label="Delete label"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+            }}
+            onSetDefault={async () => {
+              if (label.is_default) return;
+              try {
+                await setDefault.mutateAsync({ id: label.id, columnId: column.id, boardId });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Could not set default');
+              }
+            }}
+            onDelete={async () => {
+              if (!window.confirm(`Delete label "${label.name}"? Items using it will lose this label.`)) return;
+              try {
+                await remove.mutateAsync({ id: label.id, columnId: column.id, boardId });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Delete failed');
+              }
+            }}
+            onMoveUp={() => void onMove(idx, -1)}
+            onMoveDown={() => void onMove(idx, 1)}
+          />
         ))}
 
         <button
           type="button"
           onClick={() => void onAdd()}
-          className="w-full h-9 inline-flex items-center justify-center gap-1 rounded-base border border-dashed border-border-medium text-sm text-text-secondary hover:bg-hover"
+          disabled={create.isPending}
+          className="w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-base border border-dashed border-border-medium text-sm font-medium text-text-secondary hover:bg-hover hover:text-text-primary disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
-          New label
+          {create.isPending ? 'Adding…' : 'New label'}
         </button>
       </div>
     </Modal>
   );
 }
 
+// ---------------------------------------------------------------------
+// Individual editable label row. Inline name input + color swatch +
+// default-star + delete. All edits auto-save (no Apply button).
+// ---------------------------------------------------------------------
+function LabelRow({
+  label, isFirst, isLast, shouldFocus, onConsumeFocus,
+  onRename, onColorChange, onSetDefault, onDelete, onMoveUp, onMoveDown,
+}: {
+  label: ColumnLabelRow;
+  isFirst: boolean;
+  isLast: boolean;
+  shouldFocus: boolean;
+  onConsumeFocus: () => void;
+  onRename: (name: string) => Promise<void>;
+  onColorChange: (color: string) => Promise<void>;
+  onSetDefault: () => Promise<void>;
+  onDelete: () => Promise<void>;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const [draft, setDraft] = useState(label.name);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => setDraft(label.name), [label.name]);
+  useEffect(() => {
+    if (shouldFocus && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+      onConsumeFocus();
+    }
+  }, [shouldFocus, onConsumeFocus]);
+
+  const commit = async () => {
+    const name = draft.trim();
+    if (!name) { setDraft(label.name); return; }
+    await onRename(name);
+  };
+
+  return (
+    <div className="flex items-center gap-2 border border-border-light rounded-base p-1.5 bg-app/40">
+      {/* Reorder up/down */}
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={isFirst}
+          className="h-3 text-text-disabled hover:text-text-primary disabled:opacity-30"
+          aria-label="Move up"
+        >▲</button>
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={isLast}
+          className="h-3 text-text-disabled hover:text-text-primary disabled:opacity-30"
+          aria-label="Move down"
+        >▼</button>
+      </div>
+
+      {/* Colored chip — the input lives inside, white text, background = label color */}
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+          else if (e.key === 'Escape') { setDraft(label.name); (e.target as HTMLInputElement).blur(); }
+        }}
+        className="flex-1 h-8 px-2.5 rounded-sm text-[13px] font-semibold text-white placeholder-white/70 outline-none focus:ring-2 focus:ring-white/40"
+        style={{ background: label.color }}
+        placeholder="Label name"
+      />
+
+      <ColorSwatch value={label.color} onChange={onColorChange} />
+
+      <button
+        type="button"
+        title={label.is_default ? 'Default label' : 'Set as default'}
+        onClick={() => void onSetDefault()}
+        className={cn(
+          'h-7 w-7 inline-flex items-center justify-center rounded-sm',
+          label.is_default ? 'text-warning' : 'text-text-disabled hover:text-text-primary',
+        )}
+      >
+        <Star className={cn('h-4 w-4', label.is_default && 'fill-warning')} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void onDelete()}
+        title="Delete label"
+        aria-label="Delete label"
+        className="h-7 w-7 inline-flex items-center justify-center rounded-sm text-error hover:bg-error/10"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// 18-color swatch picker. Hover-open + click-to-select.
+// ---------------------------------------------------------------------
 function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -218,13 +278,13 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string)
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-6 w-6 rounded-sm border border-border-medium"
+        className="h-7 w-7 rounded-sm border border-border-medium"
         style={{ background: value }}
-        aria-label="Pick color"
+        aria-label="Pick label color"
       />
       {open && (
         <div
-          className="absolute top-7 right-0 z-50 bg-surface border border-border-light rounded-md shadow-lg p-2 grid grid-cols-6 gap-1.5 w-[160px]"
+          className="absolute top-8 right-0 z-50 bg-surface border border-border-light rounded-md shadow-lg p-2 grid grid-cols-6 gap-1.5 w-[180px]"
           onMouseLeave={() => setOpen(false)}
         >
           {COLOR_PALETTE.map((c) => (
@@ -233,7 +293,7 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string)
               type="button"
               onClick={() => { onChange(c); setOpen(false); }}
               className={cn(
-                'h-5 w-5 rounded-sm inline-flex items-center justify-center',
+                'h-6 w-6 rounded-sm inline-flex items-center justify-center',
                 value === c && 'ring-2 ring-text-primary ring-offset-1 ring-offset-surface',
               )}
               style={{ background: c }}

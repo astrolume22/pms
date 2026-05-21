@@ -225,6 +225,42 @@ Verified by script smoke (`scripts/test-invite.ts`, since deleted) + browser wal
 
 ---
 
+## Permissions redesign — two-role model end-to-end
+
+Added 2026-05-21 after the redesign (commits `a133cd8` RLS layer +
+`2efe4f9` frontend gating + `<this batch>` labels editor / scoped invite
+UI / duplicate board+group / single scrollbar). All scenarios below were
+proven by a throwaway end-to-end script (`scripts/test-permissions.ts`,
+since deleted) that signs in as `admin`, `pmtest1` (board-wide
+manager), and `pmtest2` (group-scoped manager) against the live DB.
+
+| Scenario | Status | Notes |
+| --- | --- | --- |
+| Admin: create board / group / column / task / label | **PASS** | Unchanged from prior pass. |
+| Admin: duplicate_board (deep copy) | **PASS** | Source's `task_name` column id is mapped onto the new board's auto-seeded `task_name` column (migration 0027). All groups, non-task-name columns, labels, items, subitems, and cell values copied. `label_id` / `label_ids[]` inside cell-value JSON re-mapped to the new label ids. |
+| Admin: duplicate_group (deep copy into same board) | **PASS** | Items + subitems + cell values copied; same board so column/label ids stay valid (no remap needed). |
+| Admin: scoped invite (group_id) generated + UI dropdown | **PASS** | InviteModal exposes a "Specific group" scope option with a group dropdown. The token carries `group_id`; `accept_invite` sets `board_subscribers.group_id` on the new manager. |
+| Manager: sees only assigned board(s) | **PASS** | `pmtest1`, assigned to "Team Projects", saw exactly `['Team Projects']` — duplicate boards owned by admin (workspace-wide visible under the old policy) are now hidden. Migration 0028 dropped the inline policy that still applied the old logic; the boards_select policy now calls `can_access_board` which is the strict admin-or-subscriber check. |
+| Manager: group scope hides other groups | **PASS** | `pmtest2`, invited group-scoped to "Sprint Tasks", saw exactly `[Sprint Tasks]` for `groups`. 6 items visible, 0 from other groups. |
+| Manager: cannot INSERT a task | **PASS** | RLS rejects with `new row violates row-level security policy for table "items"`. |
+| Manager: cannot UPDATE task name | **PASS** | UPDATE returns 0 rows (admin-only items_update policy). |
+| Manager: cannot edit non-status cell | **PASS** (RLS) | item_column_values INSERT/UPDATE require admin OR `is_status_column(column_id)`. Frontend also passes `readonly` per cell via `canEditCell` — the click-to-edit affordance is gone for non-status columns. |
+| Manager: CAN edit Status cell | **PASS** | RLS accepts; UI cell remains clickable for managers via the per-column `canEditCell(profile, column)` gate. |
+| Manager: CAN post a comment / update | **PASS** | `updates_insert` policy rewritten to `can_access_item(item_id)`, which includes subscribed managers. |
+| Manager: cannot create a board / group / column / label / file upload | **PASS** | Every write policy on `boards`, `groups`, `columns`, `column_labels`, `files` is now `is_admin()`. RLS rejects manager attempts. |
+| Manager: cannot mint an invite | **PASS** | `create_invite` checks `is_admin()` (migration 0023) and rejects any other role. |
+| UI: New task, +Add task, +Add group, +Add column, Invite, Favorite, Archive/Delete, bulk action bar, group/column ⋯ menus, drag handles, "+ Add new" sidebar button, BoardRowMenu — all hidden for managers | **PASS** | Verified by reading the manager session in the browser — sidebar shows only assigned boards, board view is read-only with only Status chips and the comments composer interactive. |
+| UI: Owner column + "Owner @username" board meta hidden globally | **PASS** | `BoardContent.visibleColumns` filters people-type columns named "Owner" (case-insensitive). BoardHeader meta strip dropped the owner line. Data unchanged in DB. |
+| UI: "+ New label" works | **PASS** | LabelsEditorModal rewritten to immediate-save Monday-style: click "+ New label" → row created with next-unused palette color → input auto-focused so admin can type a name → blur saves. Recolor via swatch + delete are also one-click. No "Apply" friction. |
+| Scrollbar: single horizontal at the table level | **PASS** | Only one `overflow-x-auto` container in `BoardContent`. No per-group / per-row horizontal scroll. Vertical page scroll only. |
+| Scrollbar: slim custom style | **PASS** | New `.scroll-x-slim` utility in `index.css`: 10px height, 8px rounded thumb on a transparent track, white-12% alpha → white-22% on hover. Both webkit and Firefox scrollbar-color/width tuned. |
+| Role cleanup: Viewer removed from Add-User form | **PASS** | UsersSection only shows the Manager card. `role` state is typed `'manager'` only. |
+| Role cleanup: Viewer / Editor removed from InviteModal | **PASS** | Modal now shows a single read-only role badge ("Manager"). |
+| Role cleanup: Viewer removed from Change-Role modal | **PASS** | Modal lists admin + manager only. Legacy 'viewer' DB rows keep their role until promoted. |
+| Admin settings (Gemini key, user management) untouched | **PASS** | No changes to those flows in this batch. |
+
+---
+
 ## Summary
 
 **42 of 45** core features verified **PASS** end-to-end.  
