@@ -3,7 +3,9 @@ import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, T
 
 // AiPanel pulls in markdown parsing + the Gemini chat machinery — only
 // load it the first time the user opens the AI Sidekick.
-const AiPanel = lazy(() => import('@/components/ai/AiPanel').then((m) => ({ default: m.AiPanel })));
+const AiPanel     = lazy(() => import('@/components/ai/AiPanel').then((m)     => ({ default: m.AiPanel })));
+// InviteModal is only used by admins / owners / managers — defer.
+const InviteModal = lazy(() => import('@/components/board/InviteModal').then((m) => ({ default: m.InviteModal })));
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/Avatar';
@@ -43,6 +45,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const [description, setDescription] = useState(board.description ?? '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
 
   useEffect(() => setName(board.name), [board.name]);
@@ -207,15 +210,18 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           >
             <Star className={cn('h-4 w-4', board.is_favorite && 'fill-warning text-warning')} />
           </button>
-          <button
-            type="button"
-            className="btn-secondary h-8 px-3"
-            disabled
-            title="Invite — Phase 5"
-          >
-            <UserPlus className="h-4 w-4 mr-1" />
-            Invite
-          </button>
+          {/* Invite — admin / board-owner / manager can mint links */}
+          {(isAdmin || isOwner || profile?.role === 'manager') && (
+            <button
+              type="button"
+              onClick={() => setInviteOpen(true)}
+              className="btn-secondary h-8 px-3"
+              title="Invite teammates with a shareable link"
+            >
+              <UserPlus className="h-4 w-4 mr-1" />
+              Invite
+            </button>
+          )}
           <div className="relative">
             <button
               type="button"
@@ -287,6 +293,16 @@ export function BoardHeader({ board }: BoardHeaderProps) {
       {aiOpen && (
         <Suspense fallback={null}>
           <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} board={board} />
+        </Suspense>
+      )}
+      {inviteOpen && (
+        <Suspense fallback={null}>
+          <InviteModal
+            open={inviteOpen}
+            onClose={() => setInviteOpen(false)}
+            boardId={board.id}
+            boardName={board.name}
+          />
         </Suspense>
       )}
     </div>

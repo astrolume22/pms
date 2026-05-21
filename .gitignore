@@ -11,6 +11,7 @@ build/
 
 # Generated route tree (TanStack Router)
 src/routeTree.gen.ts
+.tanstack/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
