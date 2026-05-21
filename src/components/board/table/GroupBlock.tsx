@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Trash2, Pencil, Copy, Palette,
+  ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Trash2, Pencil, Copy, Palette, Check,
 } from 'lucide-react';
 import type { GroupRow, ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { ItemRow as ItemRowComp } from './ItemRow';
@@ -119,25 +119,57 @@ export function GroupBlock({
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         {renaming ? (
-          <input
-            autoFocus
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={() => void commitName()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void commitName();
-              else if (e.key === 'Escape') { setDraftName(group.name); setRenaming(false); }
-            }}
-            className="text-base font-bold tracking-tight bg-surface border border-brand rounded-sm px-1 outline-none"
-            style={{ color: group.color }}
-          />
+          <div className="flex items-center gap-1">
+            <input
+              autoFocus
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              // NOTE: don't commit on blur — the user might be clicking the Save
+              // button. Pressing Save / Enter / Escape are the explicit exits.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void commitName();
+                } else if (e.key === 'Escape') {
+                  setDraftName(group.name);
+                  setRenaming(false);
+                }
+              }}
+              className="text-base font-bold tracking-tight bg-surface border border-brand rounded-sm px-1.5 py-0.5 outline-none min-w-[140px]"
+              style={{ color: group.color }}
+            />
+            <button
+              type="button"
+              onClick={() => void commitName()}
+              disabled={update.isPending}
+              aria-label="Save group name"
+              title="Save (Enter)"
+              className="h-6 px-2 inline-flex items-center gap-1 rounded-sm bg-brand text-white text-xs font-medium hover:bg-brand-hover disabled:opacity-40"
+            >
+              <Check className="h-3 w-3" />
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDraftName(group.name); setRenaming(false); }}
+              className="h-6 px-2 rounded-sm text-text-secondary text-xs hover:bg-hover"
+              title="Cancel (Esc)"
+            >
+              Cancel
+            </button>
+          </div>
         ) : (
           <button
             type="button"
-            onDoubleClick={() => canEdit && setRenaming(true)}
-            className="text-base font-bold tracking-tight"
+            // Single click — matches Monday. Title doubles as the rename
+            // affordance; the Rename menu item is also wired up below.
+            onClick={() => canEdit && setRenaming(true)}
+            className={cn(
+              'text-base font-bold tracking-tight rounded-sm px-1 -mx-1',
+              canEdit && 'hover:bg-hover cursor-text',
+            )}
             style={{ color: group.color }}
-            title={canEdit ? 'Double-click to rename' : ''}
+            title={canEdit ? 'Click to rename' : ''}
           >
             {group.name}
           </button>

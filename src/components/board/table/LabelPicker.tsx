@@ -49,9 +49,13 @@ export function LabelPicker({
     }
   };
 
+  // Monday-style roomy popover. Big colored buttons in a 2-column grid,
+  // ~210px wide × 36px tall each, white centered text, no ring outline on
+  // selected — Monday uses a check overlay only. "Edit Labels" footer
+  // mirrors Monday's pencil row, full-width and underlined-on-hover.
   return (
-    <div className="p-2 w-[260px]">
-      <div className="grid grid-cols-2 gap-1.5">
+    <div className="p-3 w-[480px] max-w-[calc(100vw-32px)]">
+      <div className="grid grid-cols-2 gap-2">
         {labels.map((l) => {
           const isSelected = selectedIds.includes(l.id);
           return (
@@ -60,18 +64,21 @@ export function LabelPicker({
               type="button"
               onClick={() => toggle(l.id)}
               className={cn(
-                'h-7 px-2 rounded-base text-xs font-medium text-white inline-flex items-center justify-between gap-1 truncate',
-                isSelected && 'ring-2 ring-text-primary ring-offset-1 ring-offset-surface',
+                'relative h-9 px-3 rounded-base text-[13px] font-semibold text-white inline-flex items-center justify-center gap-2',
+                'transition-transform duration-75 hover:brightness-110 active:scale-[0.98]',
+                isSelected && 'outline outline-2 outline-white/70',
               )}
               style={{ background: l.color }}
             >
-              <span className="truncate">{l.name}</span>
-              {isSelected && <Check className="h-3 w-3 shrink-0" />}
+              <span className="truncate text-center">{l.name}</span>
+              {isSelected && <Check className="h-3.5 w-3.5 shrink-0 absolute right-2 top-1/2 -translate-y-1/2" />}
             </button>
           );
         })}
       </div>
-      <div className="mt-2 flex gap-1">
+
+      {/* Inline create row */}
+      <div className="mt-3 flex gap-2">
         <input
           type="text"
           value={newName}
@@ -83,35 +90,39 @@ export function LabelPicker({
             }
           }}
           placeholder="New label name"
-          className="flex-1 input h-7 text-xs"
+          className="flex-1 input h-9 text-[13px]"
         />
         <button
           type="button"
           onClick={() => void onCreate()}
           disabled={creating || !newName.trim()}
-          className="h-7 px-2 rounded-base bg-brand text-white text-xs font-medium hover:bg-brand-hover disabled:opacity-40"
+          className="h-9 px-3 rounded-base bg-brand text-white text-[13px] font-medium hover:bg-brand-hover disabled:opacity-40 inline-flex items-center gap-1"
           aria-label="Add label"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" /> Add
         </button>
       </div>
-      <button
-        type="button"
-        onClick={onOpenLabelsEditor}
-        className="mt-2 w-full h-7 inline-flex items-center justify-center gap-1 rounded-base text-xs text-text-secondary hover:bg-hover"
-      >
-        <Settings className="h-3.5 w-3.5" />
-        Edit Labels
-      </button>
-      {multi && onDone && (
+
+      {/* Footer — Edit Labels + (optional) Done */}
+      <div className="mt-3 pt-3 border-t border-border-light flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={onDone}
-          className="mt-2 w-full h-7 rounded-base bg-brand text-white text-xs font-medium hover:bg-brand-hover"
+          onClick={onOpenLabelsEditor}
+          className="flex-1 h-8 inline-flex items-center justify-center gap-1.5 rounded-base text-[13px] text-text-secondary hover:bg-hover hover:text-text-primary"
         >
-          Done
+          <Settings className="h-4 w-4" />
+          Edit Labels
         </button>
-      )}
+        {multi && onDone && (
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-8 px-4 rounded-base bg-brand text-white text-[13px] font-medium hover:bg-brand-hover"
+          >
+            Done
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  X, Maximize2, ChevronRight, MessageSquare, Paperclip, Clock, MoreHorizontal,
+  X, Maximize2, ChevronRight, MessageSquare, Paperclip, Clock, MoreHorizontal, User, Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { BoardWithOwner } from '@/hooks/boards';
@@ -109,13 +109,17 @@ export function TaskDetail({
   // Reload items list when posting updates (so updated_at reflects in board)
   const onAfterMutate = () => void qc.invalidateQueries({ queryKey: ['items', 'board', board.id] });
 
+  // updates count for the tab badge — best-effort, falls back gracefully.
+  // (Cheap: we already have items, no extra fetch wired here on purpose.)
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header — Monday-style: X close on the left, big task name centered-left,
+          person + chat + more icons on the right. Breadcrumb dropped from the
+          header (Monday shows it only in the full-page variant). */}
       <header
         className={cn(
-          'flex items-center gap-2 px-4 py-3 border-b border-border-light bg-surface shrink-0',
-          variant === 'panel' && 'shadow-sm',
+          'flex items-center gap-2 px-5 py-3.5 border-b border-border-light bg-surface shrink-0',
         )}
       >
         {variant === 'panel' && onClose && (
@@ -123,23 +127,25 @@ export function TaskDetail({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="h-7 w-7 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover shrink-0"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover shrink-0"
           >
-            <X className="h-4 w-4" />
+            <X className="h-[18px] w-[18px]" />
           </button>
         )}
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] text-text-secondary flex items-center gap-1 truncate">
-            <Link to="/" className="hover:underline">Main workspace</Link>
-            <ChevronRight className="h-3 w-3" />
-            <Link
-              to="/w/$workspace/b/$boardId"
-              params={{ workspace: 'main', boardId: board.id }}
-              className="hover:underline truncate"
-            >
-              {board.icon_emoji} {board.name}
-            </Link>
-          </p>
+          {variant === 'full' && (
+            <p className="text-[11px] text-text-secondary flex items-center gap-1 truncate mb-0.5">
+              <Link to="/" className="hover:underline">Main workspace</Link>
+              <ChevronRight className="h-3 w-3" />
+              <Link
+                to="/w/$workspace/b/$boardId"
+                params={{ workspace: 'main', boardId: board.id }}
+                className="hover:underline truncate"
+              >
+                {board.icon_emoji} {board.name}
+              </Link>
+            </p>
+          )}
           <div className="flex items-center gap-2">
             {renaming && canEdit ? (
               <input
@@ -151,12 +157,15 @@ export function TaskDetail({
                   if (e.key === 'Enter') void commitRename();
                   else if (e.key === 'Escape') { setDraftName(item.name); setRenaming(false); }
                 }}
-                className="flex-1 text-xl font-semibold leading-tight bg-surface border border-brand rounded-sm px-1 outline-none"
+                className="flex-1 text-[22px] font-semibold leading-tight bg-surface border border-brand rounded-sm px-1 outline-none"
               />
             ) : (
               <h2
                 onClick={() => canEdit && startRename()}
-                className={cn('flex-1 text-xl font-semibold leading-tight truncate', canEdit && 'cursor-text hover:bg-hover px-1 -mx-1 rounded-sm')}
+                className={cn(
+                  'flex-1 text-[22px] font-semibold leading-tight truncate',
+                  canEdit && 'cursor-text hover:bg-hover px-1 -mx-1 rounded-sm',
+                )}
               >
                 {item.name}
               </h2>
@@ -164,25 +173,46 @@ export function TaskDetail({
             <span className="text-[11px] font-mono text-text-disabled shrink-0">{item.task_code}</span>
           </div>
         </div>
-        {variant === 'panel' && fullPageHref && (
-          <Link
-            to={fullPageHref}
-            aria-label="Open full page"
-            title="Open full page"
-            className="h-7 w-7 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover shrink-0"
+        {/* Right action cluster — person, chat, more, expand, close placeholders */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            aria-label="Subscribers"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+            title="Subscribers"
+            disabled
           >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </Link>
-        )}
-        <button
-          type="button"
-          aria-label="More"
-          disabled
-          className="h-7 w-7 inline-flex items-center justify-center rounded-sm text-text-disabled shrink-0"
-          title="Task menu — Phase 5"
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
+            <User className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            type="button"
+            aria-label="Activity"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+            title="Activity"
+            disabled
+          >
+            <MessageSquare className="h-[18px] w-[18px]" />
+          </button>
+          {variant === 'panel' && fullPageHref && (
+            <Link
+              to={fullPageHref}
+              aria-label="Open full page"
+              title="Open full page"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+            >
+              <Maximize2 className="h-[18px] w-[18px]" />
+            </Link>
+          )}
+          <button
+            type="button"
+            aria-label="More"
+            disabled
+            className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-disabled"
+            title="Task menu — Phase 6"
+          >
+            <MoreHorizontal className="h-[18px] w-[18px]" />
+          </button>
+        </div>
       </header>
 
       {/* Scrollable body */}
@@ -210,14 +240,26 @@ export function TaskDetail({
           />
         )}
 
-        {/* Tabs */}
-        <div className="px-2 pt-2 border-b border-border-light flex items-center gap-1 sticky top-0 bg-surface z-[1]">
-          <TabBtn active={tab === 'updates'}  onClick={() => setTab('updates')}  icon={<MessageSquare className="h-3.5 w-3.5" />} label="Updates" />
-          <TabBtn active={tab === 'files'}    onClick={() => setTab('files')}    icon={<Paperclip className="h-3.5 w-3.5" />}     label="Files" />
-          <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Clock className="h-3.5 w-3.5" />}         label="Activity" />
+        {/* Tabs — Monday-style: bigger row, underline indicator with
+            tab icon left of the label, "+" button at the end to suggest
+            extensibility. */}
+        <div className="px-4 border-b border-border-light flex items-center gap-1 sticky top-0 bg-surface z-[1]">
+          <TabBtn active={tab === 'updates'}  onClick={() => setTab('updates')}  icon={<MessageSquare className="h-4 w-4" />} label="Updates" />
+          <TabBtn active={tab === 'files'}    onClick={() => setTab('files')}    icon={<Paperclip className="h-4 w-4" />}     label="Files" />
+          <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} icon={<Clock className="h-4 w-4" />}         label="Activity Log" />
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled
+            title="Add tab — Phase 6"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-base text-text-disabled"
+            aria-label="Add tab"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
 
-        <div className="p-4">
+        <div className="px-4 py-4">
           {tab === 'updates'  && <UpdatesTab itemId={item.id} canEdit={canEdit} />}
           {tab === 'files'    && <FilesTab boardId={board.id} itemId={item.id} canEdit={canEdit} />}
           {tab === 'activity' && <ActivityTab itemId={item.id} boardId={board.id} />}
@@ -245,11 +287,11 @@ function TabBtn({ active, icon, label, onClick }: {
       type="button"
       onClick={onClick}
       className={cn(
-        'h-8 px-3 -mb-px text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors duration-100',
-        active ? 'border-brand text-brand' : 'border-transparent text-text-secondary hover:text-text-primary',
+        'h-11 px-3 -mb-px text-[13px] font-medium flex items-center gap-2 border-b-2 transition-colors duration-100',
+        active ? 'border-brand text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary',
       )}
     >
-      {icon}
+      <span className={active ? 'text-brand' : 'text-text-secondary'}>{icon}</span>
       {label}
     </button>
   );

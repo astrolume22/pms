@@ -13,7 +13,10 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Mention from '@tiptap/extension-mention';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Bold, Italic, Link as LinkIcon, List, ListOrdered } from 'lucide-react';
+import {
+  Bold, Italic, Underline as UnderlineIcon, Strikethrough, Link as LinkIcon, List, ListOrdered,
+  Type, Palette, Minus, AlignLeft, Table as TableIcon, CheckSquare, Pilcrow,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useActiveUsers } from '@/hooks/users';
 import { MentionList, type MentionListHandle } from './MentionList';
@@ -204,28 +207,39 @@ function Toolbar({ editor }: { editor: Editor }) {
   };
 
   return (
-    <div className="flex items-center gap-0.5 px-1 py-1 border-b border-border-light">
-      <TBtn active={editor.isActive('bold')}    onClick={() => editor.chain().focus().toggleBold().run()}   icon={<Bold className="h-3.5 w-3.5" />}        label="Bold" />
-      <TBtn active={editor.isActive('italic')}  onClick={() => editor.chain().focus().toggleItalic().run()} icon={<Italic className="h-3.5 w-3.5" />}      label="Italic" />
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border-light overflow-x-auto">
+      {/* Heading / paragraph style — disabled placeholder for Monday parity */}
+      <TBtn disabled icon={<Pilcrow className="h-4 w-4" />} label="Paragraph" />
+      <TBtn active={editor.isActive('bold')}    onClick={() => editor.chain().focus().toggleBold().run()}   icon={<Bold className="h-4 w-4" />}        label="Bold" />
+      <TBtn active={editor.isActive('italic')}  onClick={() => editor.chain().focus().toggleItalic().run()} icon={<Italic className="h-4 w-4" />}      label="Italic" />
+      <TBtn disabled icon={<UnderlineIcon className="h-4 w-4" />} label="Underline (Phase 6)" />
+      <TBtn active={editor.isActive('strike')}  onClick={() => editor.chain().focus().toggleStrike().run()} icon={<Strikethrough className="h-4 w-4" />} label="Strikethrough" />
+      <TBtn disabled icon={<Palette className="h-4 w-4" />} label="Text color (Phase 6)" />
+      <TBtn disabled icon={<Type className="h-4 w-4" />} label="Font size (Phase 6)" />
       <div className="h-4 w-px bg-border-light mx-1" />
-      <TBtn active={editor.isActive('bulletList')}  onClick={() => editor.chain().focus().toggleBulletList().run()}  icon={<List className="h-3.5 w-3.5" />}        label="Bulleted list" />
-      <TBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} icon={<ListOrdered className="h-3.5 w-3.5" />} label="Numbered list" />
-      <div className="h-4 w-px bg-border-light mx-1" />
-      <TBtn active={editor.isActive('link')} onClick={setLink} icon={<LinkIcon className="h-3.5 w-3.5" />} label="Link" />
+      <TBtn active={editor.isActive('bulletList')}  onClick={() => editor.chain().focus().toggleBulletList().run()}  icon={<List className="h-4 w-4" />}        label="Bulleted list" />
+      <TBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} icon={<ListOrdered className="h-4 w-4" />} label="Numbered list" />
+      <TBtn disabled icon={<TableIcon className="h-4 w-4" />} label="Table (Phase 6)" />
+      <TBtn active={editor.isActive('link')} onClick={setLink} icon={<LinkIcon className="h-4 w-4" />} label="Link" />
+      <TBtn disabled icon={<AlignLeft className="h-4 w-4" />} label="Align (Phase 6)" />
+      <TBtn disabled icon={<Minus className="h-4 w-4" />} label="Divider (Phase 6)" />
+      <TBtn disabled icon={<CheckSquare className="h-4 w-4" />} label="Checklist (Phase 6)" />
     </div>
   );
 }
 
-function TBtn({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean }) {
+function TBtn({ icon, label, onClick, active, disabled }: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
       className={cn(
-        'h-6 w-6 inline-flex items-center justify-center rounded-sm',
+        'h-7 w-7 inline-flex items-center justify-center rounded-sm shrink-0',
         active ? 'bg-selected text-brand' : 'text-text-secondary hover:bg-hover',
+        disabled && 'opacity-40 cursor-not-allowed',
       )}
     >
       {icon}

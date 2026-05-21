@@ -23,18 +23,23 @@
   --primary-blue-active: #004B95;
 }
 
-/* ---------- Design tokens (dark) ---------- */
+/* ---------- Design tokens (dark — Monday navy/blue) ---------- */
+/* Sampled from Monday's actual dark theme:
+   - Deep navy app bg (#181B34-ish)
+   - Slightly lighter navy surface for panels / rows (#292F4C)
+   - Hover one notch lighter again
+   - High-contrast white text + soft lavender secondary */
 .dark {
-  --bg-app: #1A1B22;
-  --bg-surface: #2A2C36;
-  --bg-hover: #353845;
-  --bg-selected: #1B3145;
-  --bg-dark: #0F1018;
-  --border-light: #3A3D4A;
-  --border-medium: #4A4D5A;
-  --text-primary: #E4E5EA;
-  --text-secondary: #A0A3B0;
-  --text-disabled: #6E707A;
+  --bg-app: #181B34;
+  --bg-surface: #292F4C;
+  --bg-hover: #353B5A;
+  --bg-selected: #3C4376;
+  --bg-dark: #11132A;
+  --border-light: #353B5A;
+  --border-medium: #4A5179;
+  --text-primary: #FFFFFF;
+  --text-secondary: #B9BCD9;
+  --text-disabled: #7F83A6;
   --text-on-dark: #FFFFFF;
 }
 

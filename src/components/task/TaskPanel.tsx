@@ -33,18 +33,18 @@ export function TaskPanel({ board, itemId, onClose }: TaskPanelProps) {
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      {/* Backdrop */}
+      {/* Backdrop — very light dim so the board behind stays visible like Monday */}
       <div
-        className="flex-1 bg-black/30"
+        className="flex-1 bg-black/20"
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Panel */}
+      {/* Panel — wider (matches Monday's ~720px task pane), big shadow on the left edge */}
       <aside
         role="dialog"
         aria-modal="true"
         aria-label="Task details"
-        className="w-full max-w-[640px] bg-surface text-text-primary shadow-xl flex flex-col task-panel-enter h-full"
+        className="w-full max-w-[760px] bg-surface text-text-primary shadow-2xl flex flex-col task-panel-enter h-full border-l border-border-light"
       >
         <TaskDetail
           board={board}

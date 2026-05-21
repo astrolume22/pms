@@ -1,5 +1,8 @@
 import { useRef, useState } from 'react';
-import { Smile, MoreHorizontal, Pencil, Trash2, MessageSquare } from 'lucide-react';
+import {
+  Smile, MoreHorizontal, Pencil, Trash2, MessageSquare,
+  Mail, MessageCircle, ChevronDown, Paperclip,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useItemUpdates, useCreateUpdate, useDeleteUpdate, useEditUpdate, useToggleReaction,
@@ -44,28 +47,71 @@ export function UpdatesTab({ itemId, canEdit }: { itemId: string; canEdit: boole
     <div className="flex flex-col gap-4">
       {canEdit && (
         <div>
+          {/* Monday-style action row above the composer: Update via email · Give feedback */}
+          <div className="flex items-center gap-5 text-[12px] text-text-secondary mb-2 px-1">
+            <button type="button" className="inline-flex items-center gap-1.5 hover:text-text-primary" disabled title="Update via email — Phase 6">
+              <Mail className="h-3.5 w-3.5" /> Update via email
+            </button>
+            <button type="button" className="inline-flex items-center gap-1.5 hover:text-text-primary" disabled title="Give feedback — Phase 6">
+              <MessageCircle className="h-3.5 w-3.5" /> Give feedback
+            </button>
+          </div>
+
           <RichTextEditor
             ref={editorRef}
-            placeholder="Write an update... Use @ to mention someone"
-            minHeightPx={88}
+            placeholder="Write an update and mention others with @"
+            minHeightPx={120}
           />
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => editorRef.current?.clear()}
-              className="btn-ghost h-8 text-xs"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={() => void onSubmit()}
-              disabled={create.isPending}
-              className="btn-primary h-8 text-xs"
-            >
-              {create.isPending && <Spinner className="h-3 w-3 mr-2" />}
-              Update
-            </button>
+
+          {/* Footer row beneath the composer — left has the small icon cluster
+              (matches Monday's @ / attachment / GIF / emoji / pen quick-actions),
+              right has Clear + Update split-button. */}
+          <div className="mt-2 flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-1 text-text-secondary">
+              <button
+                type="button"
+                onClick={() => editorRef.current?.focus()}
+                title="Mention"
+                className="h-7 w-7 inline-flex items-center justify-center rounded-sm hover:bg-hover text-[13px]"
+              >@</button>
+              <button type="button" title="Attach (Files tab)" disabled className="h-7 w-7 inline-flex items-center justify-center rounded-sm opacity-50">
+                <Paperclip className="h-4 w-4" />
+              </button>
+              <button type="button" title="GIF — Phase 6" disabled className="h-7 px-1.5 inline-flex items-center justify-center rounded-sm text-[10px] font-bold opacity-50">
+                GIF
+              </button>
+              <button type="button" title="Emoji — Phase 6" disabled className="h-7 w-7 inline-flex items-center justify-center rounded-sm opacity-50">
+                <Smile className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => editorRef.current?.clear()}
+                className="btn-ghost h-8 text-[13px]"
+              >
+                Clear
+              </button>
+              <div className="inline-flex items-stretch rounded-base overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => void onSubmit()}
+                  disabled={create.isPending}
+                  className="h-8 px-4 bg-brand text-white text-[13px] font-medium hover:bg-brand-hover disabled:opacity-40 inline-flex items-center"
+                >
+                  {create.isPending && <Spinner className="h-3 w-3 mr-2" />}
+                  Update
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  title="More update options — Phase 6"
+                  className="h-8 px-2 bg-brand/90 text-white border-l border-white/20 inline-flex items-center disabled:opacity-60"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -140,15 +186,15 @@ function UpdateItem({
   };
 
   return (
-    <li className="bg-surface border border-border-light rounded-md p-3">
-      <header className="flex items-center gap-2 mb-2">
-        <Avatar name={author?.full_name ?? author?.username ?? '?'} url={author?.avatar_url} size="sm" />
+    <li className="bg-surface border border-border-light rounded-md p-4">
+      <header className="flex items-center gap-3 mb-3">
+        <Avatar name={author?.full_name ?? author?.username ?? '?'} url={author?.avatar_url} size="md" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium leading-tight truncate">
+          <p className="text-[14px] font-semibold leading-tight truncate">
             {author?.full_name ?? author?.username ?? 'Unknown'}
           </p>
-          <p className="text-[11px] text-text-secondary truncate">
-            @{author?.username ?? '—'} · {relativeTime(update.created_at)}
+          <p className="text-[12px] text-text-secondary truncate">
+            {shortDate(update.created_at)}
             {update.edited_at && <span className="ml-1 text-text-disabled">(edited)</span>}
           </p>
         </div>
@@ -261,14 +307,8 @@ function UpdateItem({
   );
 }
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+// Monday shows the post date as "Apr 24" — short month + day.
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+
