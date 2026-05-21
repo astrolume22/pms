@@ -7,6 +7,7 @@
   /* Neutrals */
   --bg-app: #F6F7FB;
   --bg-surface: #FFFFFF;
+  --bg-sidebar: #FFFFFF;     /* sidebar/icon rail — same as surface in light mode */
   --bg-hover: #F5F6FA;
   --bg-selected: #E6F0FA;
   --bg-dark: #292F4C;
@@ -23,20 +24,25 @@
   --primary-blue-active: #004B95;
 }
 
-/* ---------- Design tokens (dark — Monday navy/blue) ---------- */
-/* Sampled from Monday's actual dark theme:
-   - Deep navy app bg (#181B34-ish)
-   - Slightly lighter navy surface for panels / rows (#292F4C)
-   - Hover one notch lighter again
-   - High-contrast white text + soft lavender secondary */
+/* ---------- Design tokens (dark — Monday navy/blue) ----------
+   Depth ordering, deepest → lightest:
+     --bg-dark       (top bar)              ← deepest
+     --bg-sidebar    (icon rail + nav)      ← near-deepest, continuous with top bar
+     --bg-app        (board canvas)         ← dark navy
+     --bg-surface    (rows / cards / panels — lifted)
+     --bg-hover      (one step up)
+     --bg-selected   (highlight)
+   Borders are intentionally close to the canvas so row seams read as
+   subtle cuts rather than bright lines (Monday's effect). */
 .dark {
-  --bg-app: #181B34;
-  --bg-surface: #292F4C;
-  --bg-hover: #353B5A;
-  --bg-selected: #3C4376;
-  --bg-dark: #11132A;
-  --border-light: #353B5A;
-  --border-medium: #4A5179;
+  --bg-dark: #10122A;
+  --bg-sidebar: #181B35;
+  --bg-app: #1F2347;
+  --bg-surface: #2A2F58;
+  --bg-hover: #363B6A;
+  --bg-selected: #3F4578;
+  --border-light: #1F2347;
+  --border-medium: #4A5083;
   --text-primary: #FFFFFF;
   --text-secondary: #B9BCD9;
   --text-disabled: #7F83A6;

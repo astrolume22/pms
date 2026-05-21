@@ -21,7 +21,7 @@ export function IconRail() {
   return (
     <nav
       aria-label="Primary"
-      className="w-12 shrink-0 flex flex-col items-center py-2 gap-1 border-r border-border-light bg-surface"
+      className="w-12 shrink-0 flex flex-col items-center py-2 gap-1 border-r border-border-light bg-sidebar"
     >
       {ITEMS.map((it) => (
         <button

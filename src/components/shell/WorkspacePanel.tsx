@@ -40,7 +40,7 @@ export function WorkspacePanel() {
   const allBoards = (boards ?? []).filter((b) => !b.archived_at);
 
   return (
-    <aside className="w-60 shrink-0 border-r border-border-light bg-surface flex flex-col">
+    <aside className="w-60 shrink-0 border-r border-border-light bg-sidebar flex flex-col">
       {/* Workspace switcher */}
       <div className="p-3 border-b border-border-light">
         <button

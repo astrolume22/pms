@@ -14,6 +14,7 @@ export default {
         // Semantic surfaces (driven by CSS vars so dark mode swaps automatically)
         app: 'var(--bg-app)',
         surface: 'var(--bg-surface)',
+        sidebar: 'var(--bg-sidebar)',
         hover: 'var(--bg-hover)',
         selected: 'var(--bg-selected)',
         dark: 'var(--bg-dark)',
