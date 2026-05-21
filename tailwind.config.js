@@ -5,11 +5,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Brand
+        // Brand — Monday-night spec uses #2B7FFF as the primary action.
         brand: {
-          DEFAULT: '#0073EA',
-          hover: '#0060BD',
-          active: '#004B95',
+          DEFAULT: '#2B7FFF',
+          hover: '#1E6FE8',
+          active: '#1A5DC9',
         },
         // Semantic surfaces (driven by CSS vars so dark mode swaps automatically)
         app: 'var(--bg-app)',
@@ -52,7 +52,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Roboto', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        sans: ['Figtree', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
         mono: ['"Roboto Mono"', '"Fira Code"', 'monospace'],
       },
       fontSize: {

@@ -38,10 +38,17 @@ export function LabelPicker({
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      // Pick a color the user hasn't used yet, falling back to brand blue.
+      // Pick a color the user hasn't used yet from the Monday-night chip
+      // palette (status / task-type / time / priority / accent groups).
       const used = new Set(labels.map((l) => l.color));
-      const palette = ['#00C875', '#FDAB3D', '#E2445C', '#A25DDC', '#0086C0', '#579BFC', '#FF158A', '#9CD326'];
-      const color = palette.find((c) => !used.has(c)) ?? '#0073EA';
+      const palette = [
+        '#F8BD6D', '#787F92', '#D0728A', '#33C481',   // status row
+        '#3DA0CA', '#1F5A62', '#B17FE0', '#265565',   // task-type row
+        '#F9885E', '#7DAFF8', '#F74EA1', '#459CC7', '#71BCA5', // time/effort
+        '#6646A7', '#51458F', '#3E3A6B',              // priority ramp
+        '#FF3D8B',                                    // accent
+      ];
+      const color = palette.find((c) => !used.has(c)) ?? '#2B7FFF';
       await create.mutateAsync({ boardId, columnId, name: newName, color });
       setNewName('');
     } finally {

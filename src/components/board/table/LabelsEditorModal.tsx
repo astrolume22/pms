@@ -13,10 +13,20 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
+// Monday-night chip palette — grouped semantically so admins can scan
+// "warm = effort / cool = chill / purple = priority" while picking.
+// Hover the swatch to see why each shade was chosen.
 const COLOR_PALETTE = [
-  '#00C875', '#E2445C', '#FDAB3D', '#FFCB00', '#A25DDC', '#784BD1',
-  '#0086C0', '#579BFC', '#037F4C', '#0F5662', '#FF158A', '#FF6E92',
-  '#9CD326', '#C4C4C4', '#808080', '#7E3B08', '#FF7575', '#225091',
+  // Status (warm → cool → done)
+  '#F8BD6D', '#D0728A', '#787F92', '#33C481',
+  // Task type / ownership lanes
+  '#3DA0CA', '#1F5A62', '#B17FE0', '#265565',
+  // Time / effort spectrum
+  '#F9885E', '#F74EA1', '#7DAFF8', '#459CC7', '#71BCA5',
+  // Priority ramp (purple intensity)
+  '#6646A7', '#51458F', '#3E3A6B',
+  // Hero accents
+  '#FF3D8B', '#FFCB00',
 ];
 
 interface LabelsEditorModalProps {

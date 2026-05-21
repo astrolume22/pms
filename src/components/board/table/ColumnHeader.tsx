@@ -100,8 +100,9 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(
-        'group/col relative shrink-0 border-r border-border-light flex items-center px-2',
-        'bg-app/60 text-xs uppercase tracking-wide text-text-secondary font-medium',
+        'group/col relative shrink-0 border-r border-border-light flex items-center px-3',
+        // Monday-night spec: 13px / medium / 0.2px tracking / muted lavender-grey.
+        'bg-app/60 col-header-text',
         sortable.isDragging && 'z-10',
         isTaskName && 'sticky left-10 z-[5] bg-app/95 backdrop-blur-sm',
       )}
@@ -126,7 +127,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
               else if (e.key === 'Escape') { setDraft(column.name); setRenaming(false); }
             }}
             className={cn(
-              'flex-1 min-w-0 h-6 px-1 text-xs uppercase tracking-wide bg-surface border border-brand rounded-sm outline-none',
+              'flex-1 min-w-0 h-6 px-1 bg-surface border border-brand rounded-sm outline-none col-header-text',
               !isTaskName && 'text-center',
             )}
           />

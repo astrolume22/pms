@@ -73,14 +73,18 @@ export function LabelCell({
             )}
           </div>
         ) : (
-          // Status/Priority: full-cell saturated color, white centered label
-          <span
-            className="block w-full h-full text-[13px] font-semibold text-white flex items-center justify-center px-3 tracking-[0.005em]"
-            style={{ background: selectedLabels[0].color }}
-            title={selectedLabels[0].name}
-          >
-            <span className="truncate">{selectedLabels[0].name}</span>
-          </span>
+          // Status/Priority: full-cell saturated color block with a thin
+          // 3px inset and 4px rounded corners — per Monday-night spec the
+          // chip should appear to "glow" against the muted navy ground.
+          <div className="w-full h-full p-[3px]">
+            <span
+              className="status-chip"
+              style={{ background: selectedLabels[0].color }}
+              title={selectedLabels[0].name}
+            >
+              <span className="truncate">{selectedLabels[0].name}</span>
+            </span>
+          </div>
         )}
       </div>
       <Popover anchorRef={anchorRef} open={isEditing} onClose={onEndEdit} minWidth={260}>

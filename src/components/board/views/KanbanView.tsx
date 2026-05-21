@@ -17,9 +17,14 @@ import { EmptyMessage } from '@/components/EmptyMessage';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 
+// Same Monday-night chip palette LabelPicker uses — picked in this order
+// so the first auto-added Kanban column reads as "Active orange".
 const LABEL_PALETTE = [
-  '#00C875', '#FDAB3D', '#E2445C', '#A25DDC', '#0086C0', '#579BFC',
-  '#037F4C', '#FF158A', '#9CD326', '#225091', '#784BD1', '#FF7575',
+  '#F8BD6D', '#787F92', '#D0728A', '#33C481',
+  '#3DA0CA', '#1F5A62', '#B17FE0', '#265565',
+  '#F9885E', '#7DAFF8', '#F74EA1', '#459CC7', '#71BCA5',
+  '#6646A7', '#51458F', '#3E3A6B',
+  '#FF3D8B',
 ];
 
 interface KanbanViewProps {

@@ -29,9 +29,12 @@ interface GroupBlockProps {
   rowMinWidth: number;
 }
 
+// Group-title accent colors — anchored on the Monday-night spec's two
+// hero accents (#FF3D8B pink, #33C481 green) plus a curated set so each
+// group on a board gets a visually distinct left bar + title color.
 const COLORS = [
-  '#00C875', '#E2445C', '#FDAB3D', '#FFCB00', '#A25DDC', '#784BD1',
-  '#0086C0', '#579BFC', '#037F4C', '#FF158A', '#9CD326', '#225091',
+  '#FF3D8B', '#33C481', '#F8BD6D', '#6646A7', '#3DA0CA', '#F74EA1',
+  '#B17FE0', '#71BCA5', '#459CC7', '#D0728A', '#7DAFF8', '#F9885E',
 ];
 
 export function GroupBlock({
@@ -96,7 +99,9 @@ export function GroupBlock({
           title/menu/etc. stay visible when the user scrolls horizontally.
           Taller padding to match Monday's roomier group bar. */}
       <div
-        className="sticky left-0 z-[4] flex items-center gap-2 py-2.5 pl-2 pr-3 bg-surface border-l-[5px]"
+        // Group header bar — sticks to the left edge, taller (~52px row
+        // discipline) with the colored accent strip down the left.
+        className="sticky left-0 z-[4] flex items-center gap-2 py-3 pl-2 pr-3 bg-surface border-l-[5px]"
         style={{ borderLeftColor: group.color, maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
@@ -135,7 +140,7 @@ export function GroupBlock({
                   setRenaming(false);
                 }
               }}
-              className="text-base font-bold tracking-tight bg-surface border border-brand rounded-sm px-1.5 py-0.5 outline-none min-w-[140px]"
+              className="group-title-text bg-surface border border-brand rounded-sm px-1.5 py-0.5 outline-none min-w-[180px]"
               style={{ color: group.color }}
             />
             <button
@@ -165,7 +170,7 @@ export function GroupBlock({
             // affordance; the Rename menu item is also wired up below.
             onClick={() => canEdit && setRenaming(true)}
             className={cn(
-              'text-base font-bold tracking-tight rounded-sm px-1 -mx-1',
+              'group-title-text rounded-sm px-1 -mx-1',
               canEdit && 'hover:bg-hover cursor-text',
             )}
             style={{ color: group.color }}
