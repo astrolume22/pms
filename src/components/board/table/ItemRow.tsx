@@ -8,6 +8,8 @@ import { CellRenderer } from './cells/CellRenderer';
 import { useUpdateCellValue } from '@/hooks/items';
 import { useBoardViewStore, ITEM_HEIGHT_PX } from '@/state/boardViewStore';
 import { COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH, GUTTER_WIDTH } from './tableLayout';
+import { useAuthStore } from '@/state/authStore';
+import { canEditCell } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
 
 interface ItemRowProps {
@@ -42,6 +44,7 @@ export function ItemRow({
   const rowHeight = ITEM_HEIGHT_PX[itemHeight];
 
   const updateCell = useUpdateCellValue();
+  const profile = useAuthStore((s) => s.profile);
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
 
   const openTaskPanel = () => {
@@ -85,13 +88,16 @@ export function ItemRow({
             <GripVertical className="h-3.5 w-3.5" />
           </button>
         )}
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => toggleSel(item.id)}
-          className="h-3.5 w-3.5 accent-brand cursor-pointer"
-          aria-label={isSelected ? 'Deselect task' : 'Select task'}
-        />
+        {/* Selection checkbox drives the bulk-action bar — admin-only feature. */}
+        {canEdit && (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSel(item.id)}
+            className="h-3.5 w-3.5 accent-brand cursor-pointer"
+            aria-label={isSelected ? 'Deselect task' : 'Select task'}
+          />
+        )}
         {hasSubitems && onToggleSubitems && !isSubitem && (
           <button
             type="button"
@@ -119,7 +125,7 @@ export function ItemRow({
             value={valuesByItemColumn.get(`${item.id}:${taskNameCol.id}`)}
             labelsForColumn={labelsByColumnId.get(taskNameCol.id)}
             boardId={boardId}
-            readonly={!canEdit}
+            readonly={!canEditCell(profile, taskNameCol)}
             isEditing={editingColumnId === taskNameCol.id}
             onStartEdit={() => setEditingColumnId(taskNameCol.id)}
             onEndEdit={() => setEditingColumnId(null)}
@@ -169,7 +175,7 @@ export function ItemRow({
               value={val}
               labelsForColumn={labelsByColumnId.get(col.id)}
               boardId={boardId}
-              readonly={!canEdit}
+              readonly={!canEditCell(profile, col)}
               isEditing={editingColumnId === col.id}
               onStartEdit={() => setEditingColumnId(col.id)}
               onEndEdit={() => setEditingColumnId(null)}

@@ -297,26 +297,32 @@ export function GroupBlock({
                           onOpenLabelsEditor={onOpenLabelsEditor}
                         />
                       ))}
-                      <AddItemRow
-                        boardId={boardId}
-                        groupId={group.id}
-                        parentItemId={it.id}
-                        totalWidth={rowMinWidth}
-                        placeholder="+ Add subitem"
-                        disabled={!canEdit}
-                      />
+                      {/* Subitem-add row — admin only */}
+                      {canEdit && (
+                        <AddItemRow
+                          boardId={boardId}
+                          groupId={group.id}
+                          parentItemId={it.id}
+                          totalWidth={rowMinWidth}
+                          placeholder="+ Add subitem"
+                          disabled={false}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
           </SortableContext>
-          <AddItemRow
-            boardId={boardId}
-            groupId={group.id}
-            totalWidth={rowMinWidth}
-            disabled={!canEdit}
-          />
+          {/* Group's "+ Add task" footer row — admin only */}
+          {canEdit && (
+            <AddItemRow
+              boardId={boardId}
+              groupId={group.id}
+              totalWidth={rowMinWidth}
+              disabled={false}
+            />
+          )}
           {/* Column footer summaries */}
           <ColumnFooter
             visibleColumns={visibleColumns}

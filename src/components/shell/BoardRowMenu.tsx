@@ -36,9 +36,10 @@ export function BoardRowMenu({ board, onRename, onChangeIcon }: BoardRowMenuProp
 
   if (!profile) return null;
 
+  // Per docs/PERMISSIONS-REDESIGN-PLAN.md: only admins manage boards.
   const isAdmin = profile.role === 'admin' || profile.is_super_admin;
-  const isOwner = board.owner_id === profile.id;
-  const canManage = isAdmin || isOwner;
+  if (!isAdmin) return null;
+  const canManage = isAdmin;
 
   return (
     <div className="relative" ref={ref}>

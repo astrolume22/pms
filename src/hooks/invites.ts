@@ -56,15 +56,17 @@ export function useCreateInvite() {
     mutationFn: async (args: {
       role: UserRole;
       boardId: string | null;
+      groupId?: string | null;
       expiresInHours?: number;
-    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; expires_at: string }> => {
+    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string }> => {
       const { data, error } = await supabase.rpc('create_invite', {
         p_role: args.role,
         p_board_id: args.boardId,
         p_expires_in_hours: args.expiresInHours ?? 168,
+        p_group_id: args.groupId ?? null,
       });
       if (error) throw error;
-      return data as { id: string; token: string; role: UserRole; board_id: string | null; expires_at: string };
+      return data as { id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string };
     },
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({

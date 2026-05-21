@@ -19,7 +19,8 @@ export function WorkspacePanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [iconEditingId, setIconEditingId] = useState<string | null>(null);
 
-  const canCreate = !!profile && (profile.role === 'admin' || profile.role === 'manager');
+  // Per docs/PERMISSIONS-REDESIGN-PLAN.md: only admins create boards.
+  const canCreate = !!profile && (profile.role === 'admin' || profile.is_super_admin);
 
   const { data: workspace } = useQuery({
     queryKey: ['workspace', 'main'],
@@ -123,10 +124,13 @@ export function WorkspacePanel() {
         </div>
       </div>
 
-      {/* Add new */}
-      <div className="p-3 border-t border-border-light">
-        <AddNewMenu canCreate={canCreate} onCreateBoard={() => setCreateOpen(true)} />
-      </div>
+      {/* Add new — admin only. Managers see a clean sidebar with just
+          their assigned boards. */}
+      {canCreate && (
+        <div className="p-3 border-t border-border-light">
+          <AddNewMenu canCreate={canCreate} onCreateBoard={() => setCreateOpen(true)} />
+        </div>
+      )}
 
       <CreateBoardModal open={createOpen} onClose={() => setCreateOpen(false)} />
 

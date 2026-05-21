@@ -8,7 +8,6 @@ const AiPanel     = lazy(() => import('@/components/ai/AiPanel').then((m)     =>
 const InviteModal = lazy(() => import('@/components/board/InviteModal').then((m) => ({ default: m.InviteModal })));
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
-import { Avatar } from '@/components/Avatar';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import {
   useArchiveBoard,
@@ -29,10 +28,11 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const profile = useAuthStore((s) => s.profile);
   const navigate = useNavigate();
 
-  const isAdmin = profile?.role === 'admin' || profile?.is_super_admin;
-  const isOwner = board.owner_id === profile?.id;
-  const canEdit = isAdmin || isOwner; // for name/icon edits in V1
-  const canManage = isAdmin || isOwner;
+  // New permission model: admin-only writes. The legacy "board owner can
+  // edit" branch is retired (per docs/PERMISSIONS-REDESIGN-PLAN.md).
+  const isAdmin = !!profile && (profile.role === 'admin' || profile.is_super_admin);
+  const canEdit = isAdmin;
+  const canManage = isAdmin;
 
   const update = useUpdateBoard();
   const toggleFav = useToggleFavorite();
@@ -169,15 +169,10 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             )}
           </div>
 
-          {/* Owner + meta */}
+          {/* Meta strip — Owner intentionally hidden globally per
+              docs/PERMISSIONS-REDESIGN-PLAN.md (admin → manager model has no
+              per-board owner concept in the UI; the data stays in DB). */}
           <div className="mt-2 flex items-center gap-3 text-xs text-text-secondary">
-            {board.owner && (
-              <span className="inline-flex items-center gap-1.5">
-                Owner
-                <Avatar name={board.owner.full_name ?? board.owner.username} url={board.owner.avatar_url} size="xs" />
-                <span>@{board.owner.username}</span>
-              </span>
-            )}
             <span>Created {new Date(board.created_at).toLocaleDateString()}</span>
             <span>Updated {new Date(board.updated_at).toLocaleDateString()}</span>
           </div>
@@ -195,23 +190,28 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <Sparkles className="h-4 w-4" />
             <span>AI</span>
           </button>
-          <button
-            type="button"
-            aria-label={board.is_favorite ? 'Unfavorite' : 'Favorite'}
-            onClick={async () => {
-              try {
-                await toggleFav.mutateAsync({ boardId: board.id, makeFavorite: !board.is_favorite });
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Could not update favorite');
-              }
-            }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
-            title={board.is_favorite ? 'Unfavorite' : 'Add to favorites'}
-          >
-            <Star className={cn('h-4 w-4', board.is_favorite && 'fill-warning text-warning')} />
-          </button>
-          {/* Invite — admin / board-owner / manager can mint links */}
-          {(isAdmin || isOwner || profile?.role === 'manager') && (
+          {/* Favorite + ⋯ menu (archive/delete) are admin-only. Managers
+              just consume the board read-only; they don't curate it. */}
+          {isAdmin && (
+            <button
+              type="button"
+              aria-label={board.is_favorite ? 'Unfavorite' : 'Favorite'}
+              onClick={async () => {
+                try {
+                  await toggleFav.mutateAsync({ boardId: board.id, makeFavorite: !board.is_favorite });
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Could not update favorite');
+                }
+              }}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+              title={board.is_favorite ? 'Unfavorite' : 'Add to favorites'}
+            >
+              <Star className={cn('h-4 w-4', board.is_favorite && 'fill-warning text-warning')} />
+            </button>
+          )}
+          {/* Invite — admin only (RLS will also block managers if they
+              somehow trigger create_invite via the network). */}
+          {isAdmin && (
             <button
               type="button"
               onClick={() => setInviteOpen(true)}
@@ -222,6 +222,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               Invite
             </button>
           )}
+          {isAdmin && (
           <div className="relative">
             <button
               type="button"
@@ -288,6 +289,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
       {aiOpen && (

@@ -103,9 +103,14 @@ function BoardPage() {
     );
   }
 
-  const canManage =
-    profile && (profile.role === 'admin' || profile.is_super_admin || board.owner_id === profile.id);
-  const canEdit = !!canManage || profile?.role === 'manager';
+  // New permission model (docs/PERMISSIONS-REDESIGN-PLAN.md):
+  // Only admins / super-admins can edit board structure or non-status
+  // cells. Managers can still load the board (they're subscribed) and
+  // change Status cells + post comments; that path is gated per-cell
+  // in CellRenderer + ItemRow, not here.
+  const isAdminUser = !!profile && (profile.role === 'admin' || profile.is_super_admin);
+  const canManage = isAdminUser;
+  const canEdit = isAdminUser;
 
   const activeView = activeViewId ? views.find((v) => v.id === activeViewId) : null;
   const viewType = activeView?.type ?? 'table';

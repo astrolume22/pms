@@ -254,7 +254,11 @@ function AddUserModal({ open, onClose }: { open: boolean; onClose: () => void })
   const create = useAdminCreateUser();
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<'manager' | 'viewer'>('manager');
+  // Per docs/PERMISSIONS-REDESIGN-PLAN.md: the two-role model. The
+  // Add-User form only mints managers — admin is reserved for the
+  // seeded super-admin and any later promotion via Change role.
+  // (`setRole` kept so resetForm() can re-init the state.)
+  const [role, setRole] = useState<'manager'>('manager');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -320,9 +324,10 @@ function AddUserModal({ open, onClose }: { open: boolean; onClose: () => void })
           />
         </FormField>
         <FormField label="Role">
+          {/* Two-role model: only Manager is mintable here. Admin is the
+              seeded super-admin and is never created via this form. */}
           <div className="flex items-center gap-2">
-            <RoleChoice value="manager" current={role} onSelect={setRole} label="Manager" description="Create boards, add tasks, invite people." />
-            <RoleChoice value="viewer" current={role} onSelect={setRole} label="Viewer" description="Read-only access to assigned boards." />
+            <RoleChoice value="manager" current={role} onSelect={setRole} label="Manager" description="Assigned board(s) only. Can change Status + post comments." />
           </div>
           <p className="text-xs text-text-secondary mt-1">
             New users can't be created as Admin. Promote them from the table afterwards.
@@ -368,8 +373,8 @@ function AddUserModal({ open, onClose }: { open: boolean; onClose: () => void })
 function RoleChoice({
   value, current, onSelect, label, description,
 }: {
-  value: 'manager' | 'viewer'; current: 'manager' | 'viewer';
-  onSelect: (v: 'manager' | 'viewer') => void;
+  value: 'manager'; current: 'manager';
+  onSelect: (v: 'manager') => void;
   label: string; description: string;
 }) {
   const active = value === current;
@@ -483,10 +488,11 @@ function ChangeRoleModal({ user, onClose }: { user: AdminUserRow; onClose: () =>
     }
   };
 
+  // Two-role model. Legacy 'viewer' users keep their role until promoted
+  // — they're just not offered here.
   const ROLES: { value: UserRole; label: string; description: string }[] = [
-    { value: 'admin',   label: 'Admin',   description: 'Full access — manage users, boards, billing.' },
-    { value: 'manager', label: 'Manager', description: 'Create boards, add tasks, invite people.' },
-    { value: 'viewer',  label: 'Viewer',  description: 'Read-only access to assigned boards.' },
+    { value: 'admin',   label: 'Admin',   description: 'Full access — manage users, boards, everything.' },
+    { value: 'manager', label: 'Manager', description: 'Assigned board(s) only. Status + comments.' },
   ];
 
   return (

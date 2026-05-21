@@ -32,19 +32,24 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
 
   return (
     <div className="px-8 py-3 bg-surface flex items-center gap-1.5 border-b border-border-light flex-wrap">
-      <NewTaskButton
-        canEdit={canEdit}
-        groups={groups ?? []}
-        onCreate={async (groupId) => {
-          try {
-            await create.mutateAsync({ boardId, groupId, name: 'New task' });
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not add task');
-          }
-        }}
-      />
-
-      <div className="h-5 w-px bg-border-light mx-1" />
+      {/* New task — admin only. Managers consume the board read-only
+          (per docs/PERMISSIONS-REDESIGN-PLAN.md). */}
+      {canEdit && (
+        <>
+          <NewTaskButton
+            canEdit={canEdit}
+            groups={groups ?? []}
+            onCreate={async (groupId) => {
+              try {
+                await create.mutateAsync({ boardId, groupId, name: 'New task' });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Could not add task');
+              }
+            }}
+          />
+          <div className="h-5 w-px bg-border-light mx-1" />
+        </>
+      )}
 
       {/* Search */}
       <div className="relative">

@@ -43,12 +43,10 @@ export function BoardContent({ board }: BoardContentProps) {
     if (userId) hydrate(board.id, userId);
   }, [board.id, userId, hydrate]);
 
-  const canEdit =
-    !!profile &&
-    (profile.role === 'admin'
-      || profile.is_super_admin
-      || board.owner_id === profile.id
-      || profile.role === 'manager');
+  // New permission model: only admin / super-admin can edit board
+  // structure or non-status cells. Managers can only change Status
+  // (handled per-cell in ItemRow.canEditCell) and post comments.
+  const canEdit = !!profile && (profile.role === 'admin' || profile.is_super_admin);
 
   const { data: groups, isLoading: groupsLoading } = useGroups(board.id);
   const { data: columns, isLoading: colsLoading } = useColumns(board.id);
@@ -64,7 +62,17 @@ export function BoardContent({ board }: BoardContentProps) {
   const visibleColumns = useMemo(() => {
     const list = (columns ?? []).slice();
     list.sort((a, b) => a.sort_order - b.sort_order);
-    return list.filter((c) => !hiddenIds.includes(c.id) || c.column_type === 'task_name');
+    return list.filter((c) => {
+      // task_name is always visible (sticky left, can't be hidden).
+      if (c.column_type === 'task_name') return true;
+      // User-toggleable hide via View → Hide.
+      if (hiddenIds.includes(c.id)) return false;
+      // Owner field is hidden globally per docs/PERMISSIONS-REDESIGN-PLAN.md.
+      // Detected by case-insensitive column name on people-type columns —
+      // the column row stays in the DB so historical data isn't lost.
+      if (c.column_type === 'people' && /^owner$/i.test(c.name)) return false;
+      return true;
+    });
   }, [columns, hiddenIds]);
 
   // Partition items: top-level vs subitems by parent_item_id
@@ -389,9 +397,10 @@ export function BoardContent({ board }: BoardContentProps) {
 
         {/* "+ Add new group" lives below the table so adding a group doesn't
             depend on the table's horizontal scroll position. */}
-        {!groupByColumnId && (
+        {/* "+ Add group" footer — admin only. */}
+        {!groupByColumnId && canEdit && (
           <div className="mt-3">
-            <AddGroupRow boardId={board.id} disabled={!canEdit} />
+            <AddGroupRow boardId={board.id} disabled={false} />
           </div>
         )}
       </DndContext>
@@ -403,7 +412,8 @@ export function BoardContent({ board }: BoardContentProps) {
         </p>
       )}
 
-      <BulkActionBar boardId={board.id} groups={groups ?? []} canEdit={canEdit} />
+      {/* Bulk action bar — admin only (managers can't multi-select). */}
+      {canEdit && <BulkActionBar boardId={board.id} groups={groups ?? []} canEdit={canEdit} />}
 
       {labelsForColumn && (
         <LabelsEditorModal
