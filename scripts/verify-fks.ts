@@ -73,6 +73,9 @@ const expected: ExpectedFk[] = [
   { table: 'invites',           column: 'board_id',          references: 'public.boards(id)' },
   { table: 'invites',           column: 'created_by',        references: 'public.users(id)' },
   { table: 'invites',           column: 'used_by',           references: 'public.users(id)' },
+  // Permissions redesign — scoped subscriptions + scoped invites
+  { table: 'board_subscribers', column: 'group_id',          references: 'public.groups(id)' },
+  { table: 'invites',           column: 'group_id',          references: 'public.groups(id)' },
 ];
 
 const QUERY = `
