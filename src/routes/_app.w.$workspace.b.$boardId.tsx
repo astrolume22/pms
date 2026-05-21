@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router';
 import { Lock, FileQuestion, ArchiveRestore, Archive } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,10 +10,18 @@ import { EmptyMessage } from '@/components/EmptyMessage';
 import { BoardHeader } from '@/components/board/BoardHeader';
 import { BoardTabs } from '@/components/board/BoardTabs';
 import { BoardToolbar } from '@/components/board/BoardToolbar';
-import { BoardContent } from '@/components/board/BoardContent';
-import { KanbanView } from '@/components/board/views/KanbanView';
-import { CalendarView } from '@/components/board/views/CalendarView';
-import { TaskPanel } from '@/components/task/TaskPanel';
+// Heavy table / view / panel modules — each lives in its own chunk so the
+// initial bundle stays small for the workspace home + login flows.
+const BoardContent = lazy(() => import('@/components/board/BoardContent').then((m) => ({ default: m.BoardContent })));
+const KanbanView   = lazy(() => import('@/components/board/views/KanbanView').then((m)   => ({ default: m.KanbanView })));
+const CalendarView = lazy(() => import('@/components/board/views/CalendarView').then((m) => ({ default: m.CalendarView })));
+const TaskPanel    = lazy(() => import('@/components/task/TaskPanel').then((m) => ({ default: m.TaskPanel })));
+
+const ViewLoading = () => (
+  <div className="flex items-center justify-center py-12">
+    <Spinner className="h-6 w-6 text-brand" />
+  </div>
+);
 
 interface BoardSearch {
   p?: string;       // ?p=<itemId> opens the slide-in task panel
@@ -136,12 +144,16 @@ function BoardPage() {
       />
       {/* Toolbar (search/sort/hide/group-by/density) is table-specific in V1.
           Kanban + Calendar each manage their own internal controls. */}
-      {viewType === 'table'    && <BoardToolbar boardId={board.id} canEdit={canEdit} />}
-      {viewType === 'table'    && <BoardContent board={board} />}
-      {viewType === 'kanban'   && <KanbanView boardId={board.id} canEdit={canEdit} />}
-      {viewType === 'calendar' && <CalendarView boardId={board.id} />}
+      {viewType === 'table' && <BoardToolbar boardId={board.id} canEdit={canEdit} />}
+      <Suspense fallback={<ViewLoading />}>
+        {viewType === 'table'    && <BoardContent board={board} />}
+        {viewType === 'kanban'   && <KanbanView boardId={board.id} canEdit={canEdit} />}
+        {viewType === 'calendar' && <CalendarView boardId={board.id} />}
+      </Suspense>
       {panelItemId && (
-        <TaskPanel board={board} itemId={panelItemId} onClose={closePanel} />
+        <Suspense fallback={null}>
+          <TaskPanel board={board} itemId={panelItemId} onClose={closePanel} />
+        </Suspense>
       )}
     </div>
   );

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles } from 'lucide-react';
-import { AiPanel } from '@/components/ai/AiPanel';
+
+// AiPanel pulls in markdown parsing + the Gemini chat machinery — only
+// load it the first time the user opens the AI Sidekick.
+const AiPanel = lazy(() => import('@/components/ai/AiPanel').then((m) => ({ default: m.AiPanel })));
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/Avatar';
@@ -281,7 +284,11 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           </div>
         </div>
       </div>
-      <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} board={board} />
+      {aiOpen && (
+        <Suspense fallback={null}>
+          <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} board={board} />
+        </Suspense>
+      )}
     </div>
   );
 }

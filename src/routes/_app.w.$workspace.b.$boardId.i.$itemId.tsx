@@ -1,11 +1,13 @@
 import { createFileRoute, Link, useNavigate, useParams } from '@tanstack/react-router';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { ArrowLeft, FileQuestion } from 'lucide-react';
 import { useBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
-import { TaskDetail } from '@/components/task/TaskDetail';
+
+// TaskDetail pulls in Tiptap (rich-text editor) — defer until needed.
+const TaskDetail = lazy(() => import('@/components/task/TaskDetail').then((m) => ({ default: m.TaskDetail })));
 
 export const Route = createFileRoute('/_app/w/$workspace/b/$boardId/i/$itemId')({
   component: TaskFullPage,
@@ -59,17 +61,19 @@ function TaskFullPage() {
         </Link>
       </div>
       <div className="flex-1 min-h-0 max-w-[1000px] w-full mx-auto">
-        <TaskDetail
-          board={board}
-          itemId={itemId}
-          variant="full"
-          onOpenItem={(id) =>
-            navigate({
-              to: '/w/$workspace/b/$boardId/i/$itemId',
-              params: { workspace: 'main', boardId: board.id, itemId: id },
-            })
-          }
-        />
+        <Suspense fallback={<div className="flex items-center justify-center py-12"><Spinner className="h-6 w-6 text-brand" /></div>}>
+          <TaskDetail
+            board={board}
+            itemId={itemId}
+            variant="full"
+            onOpenItem={(id) =>
+              navigate({
+                to: '/w/$workspace/b/$boardId/i/$itemId',
+                params: { workspace: 'main', boardId: board.id, itemId: id },
+              })
+            }
+          />
+        </Suspense>
       </div>
     </div>
   );

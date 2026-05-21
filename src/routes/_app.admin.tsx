@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/state/authStore';
 import { useGeminiStatus, useSetGeminiKey, useClearGeminiKey } from '@/hooks/gemini';
 import { Spinner } from '@/components/Spinner';
+import { UsersSection } from '@/components/admin/UsersSection';
 
 export const Route = createFileRoute('/_app/admin')({
   beforeLoad: () => {
@@ -19,15 +20,16 @@ export const Route = createFileRoute('/_app/admin')({
 
 function AdminPage() {
   return (
-    <div className="px-8 py-6 max-w-[760px] mx-auto space-y-6">
-      <h1 className="text-3xl font-bold">Admin Panel</h1>
+    <div className="px-8 py-6 max-w-[1000px] mx-auto space-y-6">
+      <header>
+        <h1 className="text-3xl font-bold">Admin Panel</h1>
+        <p className="text-sm text-text-secondary mt-1">
+          User management + integration keys. All write actions are gated server-side.
+        </p>
+      </header>
 
+      <UsersSection />
       <GeminiKeySection />
-
-      <section className="bg-surface border border-border-light rounded-md p-6">
-        <h2 className="text-lg font-semibold mb-1">Users</h2>
-        <p className="text-sm text-text-secondary">User management UI arrives in Phase 6.</p>
-      </section>
     </div>
   );
 }

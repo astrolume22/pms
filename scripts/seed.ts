@@ -141,11 +141,40 @@ async function seedUser(spec: UserSpec, workspaceId: string): Promise<void> {
   if (memErr) throw memErr;
 }
 
+async function seedAdminSecrets(): Promise<void> {
+  // Phase 6 — store the service-role key + project URL so the
+  // admin_create_user / admin_reset_password Postgres functions can
+  // call the GoTrue admin endpoint via pg_net without ever exposing
+  // the key to the browser.
+  //
+  // The set_admin_secrets RPC is super-admin only — but the seed runs
+  // with the service-role JWT (which bypasses RLS), so we sign in via
+  // a Postgres function call directly. The easiest path is to use the
+  // service-role client's .rpc method.
+  const { error } = await admin.rpc('set_admin_secrets', {
+    p_key: serviceKey!,
+    p_url: url!,
+  });
+  if (error) {
+    // If the RPC doesn't exist yet (migration 0018 not applied), warn
+    // but don't fail — the user might re-run after migrating.
+    if (/function|does not exist/i.test(error.message)) {
+      console.warn(
+        '  admin secrets: set_admin_secrets() not found — re-run `npm run migrate` and then `npm run seed` again',
+      );
+      return;
+    }
+    throw error;
+  }
+  console.log('  admin secrets: stored service_role_key + supabase_url');
+}
+
 async function main() {
   console.log('Seeding Phase 1 data...');
   await seedAccount();
   const wsId = await seedWorkspace();
   for (const u of users) await seedUser(u, wsId);
+  await seedAdminSecrets();
   console.log('\n✅ Seed complete.');
 }
 
