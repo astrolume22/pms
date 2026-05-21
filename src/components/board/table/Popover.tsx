@@ -13,20 +13,35 @@ interface PopoverProps {
   className?: string;
   minWidth?: number;
   align?: 'start' | 'end';
+  /**
+   * "chip" variant — premium label-picker styling: darker bg #31314D,
+   * 8px corners, hairline white border, deep drop shadow, and a small
+   * upward caret anchoring the popover to the cell it opened from.
+   * Default keeps the existing surface look used by other cells.
+   */
+  variant?: 'default' | 'chip';
 }
 
 export function Popover({
-  anchorRef, open, onClose, children, className, minWidth, align = 'start',
+  anchorRef, open, onClose, children, className, minWidth, align = 'start', variant = 'default',
 }: PopoverProps) {
   const popRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; anchorLeft: number; anchorWidth: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
     const left = align === 'end' ? rect.right : rect.left;
-    setPos({ top: rect.bottom + 4, left, width: rect.width });
-  }, [open, anchorRef, align]);
+    // Chip variant offsets a touch more so there's room for the caret.
+    const gap = variant === 'chip' ? 10 : 4;
+    setPos({
+      top: rect.bottom + gap,
+      left,
+      width: rect.width,
+      anchorLeft: rect.left,
+      anchorWidth: rect.width,
+    });
+  }, [open, anchorRef, align, variant]);
 
   useEffect(() => {
     if (!open) return;
@@ -48,11 +63,22 @@ export function Popover({
   }, [open, onClose, anchorRef]);
 
   if (!open || !pos) return null;
+
+  // Compute caret position so the arrow sits centered under the anchor
+  // cell (clamped to stay inside the popover after we know its width).
+  // We always position the popover at the anchor's left edge; the caret
+  // therefore lives ~half-anchor-width from the popover's left.
+  const caretLeft = Math.max(16, Math.min(pos.anchorWidth / 2 - 6, 280));
+
+  const isChip = variant === 'chip';
   return (
     <div
       ref={popRef}
       className={cn(
-        'fixed z-50 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden',
+        'fixed z-50 overflow-visible',
+        // Default variant keeps the previous surface look used by every
+        // other cell editor (people picker, label-editor modal, etc.).
+        !isChip && 'bg-surface border border-border-light rounded-md shadow-lg',
         className,
       )}
       style={{
@@ -60,9 +86,33 @@ export function Popover({
         left: align === 'end' ? undefined : pos.left,
         right: align === 'end' ? window.innerWidth - pos.left : undefined,
         minWidth: minWidth ?? Math.max(pos.width, 200),
+        ...(isChip
+          ? {
+              background: '#31314D',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: 8,
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+            }
+          : null),
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {/* Upward caret — only rendered on the chip variant. A rotated
+          square with two borders matches the popover's bg + border so
+          it reads as a continuous arrow. */}
+      {isChip && (
+        <span
+          aria-hidden="true"
+          className="absolute w-[10px] h-[10px] rotate-45"
+          style={{
+            top: -6,
+            left: caretLeft,
+            background: '#31314D',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        />
+      )}
       {children}
     </div>
   );

@@ -87,7 +87,13 @@ export function LabelCell({
           </span>
         )}
       </div>
-      <Popover anchorRef={anchorRef} open={isEditing} onClose={onEndEdit} minWidth={260}>
+      <Popover
+        anchorRef={anchorRef}
+        open={isEditing}
+        onClose={onEndEdit}
+        minWidth={260}
+        variant="chip"
+      >
         <LabelPicker
           boardId={boardId}
           columnId={column.id}
