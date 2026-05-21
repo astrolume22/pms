@@ -119,12 +119,17 @@ input, textarea, select {
   /* ---------- Typography utility classes (Monday-night spec) ----------
      Centralized so every column header / cell / group title shares the
      same scale and weight. */
+  /* Column headers — 14px medium, slight tracking. Reads as confident
+     metadata without competing with cell text. */
   .col-header-text {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0.2px;
     color: var(--text-secondary);
   }
+  /* Row / cell body text — 14px regular. Pair with 48px row height so
+     the chips and body text sit at the same visual weight, neither
+     dominating. */
   .cell-text {
     font-size: 14px;
     font-weight: 400;
@@ -137,10 +142,9 @@ input, textarea, select {
   }
   /* Saturated-chip standard: full-bleed, edge-to-edge, NO inset. The
      cell's own 1px hairline border is the only seam between adjacent
-     chips. 2px corner radius is barely-perceptible — keeps the grid
-     reading as a hard block of color. */
+     chips. 13px medium white text — confident but not shouty. */
   .status-chip {
-    @apply w-full h-full inline-flex items-center justify-center text-[13px] font-semibold text-white px-3;
+    @apply w-full h-full inline-flex items-center justify-center text-[13px] font-medium text-white px-3;
     border-radius: 2px;
   }
 }

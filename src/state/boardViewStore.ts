@@ -182,10 +182,12 @@ export const useBoardViewStore = useStore;
 // Row heights tuned to Monday's reference: comfortable rows are ~44px,
 // not the snug 40px we had before. Compact and spacious bumped in
 // proportion.
-// Monday-night spec: comfortable rows are ~52px so the saturated chips
-// have breathing room and 14px cell text doesn't crowd.
+// Monday-style density: confident 14px body text in compact rows so
+// the colored chips sit close together and reinforce each other.
+// 48px is the default — short enough to keep the data dense, tall
+// enough for the chip text + an 8px vertical padding budget on cells.
 export const ITEM_HEIGHT_PX: Record<ItemHeight, number> = {
-  compact: 40,
-  comfortable: 52,
-  spacious: 64,
+  compact: 36,
+  comfortable: 48,
+  spacious: 60,
 };

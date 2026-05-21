@@ -116,12 +116,12 @@ export function BoardHeader({ board }: BoardHeaderProps) {
                     setEditingName(false);
                   }
                 }}
-                className="text-3xl font-bold bg-transparent border border-brand rounded-sm px-1 outline-none w-full max-w-[600px]"
+                className="text-2xl font-semibold bg-transparent border border-brand rounded-sm px-1 outline-none w-full max-w-[600px]"
               />
             ) : (
               <h1
                 onClick={() => canEdit && setEditingName(true)}
-                className={cn('text-3xl font-bold leading-tight', canEdit && 'cursor-text hover:bg-hover px-1 -mx-1 rounded-sm')}
+                className={cn('text-2xl font-semibold leading-tight', canEdit && 'cursor-text hover:bg-hover px-1 -mx-1 rounded-sm')}
               >
                 {board.name}
               </h1>
