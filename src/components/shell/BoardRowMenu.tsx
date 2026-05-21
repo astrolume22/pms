@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { MoreHorizontal, Star, Pencil, Archive, Trash2, Link as LinkIcon, Smile } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { MoreHorizontal, Star, Pencil, Archive, Trash2, Link as LinkIcon, Smile, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import {
@@ -8,6 +9,7 @@ import {
   useToggleFavorite,
   type BoardListItem,
 } from '@/hooks/boards';
+import { useDuplicateBoard } from '@/hooks/duplicate';
 import { useAuthStore } from '@/state/authStore';
 
 interface BoardRowMenuProps {
@@ -24,6 +26,8 @@ export function BoardRowMenu({ board, onRename, onChangeIcon }: BoardRowMenuProp
   const toggleFav = useToggleFavorite();
   const archive = useArchiveBoard();
   const remove = useDeleteBoard();
+  const duplicate = useDuplicateBoard();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +102,26 @@ export function BoardRowMenu({ board, onRename, onChangeIcon }: BoardRowMenuProp
                 toast.success('Link copied');
               } catch {
                 toast.error('Could not copy link');
+              }
+            }}
+          />
+          <Item
+            icon={<Copy className="h-4 w-4" />}
+            label="Duplicate board"
+            disabled={!canManage || duplicate.isPending}
+            onClick={async () => {
+              setOpen(false);
+              try {
+                const newId = await duplicate.mutateAsync(board.id);
+                toast.success('Board duplicated');
+                // Jump to the new copy so the user sees the result
+                // immediately (same UX as the BoardHeader path).
+                navigate({
+                  to: '/w/$workspace/b/$boardId',
+                  params: { workspace: 'main', boardId: newId },
+                });
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Duplicate failed');
               }
             }}
           />
