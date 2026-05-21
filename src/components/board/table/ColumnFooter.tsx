@@ -107,8 +107,12 @@ function DistributionBar({
   }
   const total = Array.from(counts.values()).reduce((a, b) => a + b, 0);
   if (total === 0) return <span className="text-text-disabled">—</span>;
+  // Full column-width segmented bar — squared off, segments proportional
+  // to status/label counts, colors matched to the chip hexes exactly so
+  // the footer reads as a tiny "stacked chip ribbon" summarizing the
+  // group's distribution.
   return (
-    <div className="flex w-full h-3 rounded-pill overflow-hidden">
+    <div className="flex w-full h-2 overflow-hidden rounded-[1px]">
       {labels.map((l) => {
         const c = counts.get(l.id) ?? 0;
         if (c === 0) return null;

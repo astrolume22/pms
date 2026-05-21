@@ -41,9 +41,14 @@
    --border-light is intentionally a hairline white (rgba 6%) so row
    seams read as faint cuts and the saturated chips dominate visually. */
 .dark {
-  --bg-dark: #11132A;
+  /* 3-step depth ramp:
+       top bar  → #191B34  (--bg-dark / --bg-sidebar)
+       canvas   → #25273E  (--bg-app, behind the table)
+       row cell → #31374F  (--bg-surface, where chips live)
+     Hairline 1px white-6%-alpha border for row seams. */
+  --bg-dark: #191B34;
   --bg-sidebar: #191B34;
-  --bg-app: #30314D;
+  --bg-app: #25273E;
   --bg-surface: #31374F;
   --bg-hover: #3D425D;
   --bg-selected: #495069;
@@ -130,11 +135,13 @@ input, textarea, select {
     font-weight: 600;
     letter-spacing: -0.01em;
   }
-  /* Saturated-chip standard: full-cell colored block with 4px corners,
-     thin breathing-space inset so the muted navy seam shows through. */
+  /* Saturated-chip standard: full-bleed, edge-to-edge, NO inset. The
+     cell's own 1px hairline border is the only seam between adjacent
+     chips. 2px corner radius is barely-perceptible — keeps the grid
+     reading as a hard block of color. */
   .status-chip {
     @apply w-full h-full inline-flex items-center justify-center text-[13px] font-semibold text-white px-3;
-    border-radius: 4px;
+    border-radius: 2px;
   }
 }
 

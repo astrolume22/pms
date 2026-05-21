@@ -89,20 +89,20 @@ export function GroupBlock({
   return (
     <div
       ref={sortable.setNodeRef}
-      style={style}
+      style={{ ...style, borderLeftColor: group.color }}
       className={cn(
-        'border-b border-border-light last:border-b-0',
+        // 4px colored accent bar runs the full height of the group →
+        // header + rows + footer all share one vertical bar so the
+        // group reads as one contained card.
+        'border-b border-border-light last:border-b-0 border-l-[4px]',
         sortable.isDragging && 'opacity-50',
       )}
     >
-      {/* Group header — sticky to the LEFT edge of the scroll container so the
-          title/menu/etc. stay visible when the user scrolls horizontally.
-          Taller padding to match Monday's roomier group bar. */}
+      {/* Group header — sticky to the LEFT edge of the scroll container so
+          the title/menu stay visible when the user scrolls horizontally. */}
       <div
-        // Group header bar — sticks to the left edge, taller (~52px row
-        // discipline) with the colored accent strip down the left.
-        className="sticky left-0 z-[4] flex items-center gap-2 py-3 pl-2 pr-3 bg-surface border-l-[5px]"
-        style={{ borderLeftColor: group.color, maxWidth: 'calc(100vw - 320px)' }}
+        className="sticky left-0 z-[4] flex items-center gap-2 py-3 pl-2 pr-3 bg-surface"
+        style={{ maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
           <button

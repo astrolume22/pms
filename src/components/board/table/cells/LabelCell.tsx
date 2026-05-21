@@ -45,17 +45,19 @@ export function LabelCell({
         ref={anchorRef}
         className={cn(
           'w-full h-full flex items-center overflow-hidden',
-          // Single-select empty: subtle grey fill (matches Monday's reference)
-          isEmpty && isSingleSelect && 'bg-label-grey/25',
           !readonly && 'cursor-pointer',
         )}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {isEmpty ? (
-          // For multi-select we keep a clean white cell with a centered dash.
-          isSingleSelect ? null : (
-            <span className="w-full text-center text-xs text-text-disabled">—</span>
-          )
+          // Empty single-select / multi-select: pure surface (no muddy
+          // grey fill anymore). A faint centered dash signals "no value".
+          <span
+            className="w-full text-center text-[14px]"
+            style={{ color: '#5A5E72' }}
+          >
+            —
+          </span>
         ) : multi ? (
           <div className="flex items-center gap-1 overflow-hidden px-2">
             {selectedLabels.slice(0, 3).map((l) => (
@@ -73,18 +75,16 @@ export function LabelCell({
             )}
           </div>
         ) : (
-          // Status/Priority: full-cell saturated color block with a thin
-          // 3px inset and 4px rounded corners — per Monday-night spec the
-          // chip should appear to "glow" against the muted navy ground.
-          <div className="w-full h-full p-[3px]">
-            <span
-              className="status-chip"
-              style={{ background: selectedLabels[0].color }}
-              title={selectedLabels[0].name}
-            >
-              <span className="truncate">{selectedLabels[0].name}</span>
-            </span>
-          </div>
+          // Status/Priority: FULL-BLEED saturated chip — fills the entire
+          // cell edge-to-edge with the cell's hairline border as the only
+          // seam between chips. 2px corners (status-chip utility).
+          <span
+            className="status-chip"
+            style={{ background: selectedLabels[0].color }}
+            title={selectedLabels[0].name}
+          >
+            <span className="truncate">{selectedLabels[0].name}</span>
+          </span>
         )}
       </div>
       <Popover anchorRef={anchorRef} open={isEditing} onClose={onEndEdit} minWidth={260}>
