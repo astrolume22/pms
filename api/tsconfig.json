@@ -1,0 +1,17 @@
+{
+  "//": "Scoped TS config for Vercel Functions (the api/ directory). The root tsconfig.json targets the Vite app and uses moduleResolution:bundler + allowImportingTsExtensions, which is right for Vite but wrong for @vercel/node — that compiles each api/*.ts file as a Node-ESM serverless function, and Node ESM requires real .js relative imports. NodeNext gives us that behaviour: tsc resolves .ts at compile time but the emitted JS keeps the .js path the source typed.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

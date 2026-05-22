@@ -27,7 +27,9 @@
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { runEngine, type EngineContext, type EngineKind } from './_shared/gemini-engine';
+// NodeNext: explicit .js extension required at runtime even though the
+// source is TypeScript. See api/tsconfig.json for the rationale.
+import { runEngine, type EngineContext, type EngineKind } from './_shared/gemini-engine.js';
 
 // Refs we hand back to the model: simple snake_case from the row name +
 // short id suffix so two rows with the same name don't collide.
@@ -41,9 +43,7 @@ function refFor(prefix: string, name: string, id: string): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS — only same-origin browser calls in production, but explicitly
-  // setting the headers makes local dev (vite on 5173, function on
-  // localhost via `vercel dev` on 3000) work too.
+  // CORS — explicit headers so vite dev (5173) → vercel dev (3000) works.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -53,55 +53,87 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
-  if (!apiKey) { res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' }); return; }
-  if (!supabaseUrl || !supabaseAnonKey) {
-    res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_ANON_KEY not configured on server' });
-    return;
-  }
+  // EVERYTHING below the CORS preamble runs inside a top-level try so any
+  // unhandled throw (from runEngine, the Supabase client, JSON.parse, the
+  // fetch in gemini-engine, etc.) becomes a JSON 500 with the real cause
+  // surfaced instead of a generic FUNCTION_INVOCATION_FAILED. Without
+  // this any throw bubbles up and Vercel returns an opaque 500 body
+  // that's invisible to the client.
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+    if (!apiKey) { res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' }); return; }
+    if (!supabaseUrl || !supabaseAnonKey) {
+      res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_ANON_KEY not configured on server' });
+      return;
+    }
 
-  const authHeader = req.headers.authorization ?? '';
-  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!jwt) { res.status(401).json({ error: 'missing Authorization: Bearer <token>' }); return; }
+    const authHeader = req.headers.authorization ?? '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!jwt) { res.status(401).json({ error: 'missing Authorization: Bearer <token>' }); return; }
 
-  // Authenticated Supabase client — uses the caller's JWT, so every read
-  // below is RLS-gated as that user.
-  const sb = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-  });
+    // Authenticated Supabase client — uses the caller's JWT, so every read
+    // below is RLS-gated as that user.
+    const sb = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
 
-  // Identify + role-check the caller.
-  const { data: userResp, error: userErr } = await sb.auth.getUser(jwt);
-  if (userErr || !userResp?.user) {
-    res.status(401).json({ error: 'invalid session token' });
-    return;
-  }
-  const userId = userResp.user.id;
-  const { data: profile, error: profileErr } = await sb
-    .from('users')
-    .select('id, role, is_super_admin, status')
-    .eq('id', userId)
-    .maybeSingle();
-  if (profileErr || !profile) {
-    res.status(403).json({ error: 'no profile row for this user' });
-    return;
-  }
-  const isAdmin = profile.role === 'admin' || profile.is_super_admin === true;
-  if (!isAdmin) {
-    res.status(403).json({ error: 'admin role required' });
-    return;
-  }
-  if (profile.status !== 'active') {
-    res.status(403).json({ error: 'account deactivated' });
-    return;
-  }
+    // Identify + role-check the caller.
+    const { data: userResp, error: userErr } = await sb.auth.getUser(jwt);
+    if (userErr || !userResp?.user) {
+      res.status(401).json({ error: 'invalid session token' });
+      return;
+    }
+    const userId = userResp.user.id;
+    const { data: profile, error: profileErr } = await sb
+      .from('users')
+      .select('id, role, is_super_admin, status')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileErr || !profile) {
+      res.status(403).json({ error: 'no profile row for this user' });
+      return;
+    }
+    const isAdmin = profile.role === 'admin' || profile.is_super_admin === true;
+    if (!isAdmin) {
+      res.status(403).json({ error: 'admin role required' });
+      return;
+    }
+    if (profile.status !== 'active') {
+      res.status(403).json({ error: 'account deactivated' });
+      return;
+    }
 
-  // Parse + validate body.
-  const body = (req.body && typeof req.body === 'object') ? req.body as Record<string, unknown> : {};
-  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    // Parse + validate body. On Vercel Node functions req.body can be a
+    // string, a parsed object, or undefined depending on Content-Type.
+    // Never assume it's already an object.
+    let body: Record<string, unknown>;
+    if (req.body == null) {
+      res.status(400).json({ error: 'request body is required' });
+      return;
+    }
+    if (typeof req.body === 'string') {
+      if (req.body.trim().length === 0) {
+        res.status(400).json({ error: 'request body is empty' });
+        return;
+      }
+      try {
+        body = JSON.parse(req.body) as Record<string, unknown>;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(400).json({ error: `request body is not valid JSON: ${msg}` });
+        return;
+      }
+    } else if (typeof req.body === 'object') {
+      body = req.body as Record<string, unknown>;
+    } else {
+      res.status(400).json({ error: `unexpected request body type: ${typeof req.body}` });
+      return;
+    }
+
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
   const kind = body.kind as EngineKind | undefined;
   const boardId = typeof body.board_id === 'string' ? body.board_id : undefined;
   const model = body.model as 'gemini-2.5-flash' | 'gemini-2.5-pro' | undefined;
@@ -158,24 +190,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }));
   }
 
-  // Run the engine — short request/response, no polling.
-  const result = await runEngine({ apiKey, prompt, kind, context, model });
-  if (!result.ok) {
-    res.status(502).json({ error: result.error });
-    return;
+    // Run the engine — short request/response, no polling.
+    const result = await runEngine({ apiKey, prompt, kind, context, model });
+    if (!result.ok) {
+      res.status(502).json({ error: result.error });
+      return;
+    }
+
+    // Log to ai_runs (best-effort — don't fail the request if logging fails).
+    void sb.from('ai_runs').insert({
+      user_id: userId,
+      feature: kind,
+      prompt,
+      model: model ?? 'gemini-2.5-flash',
+      status: 'success',
+      response: JSON.stringify(result.data).slice(0, 8000),
+      target_type: boardId ? 'board' : null,
+      target_id: boardId ?? null,
+    } as never);
+
+    res.status(200).json({ ...result.data, context });
+  } catch (err) {
+    // Surface the real cause in the response body so the client toast
+    // shows something actionable instead of a generic 500.
+    const message = err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : typeof err === 'string'
+      ? err
+      : 'unknown error';
+    // Server-side log so it appears in vercel logs too.
+    console.error('[ai-build] handler threw:', err);
+    res.status(500).json({ error: 'internal: ' + message });
   }
-
-  // Log to ai_runs (best-effort — don't fail the request if logging fails).
-  void sb.from('ai_runs').insert({
-    user_id: userId,
-    feature: kind,
-    prompt,
-    model: model ?? 'gemini-2.5-flash',
-    status: 'success',
-    response: JSON.stringify(result.data).slice(0, 8000),
-    target_type: boardId ? 'board' : null,
-    target_id: boardId ?? null,
-  } as never);
-
-  res.status(200).json({ ...result.data, context });
 }

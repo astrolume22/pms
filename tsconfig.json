@@ -21,6 +21,7 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "scripts", "api", "vite.config.ts"],
+  "//": "api/ has its own tsconfig (NodeNext) because Vercel Functions compile differently from the Vite app. We deliberately exclude api/ from this config.",
+  "include": ["src", "scripts", "vite.config.ts"],
   "references": []
 }

@@ -17,7 +17,10 @@
  *   on failure (Gemini error, model returned non-JSON, validation
  *   failed, etc).
  */
-import { EngineResponse, type EngineResponse as EngineResponseT } from './actions-schema';
+// NodeNext: relative imports MUST include the .js extension at runtime;
+// tsc allows pointing at the .ts source via the .js name (it resolves
+// at compile time and the emit keeps the .js path as written).
+import { EngineResponse, type EngineResponse as EngineResponseT } from './actions-schema.js';
 
 export type EngineKind = 'create_board' | 'add_to_board' | 'add_tasks';
 

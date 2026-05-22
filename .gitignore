@@ -65,3 +65,5 @@ coverage/
 
 # Claude Code agent working state
 .claude/
+
+.vercel
