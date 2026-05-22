@@ -2,9 +2,6 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles, Copy } from 'lucide-react';
 import { useDuplicateBoard } from '@/hooks/duplicate';
 
-// AiPanel pulls in markdown parsing + the Gemini chat machinery — only
-// load it the first time the user opens the AI Sidekick.
-const AiPanel     = lazy(() => import('@/components/ai/AiPanel').then((m)     => ({ default: m.AiPanel })));
 // InviteModal is only used by admins / owners / managers — defer.
 const InviteModal = lazy(() => import('@/components/board/InviteModal').then((m) => ({ default: m.InviteModal })));
 // "Build with AI" (Version B) — admin-only. The modal pulls in the
@@ -52,8 +49,6 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-
   useEffect(() => setName(board.name), [board.name]);
   useEffect(() => setDescription(board.description ?? ''), [board.description]);
 
@@ -186,16 +181,9 @@ export function BoardHeader({ board }: BoardHeaderProps) {
 
         {/* Right actions */}
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setAiOpen(true)}
-            className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-base text-sm font-medium text-brand hover:bg-brand/10"
-            title="AI Sidekick"
-            aria-label="Open AI Sidekick"
-          >
-            <Sparkles className="h-4 w-4" />
-            <span>AI</span>
-          </button>
+          {/* The legacy "AI Sidekick" Sparkles button was retired in
+              Phase 2 — the new "Build with AI" button (admin-only, see
+              below) is the single entry point now. */}
           {/* Favorite + ⋯ menu (archive/delete) are admin-only. Managers
               just consume the board read-only; they don't curate it. */}
           {isAdmin && (
@@ -330,11 +318,6 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           )}
         </div>
       </div>
-      {aiOpen && (
-        <Suspense fallback={null}>
-          <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} board={board} />
-        </Suspense>
-      )}
       {inviteOpen && (
         <Suspense fallback={null}>
           <InviteModal
