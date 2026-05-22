@@ -170,16 +170,32 @@ async function callGemini(args: {
     },
   };
 
+  // 25s hard cap on the Gemini call. Without this, a stalled stream or
+  // a model name typo would let the function sit until Vercel's outer
+  // timeout (default 10s on Hobby — but on any plan, a server-side
+  // hang is unacceptable because it crowds out other invocations and
+  // gives the client zero diagnostic info).
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
   let resp: Response;
   try {
     resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch (err) {
-    return { ok: false, error: `network: ${err instanceof Error ? err.message : String(err)}` };
+    clearTimeout(timer);
+    const aborted = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: aborted
+        ? 'gemini request timed out after 25s (model unreachable or response stalled)'
+        : `network: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
+  clearTimeout(timer);
 
   const raw = await resp.text();
   if (!resp.ok) {

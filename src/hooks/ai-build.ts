@@ -29,27 +29,45 @@ export function useAiBuild() {
       const jwt = sessionData.session?.access_token;
       if (!jwt) throw new Error('not signed in');
 
-      const resp = await fetch('/api/ai-build', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          prompt: args.prompt,
-          kind: args.kind,
-          board_id: args.boardId,
-          model: args.model,
-        }),
-      });
+      // Hard client-side deadline: 35s. The server's own Gemini cap is
+      // 25s; we leave room for the round-trip + Vercel cold start and
+      // then bail with a clear error rather than spinning forever.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 35_000);
+
+      let resp: Response;
+      try {
+        resp = await fetch('/api/ai-build', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${jwt}`,
+          },
+          body: JSON.stringify({
+            prompt: args.prompt,
+            kind: args.kind,
+            board_id: args.boardId,
+            model: args.model,
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new Error('AI build timed out after 35 seconds. Please try again.');
+        }
+        throw new Error(err instanceof Error ? err.message : String(err));
+      }
+      clearTimeout(timer);
+
       const text = await resp.text();
       let payload: unknown;
       try { payload = JSON.parse(text); }
-      catch { throw new Error(`bad response: ${text.slice(0, 200)}`); }
+      catch { throw new Error(`bad response (HTTP ${resp.status}): ${text.slice(0, 200)}`); }
 
       if (!resp.ok) {
         const errMsg = (payload as { error?: string } | null)?.error
-          ?? `request failed (${resp.status})`;
+          ?? `request failed (HTTP ${resp.status})`;
         throw new Error(errMsg);
       }
       return payload as AiBuildResponse;
