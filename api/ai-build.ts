@@ -197,8 +197,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Log to ai_runs (best-effort — don't fail the request if logging fails).
-    void sb.from('ai_runs').insert({
+    // Log to ai_runs. MUST be awaited — on Vercel serverless the function
+    // exits as soon as res.json() ships and any unawaited promise is
+    // killed. We use the PostgrestBuilder's error-on-result pattern
+    // (no throw) so a logging failure still degrades to "request
+    // succeeded, log entry missing" rather than 500'ing the user.
+    const { error: logErr } = await sb.from('ai_runs').insert({
       user_id: userId,
       feature: kind,
       prompt,
@@ -208,6 +212,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       target_type: boardId ? 'board' : null,
       target_id: boardId ?? null,
     } as never);
+    if (logErr) console.error('[ai-build] ai_runs insert failed:', logErr);
 
     res.status(200).json({ ...result.data, context });
   } catch (err) {
