@@ -1,28 +1,33 @@
 /**
- * Status / Priority / Dropdown label picker — the popover that opens
- * when an admin clicks a label cell. Premium spec:
- *   - 2-column grid of full-bleed colored chips, 8px gap, ~36px tall.
- *   - Selected chip shows a thin white check on the right + a faint
- *     1px inner ring (rgba(255,255,255,0.4)).
- *   - "+ Add label" lives ONLY in the bottom row (input + Add button) —
- *     no placeholder chip in the grid.
- *   - Footer: "Edit Labels" + "Auto-assign labels" (sparkle, stub).
- *   - Done button still appears in multi-select mode so the user can
- *     close the popover after toggling many labels.
+ * Status / Priority / Dropdown label picker — premium polish spec.
  *
- * The popover's outer chrome (background #31314D, 8px corners, hairline
- * border, drop shadow, upward caret) is provided by `Popover` with
- * variant="chip" — this component just renders the inner content.
+ *   Container (from <Popover variant="chip">):
+ *     --bg-card (#1A1D24), 12 radius, 12 padding, 0 8 32 rgba(0,0,0,0.4)
+ *     + 0 0 0 1px rgba(255,255,255,0.06).
+ *   Grid:
+ *     2 cols, 8px gap, 320px wide.
+ *   Pills:
+ *     sharp corners (radius 0), full-fill chip color, white 13/500 text,
+ *     36px tall, no border. Selected pill carries a faint inset ring +
+ *     check mark.
+ *   Footer:
+ *     • "+ New label" ghost cell — dashed 1px white-12% border, opens
+ *       an inline text input below.
+ *     • "Edit Labels" — text button.
+ *     • "✨ Auto-assign labels" — teal→purple gradient CTA (the ONLY
+ *       gradient chip allowed by the polish spec).
  */
 import { useState } from 'react';
 import { Check, Plus, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import type { ColumnLabelRow } from '@/lib/database.types';
+import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { useCreateLabel } from '@/hooks/labels';
+import { chipColorFor, tokenColor } from '@/lib/chipColor';
 
 interface LabelPickerProps {
   boardId: string;
   columnId: string;
+  column?: ColumnRow;          // optional — when provided we route through chipColorFor
   labels: ColumnLabelRow[];
   selectedIds: string[];
   multi: boolean;
@@ -31,22 +36,18 @@ interface LabelPickerProps {
   onDone?: () => void;
 }
 
-// Premium chip-color palette used when the admin types a new label
-// name and clicks Add. Picks the next color not already in use on this
-// column so chips read as distinct at a glance.
-const PALETTE = [
-  '#4CD297', '#F64F9F', '#FDBB71', '#F68A5C', '#E16E7F',
-  '#7BB0F6', '#777E91', '#C26175', '#419DCC', '#B280DF',
-  '#FF3D8B', '#6646A7', '#51458F', '#3E3A6B',
-  '#71BCA5', '#3DA0CA', '#B17FE0', '#265565',
+// Seed-color rotation for newly-created labels. Token-anchored.
+const NEW_LABEL_ROTATION: Array<Parameters<typeof tokenColor>[0]> = [
+  'mint', 'amber', 'coral', 'sky', 'purple', 'pink', 'teal', 'slate',
 ];
 
 export function LabelPicker({
-  boardId, columnId, labels, selectedIds, multi, onChange, onOpenLabelsEditor, onDone,
+  boardId, columnId, column, labels, selectedIds, multi, onChange, onOpenLabelsEditor, onDone,
 }: LabelPickerProps) {
   const create = useCreateLabel();
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const toggle = (id: string) => {
     if (multi) {
@@ -58,44 +59,50 @@ export function LabelPicker({
     }
   };
 
+  // Resolve the chip color: prefer the token color when we have the
+  // column context, fall back to the stored hex for custom dropdowns.
+  const renderColor = (l: ColumnLabelRow, idx: number): string => {
+    if (column) return chipColorFor(column, l, idx, labels.length);
+    return l.color;
+  };
+
   const onCreate = async () => {
     if (!newName.trim()) return;
     setCreating(true);
     try {
+      // Pick the next color in the rotation that isn't already in use.
       const used = new Set(labels.map((l) => l.color));
-      const color = PALETTE.find((c) => !used.has(c)) ?? '#2B7FFF';
-      await create.mutateAsync({ boardId, columnId, name: newName.trim(), color });
+      const fallback = NEW_LABEL_ROTATION.find((t) => !used.has(tokenColor(t))) ?? 'sky';
+      await create.mutateAsync({ boardId, columnId, name: newName.trim(), color: tokenColor(fallback) });
       setNewName('');
+      setAddOpen(false);
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    // Inner container — the Popover's chip variant supplies the outer
-    // chrome (bg #31314D, 8px corners, hairline border, drop shadow,
-    // upward caret). Width sized for the 2-col grid.
-    <div className="p-3 w-[420px] max-w-[calc(100vw-32px)]">
+    <div className="p-3 w-[320px] max-w-[calc(100vw-32px)]">
       <div className="grid grid-cols-2 gap-2">
-        {labels.map((l) => {
+        {labels.map((l, idx) => {
           const isSelected = selectedIds.includes(l.id);
+          const bg = renderColor(l, idx);
           return (
             <button
               key={l.id}
               type="button"
               onClick={() => toggle(l.id)}
               className={cn(
-                'relative h-9 px-3 text-[13px] font-semibold text-white',
-                'inline-flex items-center justify-center text-center',
-                'transition-transform duration-75 hover:brightness-110 active:scale-[0.98]',
+                // Sharp corners (radius 0), full-fill, no border. 36px
+                // tall to match the chip rule, white 13/500 text.
+                'relative h-9 px-3 text-[13px] font-medium text-white inline-flex items-center justify-center text-center',
+                'transition-[filter,transform] duration-75 hover:brightness-110 active:scale-[0.98]',
               )}
               style={{
-                background: l.color,
-                borderRadius: 5,
-                // Faint 1px inner ring on the selected chip — subtle, not
-                // a heavy filled badge. inset shadow renders inside the
-                // rounded corners cleanly.
-                boxShadow: isSelected ? 'inset 0 0 0 1px rgba(255,255,255,0.4)' : undefined,
+                background: bg,
+                borderRadius: 0,
+                boxShadow: isSelected ? 'inset 0 0 0 1.5px rgba(255,255,255,0.55)' : undefined,
+                letterSpacing: '0.02em',
               }}
             >
               <span className="truncate">{l.name}</span>
@@ -108,66 +115,98 @@ export function LabelPicker({
             </button>
           );
         })}
-      </div>
 
-      {/* "+ New label" row — text input + Add button. The picker grid
-          never holds a fake placeholder chip; new labels start here. */}
-      <div className="mt-3 flex gap-2">
-        <input
-          type="text"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); void onCreate(); }
-          }}
-          placeholder="New label name"
-          spellCheck={false}
-          className="flex-1 h-9 px-2.5 rounded-base text-[13px] text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-brand/60"
-          style={{
-            background: '#3A3F5A',
-            border: '1px solid rgba(255,255,255,0.08)',
-          }}
-        />
+        {/* "+ New label" ghost cell — dashed border, blends with the
+            grid. Click expands an inline name input below the grid. */}
         <button
           type="button"
-          onClick={() => void onCreate()}
-          disabled={creating || !newName.trim()}
-          className="h-9 px-3 rounded-base bg-brand text-white text-[13px] font-medium hover:bg-brand-hover disabled:opacity-40 inline-flex items-center gap-1"
-          aria-label="Add label"
+          onClick={() => setAddOpen((v) => !v)}
+          aria-label="New label"
+          title="New label"
+          className="h-9 inline-flex items-center justify-center text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.05]"
+          style={{
+            border: '1px dashed rgba(255,255,255,0.18)',
+            borderRadius: 0,
+            letterSpacing: '0.02em',
+          }}
         >
-          <Plus className="h-4 w-4" /> Add
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          New label
         </button>
       </div>
+
+      {/* Inline name input for the new label — only shown when the
+          ghost cell is toggled on. Keeps the picker tight when not
+          adding. */}
+      {addOpen && (
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); void onCreate(); }
+              if (e.key === 'Escape') { setAddOpen(false); setNewName(''); }
+            }}
+            placeholder="New label name"
+            spellCheck={false}
+            className="flex-1 h-9 px-2.5 rounded-button text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              letterSpacing: '0.02em',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void onCreate()}
+            disabled={creating || !newName.trim()}
+            className="h-9 px-3 rounded-button text-[13px] font-medium text-white disabled:opacity-40 inline-flex items-center gap-1 hover:brightness-110 transition-[filter] duration-100"
+            style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+            aria-label="Add label"
+          >
+            Add
+          </button>
+        </div>
+      )}
 
       {/* Footer — Edit Labels + Auto-assign + (optional) Done */}
       <div
         className="mt-3 pt-2"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
       >
         <button
           type="button"
           onClick={onOpenLabelsEditor}
-          className="w-full h-8 inline-flex items-center justify-center gap-1.5 rounded-base text-[13px] text-white/75 hover:bg-white/[0.06] hover:text-white"
+          className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-button text-[13px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+          style={{ letterSpacing: '0.02em' }}
         >
           <Settings className="h-4 w-4" />
           Edit Labels
         </button>
-        {/* Auto-assign labels — visual stub for now; the wiring will
-            land later (Gemini-driven suggestion based on task context). */}
+        {/* Auto-assign — visual stub. The only gradient allowed in the
+            picker per the polish spec: teal → purple. */}
         <button
           type="button"
           disabled
           title="Coming soon — AI suggests a label based on task context"
-          className="w-full h-8 inline-flex items-center justify-center gap-1.5 rounded-base text-[13px] text-white/60 hover:bg-white/[0.04] cursor-not-allowed"
+          className="w-full mt-1 h-9 inline-flex items-center justify-center gap-1.5 rounded-button text-[13px] font-medium text-white opacity-90 cursor-not-allowed"
+          style={{
+            background: 'linear-gradient(135deg, var(--chip-teal) 0%, var(--chip-purple) 100%)',
+            letterSpacing: '0.02em',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)',
+          }}
         >
-          <Sparkles className="h-4 w-4 text-brand" />
+          <Sparkles className="h-4 w-4" />
           Auto-assign labels
         </button>
         {multi && onDone && (
           <button
             type="button"
             onClick={onDone}
-            className="w-full mt-2 h-8 rounded-base bg-brand text-white text-[13px] font-medium hover:bg-brand-hover"
+            className="w-full mt-2 h-9 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+            style={{ background: 'var(--chip-sky)' }}
           >
             Done
           </button>

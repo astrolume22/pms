@@ -129,6 +129,7 @@ export function LabelCell({
         <LabelPicker
           boardId={boardId}
           columnId={column.id}
+          column={column}
           labels={labels}
           selectedIds={currentIds}
           multi={multi}

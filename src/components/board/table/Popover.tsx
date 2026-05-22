@@ -88,10 +88,13 @@ export function Popover({
         minWidth: minWidth ?? Math.max(pos.width, 200),
         ...(isChip
           ? {
-              background: '#31314D',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: 8,
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+              // Premium polish: --bg-card surface (#1A1D24), 12px radius,
+              // a hairline + deep shadow combined via box-shadow so the
+              // popover lifts off the canvas cleanly.
+              background: 'var(--bg-card)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow:
+                '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.06)',
             }
           : null),
       }}
@@ -107,7 +110,7 @@ export function Popover({
           style={{
             top: -6,
             left: caretLeft,
-            background: '#31314D',
+            background: 'var(--bg-card)',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
           }}
