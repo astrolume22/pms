@@ -159,7 +159,7 @@ console.log(`  4c. pm1 on board C (no sub)       seen=${(pm1OnC.data ?? []).leng
 
 const pm1Write = await pm1Session.sb.from('items').update({ name: 'pm1-attempted-rename' } as never).eq('id', A.items[A.g1][0]);
 const writeBlocked = !!pm1Write.error || (pm1Write.count === 0) ||
-  (await pg_query_one(`select count(*)::int as c from public.items where id = $1 and name = 'pm1-attempted-rename'`, [A.items[A.g1][0]])).c === 0;
+  (await pg_query_one<{ c: number }>(`select count(*)::int as c from public.items where id = $1 and name = 'pm1-attempted-rename'`, [A.items[A.g1][0]])).c === 0;
 console.log(`  4d. pm1 attempted item rename     err=${pm1Write.error?.message ?? 'none'} → ${writeBlocked ? 'PASS (admin-only write enforced)' : 'FAIL (pm1 wrote!)'}`);
 
 const proof4_pass = aMatch && bMatch && cMatch && writeBlocked;
