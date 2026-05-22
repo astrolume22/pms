@@ -28,8 +28,9 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
     <>
       <div
         ref={anchorRef}
-        className={cn('w-full h-full px-3 flex items-center text-[14px] gap-1', !readonly && 'cursor-pointer')}
+        className={cn('group/linkcell w-full h-full px-3 flex items-center text-[13px] gap-1', !readonly && 'cursor-pointer')}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
+        style={{ background: cur.url ? undefined : 'var(--bg-row)' }}
       >
         {cur.url ? (
           <>
@@ -37,7 +38,8 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
               href={cur.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-brand hover:underline truncate flex-1 min-w-0"
+              className="hover:underline truncate flex-1 min-w-0"
+              style={{ color: 'var(--chip-sky)' }}
               onClick={(e) => e.stopPropagation()}
             >
               {cur.text || cur.url}
@@ -45,7 +47,11 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
             <ExternalLink className="h-3 w-3 text-text-secondary shrink-0" />
           </>
         ) : (
-          <span className="text-text-disabled">—</span>
+          !readonly && (
+            <span className="text-text-secondary opacity-0 group-hover/linkcell:opacity-60 text-[16px] leading-none transition-opacity duration-100 mx-auto">
+              +
+            </span>
+          )
         )}
       </div>
       <Popover anchorRef={anchorRef} open={isEditing} onClose={commit} minWidth={280}>

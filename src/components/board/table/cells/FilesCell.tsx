@@ -21,16 +21,18 @@ export function FilesCell({ item, column, boardId, readonly, isEditing, onStartE
       <div
         ref={anchorRef}
         className={cn(
-          'w-full h-full flex items-center gap-1 px-2',
+          'group/filescell w-full h-full flex items-center gap-1 px-3',
           !readonly && 'cursor-pointer',
         )}
+        style={{ background: count === 0 ? 'var(--bg-row)' : undefined }}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {count === 0 ? (
-          <span className="text-[13px] text-text-disabled inline-flex items-center gap-1">
-            <Paperclip className="h-3 w-3" />
-            —
-          </span>
+          !readonly && (
+            <span className="text-text-secondary opacity-0 group-hover/filescell:opacity-60 text-[16px] leading-none transition-opacity duration-100 mx-auto">
+              +
+            </span>
+          )
         ) : (
           <div className="flex items-center gap-1 overflow-hidden">
             <Paperclip className="h-3 w-3 text-text-secondary shrink-0" />

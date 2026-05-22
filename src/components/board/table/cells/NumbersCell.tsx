@@ -59,11 +59,20 @@ export function NumbersCell({ column, value, readonly, isEditing, onStartEdit, o
 
   return (
     <div
-      className={cn('w-full h-full px-3 flex items-center justify-end text-[14px]', !readonly && 'cursor-text')}
+      className={cn('group/numcell w-full h-full flex items-center justify-end text-[13px]', !readonly && 'cursor-text')}
       onClick={() => !readonly && onStartEdit()}
+      style={{
+        background: display == null ? 'var(--bg-row)' : undefined,
+        padding: '0 var(--cell-pad-x)',
+        color: 'var(--text-primary)',
+      }}
     >
       {display == null ? (
-        <span className="text-text-disabled">—</span>
+        !readonly && (
+          <span className="text-text-secondary opacity-0 group-hover/numcell:opacity-60 text-[16px] leading-none transition-opacity duration-100">
+            +
+          </span>
+        )
       ) : (
         <span>
           {settings.unit_position === 'prefix' && settings.unit ? settings.unit : ''}

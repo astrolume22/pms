@@ -39,11 +39,24 @@ export function TextCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
   }
   return (
     <div
-      className={cn('w-full h-full px-3 flex items-center text-[14px] truncate', !readonly && 'cursor-text')}
+      // Empty cells get the slate row fill + a hover "+" cue — no
+      // em-dash anywhere (criterion 14).
+      className={cn('group/textcell w-full h-full flex items-center text-[13px] truncate', !readonly && 'cursor-text')}
       onClick={() => !readonly && onStartEdit()}
       title={raw}
+      style={{
+        background: raw ? undefined : 'var(--bg-row)',
+        padding: '0 var(--cell-pad-x)',
+        color: 'var(--text-primary)',
+      }}
     >
-      {raw || <span className="text-text-disabled">—</span>}
+      {raw || (
+        !readonly && (
+          <span className="text-text-secondary opacity-0 group-hover/textcell:opacity-60 text-[16px] leading-none transition-opacity duration-100">
+            +
+          </span>
+        )
+      )}
     </div>
   );
 }

@@ -19,13 +19,20 @@ export function PeopleCell({ value, readonly, isEditing, onStartEdit, onEndEdit,
       <div
         ref={anchorRef}
         className={cn(
-          'w-full h-full flex items-center px-2 gap-1 overflow-hidden',
+          'group/peoplecell w-full h-full flex items-center px-3 gap-1 overflow-hidden',
           !readonly && 'cursor-pointer',
         )}
+        style={{
+          background: selected.length === 0 ? 'var(--bg-row)' : undefined,
+        }}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {selected.length === 0 ? (
-          <span className="text-[13px] text-text-disabled">—</span>
+          !readonly && (
+            <span className="text-text-secondary opacity-0 group-hover/peoplecell:opacity-60 text-[16px] leading-none transition-opacity duration-100 mx-auto">
+              +
+            </span>
+          )
         ) : (
           <div className="flex items-center -space-x-1">
             {selected.slice(0, 4).map((u) => (
