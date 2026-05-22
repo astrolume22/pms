@@ -193,7 +193,7 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
                   {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <p className="text-xs text-text-secondary">
+              <p className="text-[13px] text-text-secondary">
                 Anyone with this link can claim a manager account
                 {scope === 'workspace'
                   ? ' in the workspace.'
@@ -206,7 +206,7 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
               <button
                 type="button"
                 onClick={() => setNewLink(null)}
-                className="btn-ghost h-8 text-xs"
+                className="btn-ghost h-8 text-[13px]"
               >
                 Generate another
               </button>
@@ -258,7 +258,7 @@ function InviteListItem({ invite, onRevoke }: { invite: InviteRow; onRevoke: () 
     <li className="flex items-center gap-3 border border-border-light rounded-base p-2.5 bg-app/30">
       <RoleBadge role={invite.role} />
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-text-secondary truncate">
+        <p className="text-[13px] text-text-secondary truncate">
           {state.label} · expires {new Date(invite.expires_at).toLocaleDateString()}
         </p>
         <p className="text-[11px] text-text-disabled font-mono truncate">
@@ -300,7 +300,7 @@ function deriveState(inv: InviteRow): { kind: 'active' | 'used' | 'expired' | 'r
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section>
-      <p className="text-xs uppercase tracking-wide text-text-secondary font-medium mb-1.5">{label}</p>
+      <p className="text-[13px] uppercase tracking-wide text-text-secondary font-medium mb-1.5">{label}</p>
       {children}
     </section>
   );

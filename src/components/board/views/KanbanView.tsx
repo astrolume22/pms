@@ -302,7 +302,7 @@ function KanbanColumn({
                   {onRename && (
                     <button
                       onClick={() => { setMenuOpen(false); setRenaming(true); }}
-                      className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover"
+                      className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
                     >
                       <Pencil className="h-3.5 w-3.5 text-text-secondary" /> Rename
                     </button>
@@ -310,7 +310,7 @@ function KanbanColumn({
                   {onChangeColor && (
                     <button
                       onClick={() => { setMenuOpen(false); setColorOpen(true); }}
-                      className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover"
+                      className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
                     >
                       <Palette className="h-3.5 w-3.5 text-text-secondary" /> Change color
                     </button>
@@ -318,7 +318,7 @@ function KanbanColumn({
                   {onDelete && (
                     <button
                       onClick={async () => { setMenuOpen(false); await onDelete(); }}
-                      className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-error/10 text-error"
+                      className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-error/10 text-error"
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Delete label
                     </button>
@@ -409,7 +409,7 @@ function AddLabelColumn({ onAdd }: { onAdd: (name: string) => Promise<void> }) {
         <button
           type="button"
           onClick={() => { setDraft(''); setAdding(false); }}
-          className="btn-ghost h-7 px-3 text-xs"
+          className="btn-ghost h-7 px-3 text-[13px]"
         >
           Cancel
         </button>
@@ -417,7 +417,7 @@ function AddLabelColumn({ onAdd }: { onAdd: (name: string) => Promise<void> }) {
           type="button"
           onClick={() => void submit()}
           disabled={submitting || !draft.trim()}
-          className="btn-primary h-7 px-3 text-xs"
+          className="btn-primary h-7 px-3 text-[13px]"
         >
           Add
         </button>

@@ -166,7 +166,7 @@ export function GroupBlock({
               disabled={update.isPending}
               aria-label="Save group name"
               title="Save (Enter)"
-              className="h-6 px-2 inline-flex items-center gap-1 rounded-sm bg-brand text-white text-xs font-medium hover:bg-brand-hover disabled:opacity-40"
+              className="h-6 px-2 inline-flex items-center gap-1 rounded-sm bg-brand text-white text-[13px] font-medium hover:bg-brand-hover disabled:opacity-40"
             >
               <Check className="h-3 w-3" />
               Save
@@ -174,7 +174,7 @@ export function GroupBlock({
             <button
               type="button"
               onClick={() => { setDraftName(group.name); setRenaming(false); }}
-              className="h-6 px-2 rounded-sm text-text-secondary text-xs hover:bg-hover"
+              className="h-6 px-2 rounded-sm text-text-secondary text-[13px] hover:bg-hover"
               title="Cancel (Esc)"
             >
               Cancel
@@ -218,13 +218,13 @@ export function GroupBlock({
               <div className="absolute right-0 top-7 z-30 w-44 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden">
                 <button
                   onClick={() => { setMenuOpen(false); setRenaming(true); }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
                 >
                   <Pencil className="h-3.5 w-3.5 text-text-secondary" /> Rename
                 </button>
                 <button
                   onClick={() => { setMenuOpen(false); setColorPickerOpen(true); }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
                 >
                   <Palette className="h-3.5 w-3.5 text-text-secondary" /> Change color
                 </button>
@@ -239,7 +239,7 @@ export function GroupBlock({
                     }
                   }}
                   disabled={duplicate.isPending}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover disabled:opacity-50"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover disabled:opacity-50"
                 >
                   <Copy className="h-3.5 w-3.5 text-text-secondary" /> Duplicate
                 </button>
@@ -255,7 +255,7 @@ export function GroupBlock({
                       toast.error(err instanceof Error ? err.message : 'Delete failed');
                     }
                   }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-error/10 text-error"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-error/10 text-error"
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete group
                 </button>

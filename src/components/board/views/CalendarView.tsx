@@ -128,11 +128,11 @@ export function CalendarView({ boardId, dateColumnId, colorColumnId }: CalendarV
         <button
           type="button"
           onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
-          className="btn-secondary h-8 px-3 text-xs ml-2"
+          className="btn-secondary h-8 px-3 text-[13px] ml-2"
         >
           Today
         </button>
-        <span className="ml-auto text-xs text-text-secondary">
+        <span className="ml-auto text-[13px] text-text-secondary">
           Plotting <strong className="text-text-primary">{dateCol.name}</strong>
           {colorCol && (<> · coloured by <strong className="text-text-primary">{colorCol.name}</strong></>)}
         </span>

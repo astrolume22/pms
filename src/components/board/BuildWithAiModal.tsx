@@ -143,7 +143,7 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
         {(step === 'prompt' || step === 'previewing') && (
           <>
             <label className="block">
-              <span className="block text-xs uppercase tracking-wide text-text-secondary font-medium mb-1">Prompt</span>
+              <span className="block text-[13px] uppercase tracking-wide text-text-secondary font-medium mb-1">Prompt</span>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -155,7 +155,7 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
               />
             </label>
             <div>
-              <p className="text-xs uppercase tracking-wide text-text-secondary font-medium mb-1.5">Examples</p>
+              <p className="text-[13px] uppercase tracking-wide text-text-secondary font-medium mb-1.5">Examples</p>
               <ul className="space-y-1">
                 {EXAMPLE_PROMPTS.map((p) => (
                   <li key={p}>
@@ -187,10 +187,10 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
                 {summary.status_updates > 0 && <li>{summary.status_updates} status update{summary.status_updates === 1 ? '' : 's'}</li>}
               </ul>
               {plan.notes && (
-                <p className="text-xs text-text-secondary mt-2 italic">"{plan.notes}"</p>
+                <p className="text-[13px] text-text-secondary mt-2 italic">"{plan.notes}"</p>
               )}
               {plan.actions.length > SOFT_CONFIRM_THRESHOLD && (
-                <p className="text-xs text-warning mt-2 inline-flex items-center gap-1">
+                <p className="text-[13px] text-warning mt-2 inline-flex items-center gap-1">
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Large plan — you'll be asked to confirm before applying.
                 </p>
@@ -217,7 +217,7 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
             <div className="flex items-center gap-3 mb-3">
               <Loader2 className="h-5 w-5 text-brand animate-spin" />
               <p className="text-sm font-medium">Applying actions…</p>
-              <span className="ml-auto text-xs text-text-secondary tabular-nums">
+              <span className="ml-auto text-[13px] text-text-secondary tabular-nums">
                 {progress.index + 1} / {progress.total}
               </span>
             </div>
@@ -296,7 +296,7 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
       );
     }
     if (step === 'applying') {
-      return <span className="text-xs text-text-secondary">Applying — please don't close this dialog…</span>;
+      return <span className="text-[13px] text-text-secondary">Applying — please don't close this dialog…</span>;
     }
     if (step === 'done' || step === 'error') {
       return (

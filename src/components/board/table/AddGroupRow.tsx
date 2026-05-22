@@ -42,8 +42,8 @@ export function AddGroupRow({ boardId, disabled }: AddGroupRowProps) {
           placeholder="Group name"
           className="input h-8 text-sm flex-1 max-w-[280px]"
         />
-        <button onClick={() => void submit()} disabled={!name.trim() || submitting} className="btn-primary h-8 px-3 text-xs">Create</button>
-        <button onClick={() => { setName(''); setOpen(false); }} className="btn-ghost h-8 px-2 text-xs">Cancel</button>
+        <button onClick={() => void submit()} disabled={!name.trim() || submitting} className="btn-primary h-8 px-3 text-[13px]">Create</button>
+        <button onClick={() => { setName(''); setOpen(false); }} className="btn-ghost h-8 px-2 text-[13px]">Cancel</button>
       </div>
     );
   }

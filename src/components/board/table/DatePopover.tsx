@@ -82,7 +82,7 @@ export function DatePopover({ value, onChange }: DatePopoverProps) {
               type="button"
               onClick={() => onChange(c.iso)}
               className={cn(
-                'h-7 rounded-sm text-xs inline-flex items-center justify-center hover:bg-hover',
+                'h-7 rounded-sm text-[13px] inline-flex items-center justify-center hover:bg-hover',
                 isSelected && 'bg-brand text-white hover:bg-brand-hover',
                 !isSelected && isToday && 'ring-1 ring-brand text-brand',
               )}
@@ -97,14 +97,14 @@ export function DatePopover({ value, onChange }: DatePopoverProps) {
         <button
           type="button"
           onClick={() => onChange(ymd(new Date()))}
-          className="btn-ghost h-7 px-2 text-xs"
+          className="btn-ghost h-7 px-2 text-[13px]"
         >
           Today
         </button>
         <button
           type="button"
           onClick={() => onChange(null)}
-          className="text-xs text-text-secondary inline-flex items-center gap-1 hover:text-error"
+          className="text-[13px] text-text-secondary inline-flex items-center gap-1 hover:text-error"
         >
           <X className="h-3 w-3" />
           Clear

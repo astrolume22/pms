@@ -20,7 +20,7 @@ export function ColumnFooter({
   const cellClass = 'shrink-0 border-r border-border-light px-2 py-1.5 flex items-center';
 
   return (
-    <div className="flex items-stretch border-t border-border-light bg-app/40 text-xs">
+    <div className="flex items-stretch border-t border-border-light bg-app/40 text-[13px]">
       <div className={cellClass} style={{ width: GUTTER_WIDTH }} />
       {taskNameCol && (
         <div className={cellClass} style={{ width: taskNameCol.width }}>

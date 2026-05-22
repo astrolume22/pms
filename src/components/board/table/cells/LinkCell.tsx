@@ -57,7 +57,7 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com"
-              className="input h-8 text-xs"
+              className="input h-8 text-[13px]"
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') onEndEdit(); }}
             />
           </label>
@@ -67,13 +67,13 @@ export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="(optional)"
-              className="input h-8 text-xs"
+              className="input h-8 text-[13px]"
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') onEndEdit(); }}
             />
           </label>
           <div className="flex justify-end gap-1">
-            <button onClick={onEndEdit} className="btn-ghost h-7 px-2 text-xs">Cancel</button>
-            <button onClick={commit} className="btn-primary h-7 px-3 text-xs">Save</button>
+            <button onClick={onEndEdit} className="btn-ghost h-7 px-2 text-[13px]">Cancel</button>
+            <button onClick={commit} className="btn-primary h-7 px-3 text-[13px]">Save</button>
           </div>
         </div>
       </Popover>

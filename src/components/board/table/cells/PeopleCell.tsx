@@ -25,7 +25,7 @@ export function PeopleCell({ value, readonly, isEditing, onStartEdit, onEndEdit,
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {selected.length === 0 ? (
-          <span className="text-xs text-text-disabled">—</span>
+          <span className="text-[13px] text-text-disabled">—</span>
         ) : (
           <div className="flex items-center -space-x-1">
             {selected.slice(0, 4).map((u) => (

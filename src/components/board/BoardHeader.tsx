@@ -381,14 +381,14 @@ export function BoardHeader({ board }: BoardHeaderProps) {
 function BoardTypeBadge({ type }: { type: 'main' | 'private' }) {
   if (type === 'private') {
     return (
-      <span className="inline-flex items-center gap-1 h-5 px-2 rounded-pill text-xs font-medium bg-label-purple/15 text-label-purple">
+      <span className="inline-flex items-center gap-1 h-5 px-2 rounded-pill text-[13px] font-medium bg-label-purple/15 text-label-purple">
         <Lock className="h-3 w-3" />
         Private
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 h-5 px-2 rounded-pill text-xs font-medium bg-brand/15 text-brand">
+    <span className="inline-flex items-center gap-1 h-5 px-2 rounded-pill text-[13px] font-medium bg-brand/15 text-brand">
       <Globe className="h-3 w-3" />
       Main
     </span>

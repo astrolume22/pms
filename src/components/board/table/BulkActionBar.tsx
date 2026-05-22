@@ -66,7 +66,7 @@ export function BulkActionBar({ boardId, groups, canEdit }: BulkActionBarProps) 
         {moveOpen && (
           <div className="absolute left-0 bottom-10 w-52 max-h-60 overflow-y-auto bg-surface text-text-primary border border-border-light rounded-md shadow-lg z-50">
             {groups.length === 0 && (
-              <p className="px-3 py-2 text-xs text-text-disabled">No groups</p>
+              <p className="px-3 py-2 text-[13px] text-text-disabled">No groups</p>
             )}
             {groups.map((g) => (
               <button
@@ -128,7 +128,7 @@ function BulkBtn({ icon, label, onClick, destructive, disabled }: {
       onClick={onClick}
       disabled={disabled}
       className={
-        'h-7 px-2 inline-flex items-center gap-1.5 rounded-sm text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed '
+        'h-7 px-2 inline-flex items-center gap-1.5 rounded-sm text-[13px] font-medium hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed '
         // Use a bright coral for destructive so it stays readable on the
         // near-black bar in both light + dark themes (the regular --error
         // var renders too dim against #1F2128 in dark mode).

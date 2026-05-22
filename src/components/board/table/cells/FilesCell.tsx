@@ -27,14 +27,14 @@ export function FilesCell({ item, column, boardId, readonly, isEditing, onStartE
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {count === 0 ? (
-          <span className="text-xs text-text-disabled inline-flex items-center gap-1">
+          <span className="text-[13px] text-text-disabled inline-flex items-center gap-1">
             <Paperclip className="h-3 w-3" />
             —
           </span>
         ) : (
           <div className="flex items-center gap-1 overflow-hidden">
             <Paperclip className="h-3 w-3 text-text-secondary shrink-0" />
-            <span className="text-xs text-text-secondary">{count}</span>
+            <span className="text-[13px] text-text-secondary">{count}</span>
             {previewable.length > 0 && <Thumbs files={previewable} />}
           </div>
         )}
@@ -98,7 +98,7 @@ function FilesPopoverContent({
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); void onUpload(e.dataTransfer.files); }}
         className={cn(
-          'border border-dashed rounded-base text-center text-xs py-3 px-2 mb-2',
+          'border border-dashed rounded-base text-center text-[13px] py-3 px-2 mb-2',
           dragging ? 'border-brand bg-selected' : 'border-border-medium text-text-secondary',
         )}
       >
@@ -134,7 +134,7 @@ function FilePopoverRow({ file, onDelete, canDelete }: { file: FileRow; onDelete
         href={url ?? '#'}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex-1 min-w-0 text-xs truncate hover:text-brand"
+        className="flex-1 min-w-0 text-[13px] truncate hover:text-brand"
       >
         {file.file_name}
       </a>

@@ -118,7 +118,7 @@ function SortMenu({
           <button
             type="button"
             onClick={() => { onChange(null); close(); }}
-            className="w-full text-left px-3 py-1.5 text-xs hover:bg-hover text-text-secondary"
+            className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-hover text-text-secondary"
           >
             Clear sort
           </button>
@@ -129,7 +129,7 @@ function SortMenu({
                 type="button"
                 onClick={() => { onChange({ columnId: c.id, direction: 'asc' }); close(); }}
                 className={cn(
-                  'flex-1 text-left px-2 py-1.5 text-xs rounded-sm hover:bg-hover',
+                  'flex-1 text-left px-2 py-1.5 text-[13px] rounded-sm hover:bg-hover',
                   sort?.columnId === c.id && sort.direction === 'asc' && 'bg-selected text-brand font-medium',
                 )}
               >
@@ -139,7 +139,7 @@ function SortMenu({
                 type="button"
                 onClick={() => { onChange({ columnId: c.id, direction: 'desc' }); close(); }}
                 className={cn(
-                  'flex-1 text-left px-2 py-1.5 text-xs rounded-sm hover:bg-hover',
+                  'flex-1 text-left px-2 py-1.5 text-[13px] rounded-sm hover:bg-hover',
                   sort?.columnId === c.id && sort.direction === 'desc' && 'bg-selected text-brand font-medium',
                 )}
               >
@@ -178,7 +178,7 @@ function HideMenu({ columns, hiddenIds, onToggle }: {
                 disabled={isTaskName}
                 onClick={() => onToggle(c.id)}
                 className={cn(
-                  'w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover',
+                  'w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover',
                   isTaskName && 'opacity-40 cursor-not-allowed',
                 )}
               >
@@ -216,21 +216,21 @@ function GroupByMenu({ columns, groupByColumnId, onChange }: {
             type="button"
             onClick={() => { onChange(null); close(); }}
             className={cn(
-              'w-full text-left px-3 py-1.5 text-xs hover:bg-hover',
+              'w-full text-left px-3 py-1.5 text-[13px] hover:bg-hover',
               groupByColumnId === null && 'font-medium text-brand',
             )}
           >
             By group (default)
           </button>
           <div className="h-px bg-border-light my-1" />
-          {groupable.length === 0 && <p className="px-3 py-1.5 text-xs text-text-disabled">No groupable columns</p>}
+          {groupable.length === 0 && <p className="px-3 py-1.5 text-[13px] text-text-disabled">No groupable columns</p>}
           {groupable.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => { onChange(c.id); close(); }}
               className={cn(
-                'w-full text-left px-3 py-1.5 text-xs hover:bg-hover',
+                'w-full text-left px-3 py-1.5 text-[13px] hover:bg-hover',
                 groupByColumnId === c.id && 'bg-selected text-brand font-medium',
               )}
             >
@@ -256,7 +256,7 @@ function HeightMenu({ value, onChange }: { value: ItemHeight; onChange: (h: Item
               type="button"
               onClick={() => { onChange(opt); close(); }}
               className={cn(
-                'w-full text-left px-3 py-1.5 text-xs capitalize hover:bg-hover',
+                'w-full text-left px-3 py-1.5 text-[13px] capitalize hover:bg-hover',
                 value === opt && 'bg-selected text-brand font-medium',
               )}
             >
@@ -347,7 +347,7 @@ function NewTaskButton({
             </button>
           ))}
           {groups.length === 0 && (
-            <p className="px-3 py-2 text-xs text-text-disabled">No groups on this board</p>
+            <p className="px-3 py-2 text-[13px] text-text-disabled">No groups on this board</p>
           )}
         </div>
       )}
@@ -400,7 +400,7 @@ function ToolbarMenu({
 // Re-export the Add button for use elsewhere
 export function AddSomethingButton({ disabled }: { disabled?: boolean }) {
   return (
-    <button type="button" disabled={disabled} className="btn-ghost h-8 px-2 text-xs">
+    <button type="button" disabled={disabled} className="btn-ghost h-8 px-2 text-[13px]">
       <Plus className="h-3.5 w-3.5" />
     </button>
   );

@@ -41,14 +41,14 @@ export function PersonPicker({ selectedUserIds, multi, onChange, onDone }: Perso
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search people"
-            className="input h-8 text-xs pl-7"
+            className="input h-8 text-[13px] pl-7"
             autoFocus
           />
         </div>
       </div>
       <ul className="max-h-[260px] overflow-y-auto py-1">
         {list.length === 0 && (
-          <li className="px-3 py-2 text-xs text-text-disabled">No users found</li>
+          <li className="px-3 py-2 text-[13px] text-text-disabled">No users found</li>
         )}
         {list.map((u) => {
           const isSelected = selectedUserIds.includes(u.id);
@@ -66,7 +66,7 @@ export function PersonPicker({ selectedUserIds, multi, onChange, onDone }: Perso
                 <Avatar name={u.full_name ?? u.username} url={u.avatar_url} size="sm" />
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm truncate">{u.full_name ?? u.username}</span>
-                  <span className="block text-xs text-text-secondary truncate">@{u.username}</span>
+                  <span className="block text-[13px] text-text-secondary truncate">@{u.username}</span>
                 </span>
                 {isSelected && <Check className="h-4 w-4 text-brand shrink-0" />}
               </button>
@@ -79,7 +79,7 @@ export function PersonPicker({ selectedUserIds, multi, onChange, onDone }: Perso
           <button
             type="button"
             onClick={onDone}
-            className="w-full h-7 rounded-base bg-brand text-white text-xs font-medium hover:bg-brand-hover"
+            className="w-full h-7 rounded-base bg-brand text-white text-[13px] font-medium hover:bg-brand-hover"
           >
             Done
           </button>

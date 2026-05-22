@@ -163,7 +163,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
               <button
                 type="button"
                 onClick={() => { setMenuOpen(false); setRenaming(true); }}
-                className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover normal-case tracking-normal"
+                className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover normal-case tracking-normal"
               >
                 <Pencil className="h-3.5 w-3.5 text-text-secondary" />
                 Rename
@@ -174,7 +174,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
                 <button
                   type="button"
                   onClick={() => { setMenuOpen(false); onOpenLabelsEditor?.(column); }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover normal-case tracking-normal"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover normal-case tracking-normal"
                 >
                   <Settings className="h-3.5 w-3.5 text-text-secondary" />
                   Edit labels
@@ -184,7 +184,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
                 type="button"
                 onClick={() => { setMenuOpen(false); setColumnHidden(column.id, true); }}
                 disabled={isTaskName}
-                className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
+                className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed normal-case tracking-normal"
               >
                 <EyeOff className="h-3.5 w-3.5 text-text-secondary" />
                 Hide column
@@ -202,7 +202,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
                       toast.error(err instanceof Error ? err.message : 'Delete failed');
                     }
                   }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-error/10 text-error normal-case tracking-normal"
+                  className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-error/10 text-error normal-case tracking-normal"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete column

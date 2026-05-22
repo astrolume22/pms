@@ -111,7 +111,7 @@ export function AddColumnMenu({ boardId, disabled }: AddColumnMenuProps) {
                   <span className="text-text-secondary">{ICON[it.type]}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block">{it.label}</span>
-                    <span className="block text-xs text-text-secondary">{it.description}</span>
+                    <span className="block text-[13px] text-text-secondary">{it.description}</span>
                   </span>
                 </button>
               ))}

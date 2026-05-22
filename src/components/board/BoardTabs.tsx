@@ -205,7 +205,7 @@ function ViewTab({ view, active, canEdit, onClick }: {
         <div className="absolute right-0 top-9 z-30 w-44 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden">
           <button
             onClick={() => { setMenuOpen(false); setRenaming(true); }}
-            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-hover"
+            className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
           >
             <Pencil className="h-3.5 w-3.5 text-text-secondary" /> Rename
           </button>
@@ -220,7 +220,7 @@ function ViewTab({ view, active, canEdit, onClick }: {
                 toast.error(err instanceof Error ? err.message : 'Delete failed');
               }
             }}
-            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-error/10 text-error"
+            className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-error/10 text-error"
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
@@ -242,7 +242,7 @@ function AddOption({ icon, label, description, onClick }: {
       <span className="text-text-secondary">{icon}</span>
       <span className="flex-1 min-w-0">
         <span className="block">{label}</span>
-        <span className="block text-xs text-text-secondary">{description}</span>
+        <span className="block text-[13px] text-text-secondary">{description}</span>
       </span>
     </button>
   );

@@ -411,7 +411,7 @@ export function BoardContent({ board }: BoardContentProps) {
 
       {/* Hidden-columns chip */}
       {hiddenIds.length > 0 && (
-        <p className="mt-4 text-xs text-text-disabled">
+        <p className="mt-4 text-[13px] text-text-disabled">
           {hiddenIds.length} column{hiddenIds.length === 1 ? '' : 's'} hidden. Toggle via the Hide menu.
         </p>
       )}
