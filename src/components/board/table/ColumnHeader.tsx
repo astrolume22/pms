@@ -108,11 +108,12 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         isTaskName && 'sticky left-10 z-[5] bg-canvas',
       )}
     >
-      {/* drag handle (the whole header is the drag target except for the resize handle/menu).
-          Non-task_name columns center their text to match Monday's reference. */}
+      {/* Per the polish spec: 13/500 ls .02em title-case text in the
+          --text-secondary tone. Alignment mirrors the cell below — Task
+          name left-aligned, every other column centered. */}
       <div
         className={cn(
-          'flex-1 min-w-0 flex items-center gap-1 py-2',
+          'flex-1 min-w-0 flex items-center gap-1 h-9',
           isTaskName ? 'justify-start' : 'justify-center',
         )}
         {...(canEdit && !isTaskName ? { ...sortable.attributes, ...sortable.listeners } : {})}
@@ -128,15 +129,17 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
               else if (e.key === 'Escape') { setDraft(column.name); setRenaming(false); }
             }}
             className={cn(
-              'flex-1 min-w-0 h-6 px-1 bg-surface border border-brand rounded-sm outline-none col-header-text',
+              'flex-1 min-w-0 h-6 px-1 bg-transparent border-b border-chip-sky outline-none text-[13px] font-medium text-text-primary',
               !isTaskName && 'text-center',
             )}
+            style={{ letterSpacing: '0.02em' }}
           />
         ) : (
           <button
             type="button"
             onDoubleClick={() => canEdit && setRenaming(true)}
-            className="truncate text-left"
+            className="truncate text-left text-[13px] font-medium text-text-secondary"
+            style={{ letterSpacing: '0.02em' }}
             title={column.name}
           >
             {column.name}
