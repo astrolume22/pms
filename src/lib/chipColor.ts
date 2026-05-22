@@ -54,12 +54,15 @@ const ORDINAL_LIGHTNESS = [0.80, 0.72, 0.64, 0.56, 0.48, 0.40, 0.34, 0.28];
 
 function classifyStatus(name: string): ChipToken {
   const n = name.toLowerCase();
-  if (/(done|complete|complet|finished|shipped)/.test(n))         return 'mint';
-  if (/(urgent|overdue|escalate)/.test(n))                         return 'pink';
-  if (/(blocked|stuck|hold|wait)/.test(n))                         return 'teal';
-  if (/(review|qa|test|on.hold)/.test(n))                          return 'purple';
-  if (/(progress|working|in.progress|active|started)/.test(n))     return 'amber';
-  if (/(not.started|pending|todo|to.do|new|backlog)/.test(n))      return 'slate';
+  // Order matters: "Not Started" must hit the slate branch before the
+  // amber /started/ branch, otherwise "started" inside "not started"
+  // captures it. Negative-state keywords are checked first.
+  if (/(not[\s_-]?started|pending|todo|to[\s_-]?do|new|backlog|unassigned)/.test(n)) return 'slate';
+  if (/(done|complete|complet|finished|shipped)/.test(n))                            return 'mint';
+  if (/(urgent|overdue|escalate)/.test(n))                                            return 'pink';
+  if (/(blocked|stuck|hold|wait)/.test(n))                                            return 'teal';
+  if (/(review|qa|test|on[\s_-]?hold)/.test(n))                                       return 'purple';
+  if (/(in[\s_-]?progress|progress|working|active|started)/.test(n))                  return 'amber';
   return 'slate';
 }
 
