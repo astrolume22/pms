@@ -15,9 +15,9 @@ interface BoardTabsProps {
 }
 
 const TYPE_ICON: Record<ViewType, React.ReactNode> = {
-  table: <Table2 className="h-3.5 w-3.5" />,
-  kanban: <LayoutGrid className="h-3.5 w-3.5" />,
-  calendar: <CalendarDays className="h-3.5 w-3.5" />,
+  table:    <Table2       className="h-4 w-4" />,
+  kanban:   <LayoutGrid   className="h-4 w-4" />,
+  calendar: <CalendarDays className="h-4 w-4" />,
 };
 
 export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTabsProps) {
@@ -47,10 +47,10 @@ export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTab
   };
 
   return (
-    <div className="px-8 border-b border-border-light bg-surface flex items-center gap-1">
+    <div className="px-8 bg-canvas flex items-center gap-1">
       <Tab
         active={activeViewId === null}
-        icon={<Table2 className="h-3.5 w-3.5" />}
+        icon={<Table2 className="h-4 w-4" />}
         label="Main table"
         onClick={() => onSwitch(null)}
       />
@@ -68,7 +68,7 @@ export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTab
           <button
             type="button"
             onClick={() => setAddOpen((v) => !v)}
-            className="ml-1 h-7 w-7 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover"
+            className="ml-1 h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary"
             aria-label="Add view"
             title="Add view"
           >
@@ -87,17 +87,30 @@ export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTab
 }
 
 function Tab({ active, icon, label, onClick }: { active?: boolean; icon: React.ReactNode; label: string; onClick?: () => void }) {
+  // Per polish spec: 8/12 padding, 4px gap, 16px icon + 13/500 label.
+  // Active = primary text + 2px chip-sky underline; inactive = gray;
+  // hover-inactive = 5% white bg @ 8 radius.
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'h-9 px-3 -mb-px text-sm font-medium flex items-center gap-1.5 border-b-2 transition-colors duration-100',
-        active ? 'border-brand text-brand' : 'border-transparent text-text-secondary hover:text-text-primary',
+        'relative inline-flex items-center gap-1 py-2 px-3 -mb-px text-[13px] font-medium rounded-button transition-colors duration-100',
+        active
+          ? 'text-text-primary'
+          : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.05]',
       )}
+      style={{ letterSpacing: '0.02em' }}
     >
       {icon}
-      {label}
+      <span>{label}</span>
+      {active && (
+        <span
+          aria-hidden="true"
+          className="absolute left-1 right-1 -bottom-px h-0.5 rounded-pill"
+          style={{ background: 'var(--chip-sky)' }}
+        />
+      )}
     </button>
   );
 }
@@ -142,9 +155,12 @@ function ViewTab({ view, active, canEdit, onClick }: {
           type="button"
           onClick={onClick}
           className={cn(
-            'h-9 pl-3 pr-1 -mb-px text-sm font-medium flex items-center gap-1.5 border-b-2 transition-colors duration-100',
-            active ? 'border-brand text-brand' : 'border-transparent text-text-secondary hover:text-text-primary',
+            'relative inline-flex items-center gap-1 py-2 pl-3 pr-1 -mb-px text-[13px] font-medium rounded-button transition-colors duration-100',
+            active
+              ? 'text-text-primary'
+              : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.05]',
           )}
+          style={{ letterSpacing: '0.02em' }}
         >
           {TYPE_ICON[view.type]}
           {renaming ? (
@@ -158,10 +174,17 @@ function ViewTab({ view, active, canEdit, onClick }: {
                 else if (e.key === 'Escape') { setDraft(view.name); setRenaming(false); }
               }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface border border-brand rounded-sm px-1 text-sm outline-none w-[120px]"
+              className="bg-transparent border-b border-chip-sky px-1 text-[13px] text-text-primary outline-none w-[120px]"
             />
           ) : (
             <span>{view.name}</span>
+          )}
+          {active && (
+            <span
+              aria-hidden="true"
+              className="absolute left-1 right-1 -bottom-px h-0.5 rounded-pill"
+              style={{ background: 'var(--chip-sky)' }}
+            />
           )}
         </button>
         {canEdit && (
