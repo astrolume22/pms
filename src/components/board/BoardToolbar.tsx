@@ -31,7 +31,7 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
   const create = useCreateItem();
 
   return (
-    <div className="px-8 py-3 bg-surface flex items-center gap-1.5 border-b border-border-light flex-wrap">
+    <div className="px-8 py-2 bg-canvas flex items-center gap-1.5 flex-wrap">
       {/* New task — admin only. Managers consume the board read-only
           (per docs/PERMISSIONS-REDESIGN-PLAN.md). */}
       {canEdit && (
@@ -51,21 +51,23 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
         </>
       )}
 
-      {/* Search */}
+      {/* Search — ghost-style. Transparent until focus / hover; matches
+          the rest of the secondary controls visually. */}
       <div className="relative">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-secondary" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-secondary" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"
-          className="h-8 pl-7 pr-7 rounded-base bg-app border border-border-light text-sm outline-none focus:border-brand focus:bg-surface w-[200px]"
+          className="h-8 pl-8 pr-7 rounded-button bg-white/[0.04] hover:bg-white/[0.08] focus:bg-white/[0.10] text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[200px] transition-colors duration-100"
+          style={{ letterSpacing: '0.02em' }}
         />
         {search && (
           <button
             type="button"
             aria-label="Clear search"
             onClick={() => setSearch('')}
-            className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover"
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08]"
           >
             <X className="h-3 w-3" />
           </button>
@@ -292,7 +294,8 @@ function NewTaskButton({
 
   return (
     <div ref={ref} className="relative inline-flex">
-      {/* Main action: adds to the first group at the bottom (default). */}
+      {/* Premium polish: New task = solid chip-sky 36px split button,
+          8px radius, white 13/500 ls .02em text. */}
       <button
         type="button"
         disabled={disabled}
@@ -300,7 +303,11 @@ function NewTaskButton({
           if (!firstGroup) return;
           await onCreate(firstGroup.id);
         }}
-        className="inline-flex items-center h-8 pl-3 pr-2 rounded-l-base bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed"
+        className={cn(
+          'inline-flex items-center h-9 pl-3.5 pr-2.5 rounded-l-button text-[13px] font-medium text-white',
+          'hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-[filter] duration-100',
+        )}
+        style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
       >
         New task
       </button>
@@ -312,10 +319,8 @@ function NewTaskButton({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Choose group for new task"
-        className={cn(
-          'inline-flex items-center justify-center h-8 w-7 rounded-r-base bg-brand text-white text-sm border-l border-white/20 hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed',
-          open && 'bg-brand-hover',
-        )}
+        className="inline-flex items-center justify-center h-9 w-7 rounded-r-button text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-[filter] duration-100"
+        style={{ background: 'var(--chip-sky)', boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.18)' }}
       >
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
@@ -374,12 +379,11 @@ function ToolbarMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-base text-xs font-medium transition-colors duration-100',
-          active
-            ? 'bg-selected text-brand'
-            : 'text-text-secondary hover:bg-hover hover:text-text-primary',
-        )}
+        // Ghost secondary — transparent until hover. 8% white bg @ 8px
+        // radius on hover. Active state (sort applied, group-by set,
+        // etc.) sits a notch darker so it reads as "on".
+        data-active={active ? 'true' : 'false'}
+        className="btn-ghost-soft"
       >
         {icon}
         <span>{label}</span>

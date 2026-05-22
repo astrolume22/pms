@@ -197,20 +197,29 @@ export function BoardHeader({ board }: BoardHeaderProps) {
                   toast.error(err instanceof Error ? err.message : 'Could not update favorite');
                 }
               }}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
               title={board.is_favorite ? 'Unfavorite' : 'Add to favorites'}
             >
-              <Star className={cn('h-4 w-4', board.is_favorite && 'fill-warning text-warning')} />
+              <Star
+                className={cn('h-4 w-4', board.is_favorite && 'fill-current')}
+                style={board.is_favorite ? { color: 'var(--chip-amber)' } : undefined}
+              />
             </button>
           )}
-          {/* Build with AI — admin only. Calls the Gemini engine via
-              /api/ai-build, previews the plan, then applies via the
-              client applier (see docs/AI-ENGINE.md). */}
+          {/* Build with AI — admin only. The ONLY place gradients are
+              allowed on the board per the polish spec. Subtle sheen
+              over a chip-sky base reads as "premium AI" without going
+              neon. */}
           {isAdmin && (
             <button
               type="button"
               onClick={() => setBuildOpen(true)}
-              className="btn-secondary h-8 px-3 inline-flex items-center gap-1.5 text-brand"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+              style={{
+                background: 'linear-gradient(135deg, var(--chip-sky) 0%, var(--chip-purple) 100%)',
+                letterSpacing: '0.02em',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
+              }}
               title="Build groups + columns + tasks from a prompt"
             >
               <Sparkles className="h-4 w-4" />
@@ -218,15 +227,17 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             </button>
           )}
           {/* Invite — admin only (RLS will also block managers if they
-              somehow trigger create_invite via the network). */}
+              somehow trigger create_invite via the network). Same sky
+              fill as New task / Build with AI. */}
           {isAdmin && (
             <button
               type="button"
               onClick={() => setInviteOpen(true)}
-              className="btn-secondary h-8 px-3"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+              style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
               title="Invite teammates with a shareable link"
             >
-              <UserPlus className="h-4 w-4 mr-1" />
+              <UserPlus className="h-4 w-4" />
               Invite
             </button>
           )}
@@ -236,7 +247,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               type="button"
               aria-label="More"
               onClick={() => setMenuOpen((v) => !v)}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
