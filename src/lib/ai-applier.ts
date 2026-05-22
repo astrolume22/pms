@@ -356,12 +356,31 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
         failedAt: {
           index: i,
           description,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatErr(err),
         },
       };
     }
   }
   return { applied: actions.length };
+}
+
+// Format both PostgrestError (plain object: {code, message, details, hint})
+// and standard Error / string into a readable single line. Without this,
+// String({...}) renders "[object Object]" which is what the modal toast
+// was showing — useless for debugging.
+function formatErr(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; code?: string; details?: string; hint?: string };
+    if (typeof e.message === 'string' && e.message.length > 0) {
+      const parts: string[] = [e.message];
+      if (e.code)    parts.push(`[${e.code}]`);
+      if (e.details) parts.push(`— ${e.details}`);
+      if (e.hint)    parts.push(`(${e.hint})`);
+      return parts.join(' ');
+    }
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
 
 // ---------- Helpers ----------------------------------------------------
