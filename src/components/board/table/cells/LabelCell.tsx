@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { cn } from '@/lib/cn';
 import { Popover } from '../Popover';
 import { LabelPicker } from '../LabelPicker';
+import { chipColorFor } from '@/lib/chipColor';
 import type { CellProps } from './cellTypes';
 
 interface Props extends CellProps {
@@ -25,6 +26,18 @@ export function LabelCell({
   const selectedLabels = currentIds
     .map((id) => labels.find((l) => l.id === id))
     .filter((l): l is NonNullable<typeof l> => !!l);
+
+  // Token-anchored chip color for the selected label(s). chipColorFor()
+  // checks the column type AND name so Task Type / Priority / Co-Work
+  // Time all pull from the OKLCH chip palette regardless of the hex
+  // that's stored in the DB. Default columns (custom dropdowns) still
+  // render their stored color.
+  const tokenColorFor = (labelId: string): string => {
+    const idx = labels.findIndex((l) => l.id === labelId);
+    const lbl = labels[idx];
+    if (!lbl) return 'var(--chip-slate)';
+    return chipColorFor(column, lbl, idx === -1 ? 0 : idx, labels.length);
+  };
 
   const handleChange = (ids: string[]) => {
     if (multi) {
@@ -69,11 +82,11 @@ export function LabelCell({
           </span>
         ) : multi ? (
           // Multi-select (dropdown): fill the cell with the FIRST label's
-          // color as the background ribbon, then float the rest of the
-          // labels as small chips on top. Still no per-cell border.
+          // token color as the background ribbon, then float the rest as
+          // small chips on top.
           <span
             className="chip-cell chip-cell-start gap-1 overflow-hidden"
-            style={{ background: selectedLabels[0]?.color ?? 'var(--bg-row)' }}
+            style={{ background: selectedLabels[0] ? tokenColorFor(selectedLabels[0].id) : 'var(--bg-row)' }}
           >
             {selectedLabels.slice(0, 3).map((l, i) => (
               <span
@@ -82,7 +95,7 @@ export function LabelCell({
                   'inline-flex items-center h-5 px-1.5 rounded-sm text-[12px] font-semibold text-white truncate max-w-[110px]',
                   i === 0 ? 'bg-black/15' : '',
                 )}
-                style={i === 0 ? undefined : { background: l.color }}
+                style={i === 0 ? undefined : { background: tokenColorFor(l.id) }}
                 title={l.name}
               >
                 {l.name}
@@ -93,12 +106,13 @@ export function LabelCell({
             )}
           </span>
         ) : (
-          // Status/Priority: FULL-BLEED saturated chip — fills the entire
-          // cell edge-to-edge. Sharp corners (radius 0). 1px gap to next
-          // cell comes from the ItemRow wrapper's mr-px.
+          // Status/Priority/etc: FULL-BLEED saturated chip — fills the
+          // entire cell edge-to-edge. Sharp corners (radius 0). Color is
+          // mapped through chipColorFor() so Status / Priority / Task
+          // Type / Co-Work Time all pull from the OKLCH chip palette.
           <span
             className="chip-cell chip-cell-center"
-            style={{ background: selectedLabels[0].color }}
+            style={{ background: tokenColorFor(selectedLabels[0].id) }}
             title={selectedLabels[0].name}
           >
             <span className="truncate">{selectedLabels[0].name}</span>
