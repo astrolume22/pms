@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { ChevronDown, Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles, Copy } from 'lucide-react';
+import { Star, UserPlus, MoreHorizontal, Archive, ArchiveRestore, Trash2, Lock, Globe, Sparkles, Copy, FileText } from 'lucide-react';
 import { useDuplicateBoard } from '@/hooks/duplicate';
 
 // InviteModal is only used by admins / owners / managers — defer.
@@ -78,9 +78,24 @@ export function BoardHeader({ board }: BoardHeaderProps) {
     }
   };
 
+  // Description is hidden by default per the polish spec — expanded
+  // inline when the user clicks the small icon next to the title (or
+  // when there's existing content to display).
+  const [descOpen, setDescOpen] = useState<boolean>(false);
+  const hasDesc = Boolean(board.description && board.description.trim().length > 0);
+
+  // Created / Updated dates surface in the title tooltip — no longer
+  // their own row.
+  const titleTooltip = [
+    `Created ${new Date(board.created_at).toLocaleDateString()}`,
+    `Updated ${new Date(board.updated_at).toLocaleDateString()}`,
+  ].join(' · ');
+
   return (
-    <div className="px-8 pt-6 pb-3 border-b border-border-light bg-surface">
-      <div className="flex items-start gap-3">
+    <div className="px-8 pt-4 pb-2 bg-canvas">
+      {/* Row 1 — title row. Emoji + title + badge + actions on a single
+          line. Description + dates collapsed by default. */}
+      <div className="flex items-center gap-3">
         {canEdit ? (
           <EmojiPicker
             value={board.icon_emoji}
@@ -93,99 +108,61 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             }}
           />
         ) : (
-          <div className="h-10 w-10 inline-flex items-center justify-center text-2xl">
+          <div className="h-9 w-9 inline-flex items-center justify-center text-2xl">
             {board.icon_emoji}
           </div>
         )}
 
-        <div className="flex-1 min-w-0">
-          {/* Name (inline editable) */}
-          <div className="flex items-center gap-2">
-            {editingName && canEdit ? (
-              <input
-                type="text"
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={() => void commitName()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void commitName();
-                  else if (e.key === 'Escape') {
-                    setName(board.name);
-                    setEditingName(false);
-                  }
-                }}
-                className="text-2xl font-semibold bg-transparent border border-brand rounded-sm px-1 outline-none w-full max-w-[600px]"
-              />
-            ) : (
-              <h1
-                onClick={() => canEdit && setEditingName(true)}
-                className={cn('text-2xl font-semibold leading-tight', canEdit && 'cursor-text hover:bg-hover px-1 -mx-1 rounded-sm')}
-              >
-                {board.name}
-              </h1>
-            )}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          {editingName && canEdit ? (
+            <input
+              type="text"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => void commitName()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void commitName();
+                else if (e.key === 'Escape') {
+                  setName(board.name);
+                  setEditingName(false);
+                }
+              }}
+              className="text-title bg-transparent border-b border-chip-sky px-1 outline-none max-w-[600px]"
+            />
+          ) : (
+            <h1
+              onClick={() => canEdit && setEditingName(true)}
+              title={titleTooltip}
+              className={cn('text-title truncate', canEdit && 'cursor-text hover:bg-white/[0.05] px-1 -mx-1 rounded-button')}
+            >
+              {board.name}
+            </h1>
+          )}
+          <BoardTypeBadge type={board.board_type} />
+          {/* Description toggle — hidden behind a small icon. Pressing it
+              expands an inline textarea below; if the board already has a
+              description, clicking the icon opens it directly. */}
+          {canEdit && (
             <button
               type="button"
-              aria-label="Board info"
-              className="h-8 w-8 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
-              disabled
-              title="Board info — Phase 5"
+              onClick={() => {
+                if (hasDesc) setEditingDesc((v) => !v);
+                else setDescOpen((v) => !v);
+              }}
+              title={hasDesc ? 'Edit description' : 'Add description'}
+              aria-label={hasDesc ? 'Edit description' : 'Add description'}
+              className="h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
             >
-              <ChevronDown className="h-4 w-4" />
+              <FileText className="h-3.5 w-3.5" />
             </button>
-            <BoardTypeBadge type={board.board_type} />
-          </div>
-
-          {/* Description (inline editable) */}
-          <div className="mt-1">
-            {editingDesc && canEdit ? (
-              <textarea
-                autoFocus
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onBlur={() => void commitDesc()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setDescription(board.description ?? '');
-                    setEditingDesc(false);
-                  }
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void commitDesc();
-                }}
-                className="w-full max-w-[800px] text-sm text-text-primary bg-transparent border border-brand rounded-sm px-2 py-1 outline-none resize-y"
-                rows={2}
-                placeholder="Add description..."
-              />
-            ) : (
-              <p
-                onClick={() => canEdit && setEditingDesc(true)}
-                className={cn(
-                  'text-sm max-w-[800px]',
-                  description ? 'text-text-secondary' : 'text-text-disabled italic',
-                  canEdit && 'cursor-text hover:bg-hover px-2 -mx-2 py-1 rounded-sm',
-                )}
-              >
-                {description || 'Add description...'}
-              </p>
-            )}
-          </div>
-
-          {/* Meta strip — Owner intentionally hidden globally per
-              docs/PERMISSIONS-REDESIGN-PLAN.md (admin → manager model has no
-              per-board owner concept in the UI; the data stays in DB). */}
-          <div className="mt-2 flex items-center gap-3 text-xs text-text-secondary">
-            <span>Created {new Date(board.created_at).toLocaleDateString()}</span>
-            <span>Updated {new Date(board.updated_at).toLocaleDateString()}</span>
-          </div>
+          )}
         </div>
 
-        {/* Right actions */}
-        <div className="flex items-center gap-1">
-          {/* The legacy "AI Sidekick" Sparkles button was retired in
-              Phase 2 — the new "Build with AI" button (admin-only, see
-              below) is the single entry point now. */}
-          {/* Favorite + ⋯ menu (archive/delete) are admin-only. Managers
-              just consume the board read-only; they don't curate it. */}
+        {/* Right actions — sit on the same row as the title now. */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Favorite + Build with AI + Invite + overflow. All
+              admin-only — managers consume the board read-only. */}
           {isAdmin && (
             <button
               type="button"
@@ -329,6 +306,54 @@ export function BoardHeader({ board }: BoardHeaderProps) {
           )}
         </div>
       </div>
+
+      {/* Inline description — collapsed by default. Expanded when the
+          user clicks the description toggle, or shown read-only when a
+          description already exists. Stays a single visual row of
+          chrome so the "two rows max" rule holds. */}
+      {(editingDesc || descOpen || hasDesc) && (
+        <div className="mt-2 ml-12 max-w-[800px]">
+          {editingDesc && canEdit ? (
+            <textarea
+              autoFocus
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={() => { void commitDesc(); setDescOpen(false); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setDescription(board.description ?? '');
+                  setEditingDesc(false);
+                  setDescOpen(false);
+                }
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void commitDesc();
+              }}
+              className="w-full text-[13px] text-text-primary bg-transparent border-b border-chip-sky px-1 py-1 outline-none resize-y"
+              rows={2}
+              placeholder="Add description…"
+            />
+          ) : hasDesc ? (
+            <p
+              onClick={() => canEdit && setEditingDesc(true)}
+              className={cn(
+                'text-[13px] text-text-secondary truncate',
+                canEdit && 'cursor-text hover:bg-white/[0.05] px-1 -mx-1 rounded-button',
+              )}
+              title={board.description ?? ''}
+            >
+              {board.description}
+            </p>
+          ) : descOpen && canEdit ? (
+            <button
+              type="button"
+              onClick={() => setEditingDesc(true)}
+              className="text-[13px] text-text-secondary italic px-1 -mx-1 rounded-button hover:bg-white/[0.05]"
+            >
+              Add description…
+            </button>
+          ) : null}
+        </div>
+      )}
+
       {inviteOpen && (
         <Suspense fallback={null}>
           <InviteModal

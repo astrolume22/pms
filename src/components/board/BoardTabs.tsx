@@ -47,7 +47,7 @@ export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTab
   };
 
   return (
-    <div className="px-8 bg-canvas flex items-center gap-1">
+    <div className="flex items-center gap-1 min-w-0">
       <Tab
         active={activeViewId === null}
         icon={<Table2 className="h-4 w-4" />}

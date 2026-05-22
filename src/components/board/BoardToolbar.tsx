@@ -31,7 +31,7 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
   const create = useCreateItem();
 
   return (
-    <div className="px-8 py-2 bg-canvas flex items-center gap-1.5 flex-wrap">
+    <div className="flex items-center gap-1.5 flex-wrap justify-end">
       {/* New task — admin only. Managers consume the board read-only
           (per docs/PERMISSIONS-REDESIGN-PLAN.md). */}
       {canEdit && (

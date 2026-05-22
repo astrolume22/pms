@@ -141,15 +141,22 @@ function BoardPage() {
         </div>
       )}
       <BoardHeader board={board} />
-      <BoardTabs
-        boardId={board.id}
-        activeViewId={activeViewId}
-        onSwitch={switchView}
-        canEdit={canEdit}
-      />
-      {/* Toolbar (search/sort/hide/group-by/density) is table-specific in V1.
-          Kanban + Calendar each manage their own internal controls. */}
-      {viewType === 'table' && <BoardToolbar boardId={board.id} canEdit={canEdit} />}
+      {/* Premium polish — top chrome is exactly TWO rows now: the header
+          (title + actions) and this combined sub-bar that puts view tabs
+          on the left and the table toolbar (New task / Search / Sort /
+          Hide / Group by / Density) on the right. */}
+      <div className="px-8 pt-1 pb-2 bg-canvas flex items-center gap-2">
+        <BoardTabs
+          boardId={board.id}
+          activeViewId={activeViewId}
+          onSwitch={switchView}
+          canEdit={canEdit}
+        />
+        <div className="flex-1" />
+        {/* Toolbar (search/sort/hide/group-by/density) is table-specific in V1.
+            Kanban + Calendar each manage their own internal controls. */}
+        {viewType === 'table' && <BoardToolbar boardId={board.id} canEdit={canEdit} />}
+      </div>
       <Suspense fallback={<ViewLoading />}>
         {viewType === 'table'    && <BoardContent board={board} />}
         {viewType === 'kanban'   && <KanbanView boardId={board.id} canEdit={canEdit} />}
