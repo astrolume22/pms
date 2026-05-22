@@ -27,14 +27,19 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
-// Monday-night chip palette — grouped semantically (status / type /
-// time / priority / accents) so picking a color reads as semantic.
+// Premium polish chip palette — all 8 OKLCH tokens (chunk 1) so any
+// label created from the editor renders in the same family as the
+// chip mosaic. Stored as oklch() strings; browsers consume them in
+// inline style + DB values like any other CSS color.
 const COLOR_PALETTE = [
-  '#F8BD6D', '#D0728A', '#787F92', '#33C481',
-  '#3DA0CA', '#1F5A62', '#B17FE0', '#265565',
-  '#F9885E', '#F74EA1', '#7DAFF8', '#459CC7', '#71BCA5',
-  '#6646A7', '#51458F', '#3E3A6B',
-  '#FF3D8B', '#FFCB00',
+  'oklch(0.72 0.15 70)',    // amber
+  'oklch(0.45 0.02 250)',   // slate
+  'oklch(0.55 0.10 200)',   // teal
+  'oklch(0.62 0.18 350)',   // pink
+  'oklch(0.62 0.15 295)',   // purple
+  'oklch(0.70 0.12 230)',   // sky
+  'oklch(0.72 0.14 160)',   // mint
+  'oklch(0.68 0.16 25)',    // coral
 ];
 
 interface LabelsEditorModalProps {
@@ -63,7 +68,7 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
   const onAdd = async () => {
     try {
       const used = new Set(labels.map((l) => l.color));
-      const color = COLOR_PALETTE.find((c) => !used.has(c)) ?? '#2B7FFF';
+      const color = COLOR_PALETTE.find((c) => !used.has(c)) ?? 'oklch(0.70 0.12 230)';
       const created = await create.mutateAsync({
         boardId, columnId: column.id, name: 'New label', color,
       });
