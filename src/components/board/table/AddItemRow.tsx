@@ -36,13 +36,17 @@ export function AddItemRow({
 
   return (
     <div
+      // Premium polish: lives on canvas, single row-tall (40px), no
+      // borders, no per-cell separators. Plus icon + input inherit the
+      // canvas background so the whole row reads as an empty "shadow"
+      // row at the bottom of the group.
       className={cn(
-        'flex items-center border-b border-border-light bg-surface',
+        'flex items-center h-10 bg-canvas',
         disabled && 'opacity-50',
       )}
       style={{ minWidth: totalWidth }}
     >
-      <div className="w-10 shrink-0 border-r border-border-light flex items-center justify-center text-text-disabled">
+      <div className="w-10 shrink-0 flex items-center justify-center text-text-secondary">
         <Plus className="h-3.5 w-3.5" />
       </div>
       <input
@@ -54,7 +58,7 @@ export function AddItemRow({
         }}
         placeholder={placeholder}
         disabled={disabled || submitting}
-        className="flex-1 h-9 px-2 text-sm bg-transparent outline-none placeholder:text-text-disabled"
+        className="flex-1 h-10 px-3 text-[13px] text-text-primary bg-transparent outline-none placeholder:text-text-secondary"
       />
     </div>
   );

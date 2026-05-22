@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ChevronRight, GripVertical, ChevronDown, MessageSquare } from 'lucide-react';
+import { ChevronRight, GripVertical, ChevronDown } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { CellRenderer } from './cells/CellRenderer';
@@ -10,6 +10,8 @@ import { useBoardViewStore, ITEM_HEIGHT_PX } from '@/state/boardViewStore';
 import { COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH, GUTTER_WIDTH } from './tableLayout';
 import { useAuthStore } from '@/state/authStore';
 import { canEditCell } from '@/lib/permissions';
+import { CommentIndicator } from './cells/CommentIndicator';
+import { TaskCodeChip } from './cells/TaskCodeChip';
 import { cn } from '@/lib/cn';
 
 interface ItemRowProps {
@@ -26,6 +28,29 @@ interface ItemRowProps {
   onOpenLabelsEditor: (col: ColumnRow) => void;
 }
 
+/**
+ * One row of the board table — premium polish layout.
+ *
+ * Anatomy (left → right, exact widths in tableLayout.ts):
+ *   1. Drag handle       transparent
+ *   2. Checkbox          transparent
+ *   3. Expand caret      transparent (only when there are subtasks)
+ *   4. Task name         transparent, plain 13/400 white left-aligned
+ *   5. Comment indicator transparent
+ *   6. Task Code         slate-fill CHIP
+ *   7+ Status / Task Type / Co-Work Time / Priority / Date / others → CHIPS
+ *
+ * Visual rules:
+ *   • No horizontal row borders (criterion 8 — "kill row dividers").
+ *   • No vertical per-cell borders (criterion 1 — "1px gap of dark canvas
+ *     is the only separator"). The gap is created by the parent's
+ *     space-y-px AND by an `mr-px` on each cell.
+ *   • Cells 6+ are CHIPS — full width / full height, padding inside chip,
+ *     sharp corners (radius 0).
+ *   • Cells 1–5 are transparent (canvas shows through).
+ *   • Selected row gets a 4px chip-sky vertical accent in the checkbox
+ *     column (chunk 13 — distinct from group spine).
+ */
 export function ItemRow({
   item, visibleColumns, labelsByColumnId, valuesByItemColumn,
   boardId, canEdit, isSubitem, hasSubitems, onToggleSubitems, onOpenLabelsEditor,
@@ -64,16 +89,18 @@ export function ItemRow({
       ref={sortable.setNodeRef}
       style={{ ...style, height: rowHeight, opacity: sortable.isDragging ? 0.4 : 1 }}
       className={cn(
-        'group/row flex items-stretch border-b border-border-light text-[14px]',
-        isSelected ? 'bg-selected' : 'hover:bg-hover',
-        isSubitem && 'bg-app/40',
+        // Canvas-colored row container: shows through as the 1px gap
+        // between cells. No row borders.
+        'group/row flex items-stretch bg-canvas text-[13px]',
+        isSubitem && 'opacity-95',
       )}
     >
-      {/* Gutter: drag handle + checkbox + expand */}
+      {/* Gutter: drag handle + checkbox + expand. Transparent (canvas shows).
+          Selected row → 4px chip-sky left accent on this column. */}
       <div
         className={cn(
-          'shrink-0 flex items-center justify-center gap-0.5 border-r border-border-light bg-surface sticky left-0 z-[3]',
-          isSelected && 'bg-selected',
+          'shrink-0 flex items-center justify-center gap-0.5 sticky left-0 z-[3] bg-canvas',
+          isSelected && 'shadow-[inset_4px_0_0_0_var(--chip-sky)]',
         )}
         style={{ width: GUTTER_WIDTH }}
       >
@@ -82,7 +109,7 @@ export function ItemRow({
             type="button"
             {...sortable.attributes}
             {...sortable.listeners}
-            className="opacity-0 group-hover/row:opacity-100 h-5 w-3 flex items-center justify-center text-text-disabled cursor-grab active:cursor-grabbing"
+            className="opacity-0 group-hover/row:opacity-30 hover:!opacity-100 h-5 w-3 flex items-center justify-center text-text-secondary cursor-grab active:cursor-grabbing"
             aria-label="Drag to reorder"
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -102,7 +129,7 @@ export function ItemRow({
           <button
             type="button"
             onClick={onToggleSubitems}
-            className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-hover/50 rounded-sm"
+            className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-white/[0.08] rounded-sm"
             aria-label={isExpanded ? 'Collapse subitems' : 'Expand subitems'}
           >
             {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -110,13 +137,16 @@ export function ItemRow({
         )}
       </div>
 
-      {/* Task-name cell (sticky-left after the gutter) */}
+      {/* Task-name cell (sticky-left after the gutter). Transparent — NOT a
+          chip. Plain 13px white text left-aligned. */}
       {taskNameCol && (
         <div
           style={{ width: taskNameCol.width }}
           className={cn(
-            'shrink-0 border-r border-border-light sticky z-[2]',
-            isSelected ? 'bg-selected' : 'bg-surface',
+            'shrink-0 sticky z-[2] bg-canvas',
+            // 1px horizontal gap to the next cell — canvas shows through
+            // because we leave a margin instead of a border.
+            'mr-px',
           )}
         >
           <CellRenderer
@@ -135,39 +165,42 @@ export function ItemRow({
         </div>
       )}
 
-      {/* Synthetic comment-indicator column */}
+      {/* Synthetic comment-indicator column — transparent. */}
       <div
         style={{ width: COMMENT_COL_WIDTH }}
-        className="shrink-0 border-r border-border-light flex items-center justify-center"
+        className="shrink-0 mr-px flex items-center justify-center"
       >
-        <button
-          type="button"
-          onClick={openTaskPanel}
-          title="Open task / see updates"
-          aria-label="Open task"
-          className="h-6 w-6 inline-flex items-center justify-center rounded-pill border border-border-light bg-app/40 text-text-secondary hover:bg-brand/10 hover:text-brand hover:border-brand/40 transition-colors duration-100"
-        >
-          <MessageSquare className="h-3 w-3" />
-        </button>
+        <CommentIndicator
+          item={item}
+          onOpen={openTaskPanel}
+        />
       </div>
 
-      {/* Synthetic task-code column (read-only, sourced from item.task_code) */}
+      {/* Synthetic task-code column — SLATE-FILL chip (chunk 3 styling). */}
       <div
         style={{ width: TASK_CODE_COL_WIDTH }}
-        className="shrink-0 border-r border-border-light flex items-center justify-center text-[12px] font-mono text-text-secondary"
+        className="shrink-0 mr-px"
       >
-        {item.task_code}
+        <TaskCodeChip code={item.task_code} onClick={openTaskPanel} />
       </div>
 
-      {/* Remaining user-defined columns */}
-      {otherCols.map((col) => {
+      {/* Remaining user-defined columns — CHIPS fill the cell.
+          The CellRenderer renders the right chip background per column type. */}
+      {otherCols.map((col, idx) => {
         const key = `${item.id}:${col.id}`;
         const val = valuesByItemColumn.get(key);
+        const isLast = idx === otherCols.length - 1;
         return (
           <div
             key={col.id}
             style={{ width: col.width }}
-            className="shrink-0 border-r border-border-light"
+            className={cn(
+              'shrink-0',
+              // 1px gap on the right unless this is the last cell in the
+              // user-defined column run (the row's "+ Add column" cell
+              // already sits on canvas).
+              !isLast && 'mr-px',
+            )}
           >
             <CellRenderer
               item={item}

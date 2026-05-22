@@ -294,18 +294,22 @@ export function BoardContent({ board }: BoardContentProps) {
   const otherCols   = visibleColumns.filter((c) => c.column_type !== 'task_name');
 
   return (
-    <div className="px-8 py-4">
+    <div className="px-8 py-4 bg-canvas">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         {/* Single horizontal scroll container — column headers and every
-            group row share this scroll and stay aligned column-by-column. */}
-        <div className="bg-surface border border-border-light rounded-md overflow-x-auto scroll-x-slim">
-          {/* Column-header row */}
+            group row share this scroll and stay aligned column-by-column.
+            Premium polish: no surface border / radius around the whole
+            table — the table reads as a continuous color mosaic on
+            canvas, with group spines as the only structural seams. */}
+        <div className="overflow-x-auto scroll-x-slim bg-canvas">
+          {/* Column-header row — 36px tall, canvas bg, 1px chip-hair
+              hairline below. (Chunk 6 finalizes the typography.) */}
           <div
-            className="flex items-stretch bg-app/60 border-b border-border-light"
+            className="flex items-stretch bg-canvas h-9 border-b border-border-hair"
             style={{ minWidth: tableMinWidth }}
           >
             <div
-              className="shrink-0 border-r border-border-light sticky left-0 z-[5] bg-app/95 backdrop-blur-sm"
+              className="shrink-0 sticky left-0 z-[5] bg-canvas"
               style={{ width: GUTTER_WIDTH }}
             />
 
@@ -324,17 +328,17 @@ export function BoardContent({ board }: BoardContentProps) {
                 />
               )}
 
-              {/* Synthetic header cells — empty title for the comment column,
-                  "Code" for the task-code column. Centered, same uppercase
-                  style as ColumnHeader's text. */}
+              {/* Synthetic header cells — empty title for the comment column
+                  (the icon is per-row), "Code" for the task-code column.
+                  Same typography tier as the rest of the headers. */}
               <div
                 style={{ width: COMMENT_COL_WIDTH }}
-                className="shrink-0 border-r border-border-light flex items-center justify-center"
+                className="shrink-0 flex items-center justify-center"
                 aria-hidden="true"
               />
               <div
                 style={{ width: TASK_CODE_COL_WIDTH }}
-                className="shrink-0 border-r border-border-light flex items-center justify-center text-[12px] uppercase tracking-[0.04em] text-text-secondary font-semibold"
+                className="shrink-0 flex items-center justify-center col-header-text"
               >
                 Code
               </div>

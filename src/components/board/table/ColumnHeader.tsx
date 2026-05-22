@@ -100,11 +100,12 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(
-        'group/col relative shrink-0 border-r border-border-light flex items-center px-3',
-        // Monday-night spec: 13px / medium / 0.2px tracking / muted lavender-grey.
-        'bg-app/60 col-header-text',
+        // Premium polish: canvas-colored header cell, NO per-cell right
+        // border (the 1px gap between header cells comes from the parent
+        // row's gap-x; chunk 6 finalizes the 36px row + hairline bottom).
+        'group/col relative shrink-0 flex items-center px-3 bg-canvas col-header-text',
         sortable.isDragging && 'z-10',
-        isTaskName && 'sticky left-10 z-[5] bg-app/95 backdrop-blur-sm',
+        isTaskName && 'sticky left-10 z-[5] bg-canvas',
       )}
     >
       {/* drag handle (the whole header is the drag target except for the resize handle/menu).

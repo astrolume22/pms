@@ -186,8 +186,11 @@ export const useBoardViewStore = useStore;
 // the colored chips sit close together and reinforce each other.
 // 48px is the default — short enough to keep the data dense, tall
 // enough for the chip text + an 8px vertical padding budget on cells.
+// Premium polish: default (comfortable) is exactly 40px with 10px y / 16px x
+// cell padding — short enough to keep the heatmap-dense look, tall enough
+// for the chip text + a 10px vertical padding budget on cells.
 export const ITEM_HEIGHT_PX: Record<ItemHeight, number> = {
-  compact: 36,
-  comfortable: 48,
-  spacious: 60,
+  compact: 32,
+  comfortable: 40,
+  spacious: 52,
 };

@@ -91,19 +91,21 @@ export function GroupBlock({
   return (
     <div
       ref={sortable.setNodeRef}
-      style={{ ...style, borderLeftColor: group.color }}
+      style={style}
       className={cn(
-        // 4px colored accent bar runs the full height of the group →
-        // header + rows + footer all share one vertical bar so the
-        // group reads as one contained card.
-        'border-b border-border-light last:border-b-0 border-l-[4px]',
+        // The group is a stack: header (no spine) → data block (spine).
+        // The header lives outside the colored bar per spec ("spine starts
+        // at the column header row, ends at the summary strip — does NOT
+        // extend through the group title").
+        'bg-canvas',
         sortable.isDragging && 'opacity-50',
       )}
     >
-      {/* Group header — sticky to the LEFT edge of the scroll container so
-          the title/menu stay visible when the user scrolls horizontally. */}
+      {/* Group header — sticky-left so the title/menu stay visible when
+          the user scrolls horizontally. NO colored spine through the
+          header row — only the caret + title carry the group color. */}
       <div
-        className="sticky left-0 z-[4] flex items-center gap-2 py-3 pl-2 pr-3 bg-surface"
+        className="sticky left-0 z-[4] flex items-center gap-2 h-11 px-3 bg-canvas"
         style={{ maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
@@ -272,13 +274,25 @@ export function GroupBlock({
       </div>
 
       {!collapsed && (
-        <div className="border-t border-border-light" style={{ minWidth: rowMinWidth }}>
+        <div
+          // Data block: column-headers → rows → "+ Add task" → summary
+          // strip all live under a single 4px colored left spine in the
+          // group's identity color. Radius 0 8 8 0 with overflow hidden
+          // so the spine reads as a continuous left edge.
+          className="relative overflow-hidden"
+          style={{
+            minWidth: rowMinWidth,
+            borderLeft: `4px solid ${group.color}`,
+            borderTopRightRadius: 8,
+            borderBottomRightRadius: 8,
+          }}
+        >
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
             {items.map((it) => {
               const kids = subitemsByParent.get(it.id) ?? [];
               const isExp = expandedItemIds.has(it.id);
               return (
-                <div key={it.id}>
+                <div key={it.id} className="mb-px bg-canvas">
                   <ItemRowComp
                     item={it}
                     columns={columns}
@@ -292,7 +306,7 @@ export function GroupBlock({
                     onOpenLabelsEditor={onOpenLabelsEditor}
                   />
                   {isExp && (
-                    <div className="pl-10 bg-app/30">
+                    <div className="pl-10 bg-canvas">
                       {kids.map((sub) => (
                         <ItemRowComp
                           key={sub.id}

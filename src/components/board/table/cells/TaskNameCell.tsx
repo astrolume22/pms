@@ -37,7 +37,10 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
 
   return (
     <div
-      className="group/cell flex items-center gap-1 px-3 h-full w-full"
+      // Task-name is the only "wide" cell that is NOT a chip — transparent
+      // background, plain 13/400 white text, left-aligned. Hover gives the
+      // 8% white overlay (chunk 13).
+      className="group/cell flex items-center h-full w-full px-4 hover:bg-white/[0.08] transition-colors duration-100"
       onClick={() => !readonly && !isEditing && onStartEdit()}
     >
       {isEditing && !readonly ? (
@@ -53,13 +56,13 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
               onEndEdit();
             }
           }}
-          className="flex-1 min-w-0 h-8 bg-surface border border-brand rounded-sm px-1 text-[14px] outline-none"
+          className="flex-1 min-w-0 h-8 bg-transparent border-b border-chip-sky px-0 text-[13px] text-text-primary outline-none"
           autoFocus
         />
       ) : (
         <span
           className={cn(
-            'flex-1 min-w-0 text-[14px] truncate',
+            'flex-1 min-w-0 text-[13px] text-text-primary truncate',
             readonly ? 'cursor-default' : 'cursor-text',
           )}
           title={item.name}

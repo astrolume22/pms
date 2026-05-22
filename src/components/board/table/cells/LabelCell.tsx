@@ -44,42 +44,60 @@ export function LabelCell({
       <div
         ref={anchorRef}
         className={cn(
-          'w-full h-full flex items-center overflow-hidden',
+          'group/labelcell relative w-full h-full overflow-hidden',
           !readonly && 'cursor-pointer',
         )}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
       >
         {isEmpty ? (
-          // Empty single-select / multi-select: pure surface (no muddy
-          // grey fill anymore). A faint centered dash signals "no value".
+          // Empty cell: neutral slate fill (--bg-row) — empty is a STYLE,
+          // not a void. No em-dash. Hover reveals a faint "+" so the
+          // user knows the cell is clickable; the bare cell just blends
+          // into the row's neutral fill otherwise.
           <span
-            className="w-full text-center text-[14px]"
-            style={{ color: '#5A5E72' }}
+            className={cn(
+              'chip-cell chip-cell-center text-text-secondary',
+              !readonly && 'hover:bg-white/[0.08]',
+            )}
+            style={{ background: 'var(--bg-row)' }}
           >
-            —
+            {!readonly && (
+              <span className="opacity-0 group-hover/labelcell:opacity-60 text-[16px] leading-none transition-opacity duration-100">
+                +
+              </span>
+            )}
           </span>
         ) : multi ? (
-          <div className="flex items-center gap-1 overflow-hidden px-2">
-            {selectedLabels.slice(0, 3).map((l) => (
+          // Multi-select (dropdown): fill the cell with the FIRST label's
+          // color as the background ribbon, then float the rest of the
+          // labels as small chips on top. Still no per-cell border.
+          <span
+            className="chip-cell chip-cell-start gap-1 overflow-hidden"
+            style={{ background: selectedLabels[0]?.color ?? 'var(--bg-row)' }}
+          >
+            {selectedLabels.slice(0, 3).map((l, i) => (
               <span
                 key={l.id}
-                className="inline-flex items-center h-6 px-2.5 rounded-sm text-[12px] font-semibold text-white truncate max-w-[110px]"
-                style={{ background: l.color }}
+                className={cn(
+                  'inline-flex items-center h-5 px-1.5 rounded-sm text-[12px] font-semibold text-white truncate max-w-[110px]',
+                  i === 0 ? 'bg-black/15' : '',
+                )}
+                style={i === 0 ? undefined : { background: l.color }}
                 title={l.name}
               >
                 {l.name}
               </span>
             ))}
             {selectedLabels.length > 3 && (
-              <span className="text-[12px] text-text-secondary">+{selectedLabels.length - 3}</span>
+              <span className="text-[12px] text-white/85">+{selectedLabels.length - 3}</span>
             )}
-          </div>
+          </span>
         ) : (
           // Status/Priority: FULL-BLEED saturated chip — fills the entire
-          // cell edge-to-edge with the cell's hairline border as the only
-          // seam between chips. 2px corners (status-chip utility).
+          // cell edge-to-edge. Sharp corners (radius 0). 1px gap to next
+          // cell comes from the ItemRow wrapper's mr-px.
           <span
-            className="status-chip"
+            className="chip-cell chip-cell-center"
             style={{ background: selectedLabels[0].color }}
             title={selectedLabels[0].name}
           >
