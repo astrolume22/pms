@@ -30,12 +30,19 @@ interface GroupBlockProps {
   rowMinWidth: number;
 }
 
-// Group-title accent colors — anchored on the Monday-night spec's two
-// hero accents (#FF3D8B pink, #33C481 green) plus a curated set so each
-// group on a board gets a visually distinct left bar + title color.
+// Group-spine + title colors — 8 curated hues anchored on the OKLCH
+// chip palette so the spine reads as one visual family with the chips
+// it sits next to. Stored verbatim in group.color (CSS color() values
+// are valid wherever a hex is — the inline style consumes them as-is).
 const COLORS = [
-  '#FF3D8B', '#33C481', '#F8BD6D', '#6646A7', '#3DA0CA', '#F74EA1',
-  '#B17FE0', '#71BCA5', '#459CC7', '#D0728A', '#7DAFF8', '#F9885E',
+  'oklch(0.70 0.16 25)',   // coral
+  'oklch(0.70 0.16 70)',   // amber
+  'oklch(0.70 0.14 160)',  // mint
+  'oklch(0.65 0.10 200)',  // teal
+  'oklch(0.70 0.12 230)',  // sky
+  'oklch(0.65 0.15 295)',  // purple
+  'oklch(0.65 0.18 350)',  // pink
+  'oklch(0.65 0.05 250)',  // slate
 ];
 
 export function GroupBlock({
@@ -103,9 +110,12 @@ export function GroupBlock({
     >
       {/* Group header — sticky-left so the title/menu stay visible when
           the user scrolls horizontally. NO colored spine through the
-          header row — only the caret + title carry the group color. */}
+          header row — only the caret + title carry the group color.
+          Order per spec: drag (hover) → caret (in color) → title (in
+          color, 16/600) → "N tasks" gray pill → spacer → overflow ⋯
+          (hover-only). */}
       <div
-        className="sticky left-0 z-[4] flex items-center gap-2 h-11 px-3 bg-canvas"
+        className="group/groupheader sticky left-0 z-[4] flex items-center gap-2 h-11 px-3 bg-canvas"
         style={{ maxWidth: 'calc(100vw - 320px)' }}
       >
         {canEdit && (
@@ -113,7 +123,7 @@ export function GroupBlock({
             type="button"
             {...sortable.attributes}
             {...sortable.listeners}
-            className="h-5 w-3 flex items-center justify-center text-text-disabled cursor-grab active:cursor-grabbing"
+            className="opacity-0 group-hover/groupheader:opacity-50 hover:!opacity-100 h-5 w-3 flex items-center justify-center text-text-secondary cursor-grab active:cursor-grabbing transition-opacity duration-100"
             aria-label="Drag group"
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -122,8 +132,11 @@ export function GroupBlock({
         <button
           type="button"
           onClick={() => toggleCollapsed(group.id)}
-          className="h-6 w-6 inline-flex items-center justify-center rounded-sm hover:bg-hover"
+          className="h-6 w-6 inline-flex items-center justify-center rounded-sm hover:bg-white/[0.08]"
           aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+          // Caret picks up the group's identity color so it ties to the
+          // spine below.
+          style={{ color: group.color }}
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
@@ -183,7 +196,13 @@ export function GroupBlock({
             {group.name}
           </button>
         )}
-        <span className="text-sm text-text-disabled font-medium">{items.length} task{items.length === 1 ? '' : 's'}</span>
+        <span
+          className="inline-flex items-center h-5 px-2 rounded-pill text-[12px] font-medium text-text-secondary"
+          style={{ background: 'rgba(255,255,255,0.06)' }}
+          title={`${items.length} task${items.length === 1 ? '' : 's'}`}
+        >
+          {items.length} task{items.length === 1 ? '' : 's'}
+        </span>
 
         {canEdit && (
           <div ref={menuRef} className="relative ml-auto">
@@ -191,7 +210,7 @@ export function GroupBlock({
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="Group menu"
-              className="h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-hover"
+              className="opacity-0 group-hover/groupheader:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-white/[0.08] transition-opacity duration-100"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
@@ -244,7 +263,8 @@ export function GroupBlock({
             )}
             {colorPickerOpen && (
               <div
-                className="absolute right-0 top-7 z-30 bg-surface border border-border-light rounded-md shadow-lg p-2 grid grid-cols-6 gap-1.5 w-[160px]"
+                className="absolute right-0 top-7 z-30 bg-card rounded-card p-3 grid grid-cols-4 gap-2 w-[180px]"
+                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06)' }}
                 onMouseLeave={() => setColorPickerOpen(false)}
               >
                 {COLORS.map((c) => (
@@ -260,8 +280,8 @@ export function GroupBlock({
                       }
                     }}
                     className={cn(
-                      'h-5 w-5 rounded-sm',
-                      group.color === c && 'ring-2 ring-text-primary ring-offset-1 ring-offset-surface',
+                      'h-7 w-full rounded-button',
+                      group.color === c && 'ring-2 ring-white ring-offset-2 ring-offset-card',
                     )}
                     style={{ background: c }}
                     aria-label={c}

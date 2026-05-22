@@ -7,9 +7,18 @@ export const groupKeys = {
   board: (boardId: string) => [...groupKeys.all, 'board', boardId] as const,
 };
 
+// New-group seed colors — anchored on the OKLCH chip palette (chunk 1)
+// so each new spine ties to the chip family. Keep these in sync with
+// GroupBlock.COLORS, the picker grid.
 const COLORS = [
-  '#00C875', '#E2445C', '#FDAB3D', '#A25DDC', '#0086C0',
-  '#579BFC', '#FF158A', '#9CD326', '#225091', '#FF7575',
+  'oklch(0.70 0.16 25)',   // coral
+  'oklch(0.70 0.16 70)',   // amber
+  'oklch(0.70 0.14 160)',  // mint
+  'oklch(0.65 0.10 200)',  // teal
+  'oklch(0.70 0.12 230)',  // sky
+  'oklch(0.65 0.15 295)',  // purple
+  'oklch(0.65 0.18 350)',  // pink
+  'oklch(0.65 0.05 250)',  // slate
 ];
 const randomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
 
