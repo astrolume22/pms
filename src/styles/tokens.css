@@ -1,0 +1,77 @@
+/* =====================================================================
+   Premium board tokens — visual polish pass.
+
+   ALL chip colors live in OKLCH lightness 0.62–0.68 / chroma 0.13–0.16
+   so pink / teal / amber / purple / mint read as one family — only hue
+   varies. Surfaces are a 5-stop dark ramp from canvas (#0F1117) down to
+   row-hover (#32363F). Components consume these via:
+     • CSS var:           var(--chip-amber)
+     • Tailwind utility:  bg-chip-amber / text-chip-amber
+   New variables are ADDITIVE — the legacy --bg-app / --bg-surface still
+   exist (they're remapped in index.css's .dark block to point at the
+   new ramp), so existing components don't break.
+   ===================================================================== */
+
+:root {
+  /* ---- Surfaces ---- */
+  --bg-canvas:       #0F1117;
+  --bg-sidebar-new:  #181B22;
+  --bg-card:         #1A1D24;
+  --bg-row:          #2A2E36;
+  --bg-row-hover:    #32363F;
+
+  /* ---- Borders ---- */
+  --border-hair:     rgba(255, 255, 255, 0.06);
+
+  /* ---- Text ---- */
+  --text-primary-new:   #FFFFFF;
+  --text-secondary-new: #9CA3AF;
+  --text-tertiary:      #6B7280;
+
+  /* ---- Chip palette (OKLCH band; only hue varies) ----
+     One narrow lightness/chroma band so saturated chips read as one
+     family across a board. Used by status / priority / task-type /
+     dropdown / co-work / date cells. */
+  --chip-amber:  oklch(0.72 0.15 70);     /* in-progress */
+  --chip-slate:  oklch(0.45 0.02 250);    /* not-started, neutral */
+  --chip-teal:   oklch(0.55 0.10 200);    /* blocked, low priority */
+  --chip-pink:   oklch(0.62 0.18 350);    /* urgent, overdue date */
+  --chip-purple: oklch(0.62 0.15 295);    /* high priority, task type */
+  --chip-sky:    oklch(0.70 0.12 230);    /* primary action, focus, tomorrow */
+  --chip-mint:   oklch(0.72 0.14 160);    /* done, success */
+  --chip-coral:  oklch(0.68 0.16 25);     /* alternative warm accent */
+
+  /* ---- Focus ring ---- */
+  --focus-ring:  oklch(0.70 0.12 230);
+
+  /* ---- Density ---- */
+  --row-height:  40px;
+  --cell-pad-y:  10px;
+  --cell-pad-x:  16px;
+  --cell-gap:    1px;
+
+  /* ---- Radius ---- */
+  --radius-cell:   0;       /* cells are sharp */
+  --radius-card:   12px;    /* popovers / cards */
+  --radius-button: 8px;
+
+  /* ---- Typography ---- */
+  --font-sans:    'Geist', 'Figtree', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --fs-title:     22px;
+  --fs-header:    13px;
+  --fs-body:      13px;
+  --lh-title:     28px;
+  --lh-body:      18px;
+
+  /* ---- 8 curated group-spine hues (anchored on the chip palette,
+          slightly different lightness so titles stay legible on the
+          deep canvas) ---- */
+  --group-1: oklch(0.70 0.16 25);   /* coral   */
+  --group-2: oklch(0.70 0.16 70);   /* amber   */
+  --group-3: oklch(0.70 0.14 160);  /* mint    */
+  --group-4: oklch(0.65 0.10 200);  /* teal    */
+  --group-5: oklch(0.70 0.12 230);  /* sky     */
+  --group-6: oklch(0.65 0.15 295);  /* purple  */
+  --group-7: oklch(0.65 0.18 350);  /* pink    */
+  --group-8: oklch(0.65 0.05 250);  /* slate   */
+}

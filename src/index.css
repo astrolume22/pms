@@ -1,19 +1,24 @@
-/* Figtree — primary font for the redesigned night theme. Figtree's
-   uniform x-height + tight kerning matches the Monday-style dense
-   data layout; we fall back to Inter / system fonts if the network
-   is unavailable. */
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+/* Token import MUST precede @tailwind base so :root vars resolve before
+   utility classes use them. */
+@import url('./styles/tokens.css');
+
+/* Geist (primary) + Figtree (fallback) + Roboto Mono. Geist has uniform
+   metrics tuned for dense data UIs; Figtree stays as the backup so the
+   layout still renders if Google Fonts is unreachable. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ---------- Design tokens (light) ---------- */
+/* ---------- Design tokens (light) ----------
+   Light mode is intentionally untouched by the polish pass — the
+   premium board is a dark-mode design. Light keeps its original
+   surface palette so admin pages / login still render correctly. */
 :root {
-  /* Neutrals */
   --bg-app: #F6F7FB;
   --bg-surface: #FFFFFF;
-  --bg-sidebar: #FFFFFF;     /* sidebar/icon rail — same as surface in light mode */
+  --bg-sidebar: #FFFFFF;
   --bg-hover: #F5F6FA;
   --bg-selected: #E6F0FA;
   --bg-dark: #292F4C;
@@ -24,40 +29,32 @@
   --text-disabled: #9699A6;
   --text-on-dark: #FFFFFF;
 
-  /* Brand */
   --primary-blue: #2B7FFF;
   --primary-blue-hover: #1E6FE8;
   --primary-blue-active: #1A5DC9;
 }
 
-/* ---------- Design tokens (dark — "Monday night" navy redesign) ----------
-   Depth ordering, deepest → lightest:
-     --bg-dark       (top bar)                  ← deepest
-     --bg-sidebar    (icon rail + nav)          ← near-deepest, app frame
-     --bg-app        (board canvas)             ← muted navy ground
-     --bg-surface    (rows / cells / cards)     ← lifted, where chips sit
-     --bg-hover      (one step up)
-     --bg-selected   (highlight)
-   --border-light is intentionally a hairline white (rgba 6%) so row
-   seams read as faint cuts and the saturated chips dominate visually. */
+/* ---------- Design tokens (dark — premium polish) ----------
+   Surface ramp, deepest → lightest:
+     --bg-dark / --bg-app  = canvas (#0F1117)   deepest, sits behind the table
+     --bg-sidebar           = #181B22           app frame / sidebar
+     --bg-surface           = --bg-row (#2A2E36) row chips sit here
+     --bg-hover             = --bg-row-hover (#32363F)
+   --border-light is a 6%-white hairline so the 1px gap between chips
+   reads as the only seam. */
 .dark {
-  /* 3-step depth ramp:
-       top bar  → #191B34  (--bg-dark / --bg-sidebar)
-       canvas   → #25273E  (--bg-app, behind the table)
-       row cell → #31374F  (--bg-surface, where chips live)
-     Hairline 1px white-6%-alpha border for row seams. */
-  --bg-dark: #191B34;
-  --bg-sidebar: #191B34;
-  --bg-app: #25273E;
-  --bg-surface: #31374F;
-  --bg-hover: #3D425D;
-  --bg-selected: #495069;
-  --border-light: rgba(255, 255, 255, 0.06);
+  --bg-dark:     var(--bg-canvas);          /* #0F1117 */
+  --bg-app:      var(--bg-canvas);          /* canvas behind table */
+  --bg-sidebar:  var(--bg-sidebar-new);     /* #181B22 */
+  --bg-surface:  var(--bg-row);             /* #2A2E36, where chips sit */
+  --bg-hover:    var(--bg-row-hover);       /* #32363F */
+  --bg-selected: #2F4055;                    /* dimmer than hover-blue */
+  --border-light:  var(--border-hair);      /* 6% white */
   --border-medium: rgba(255, 255, 255, 0.12);
-  --text-primary: #FFFFFF;
-  --text-secondary: #C3C6D4;
-  --text-disabled: #8A8FA8;
-  --text-on-dark: #FFFFFF;
+  --text-primary:   var(--text-primary-new);
+  --text-secondary: var(--text-secondary-new);
+  --text-disabled:  var(--text-tertiary);
+  --text-on-dark:   #FFFFFF;
 }
 
 * {
@@ -70,8 +67,10 @@ html, body, #root {
 
 body {
   margin: 0;
-  font-family: 'Figtree', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-feature-settings: 'cv11', 'ss01';   /* tighter digits + a-tail Figtree alts */
+  /* Geist with Figtree fallback. Set on body too so any node that
+     opts out of inheritance still gets the family. */
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
   background: var(--bg-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -87,13 +86,14 @@ input, textarea, select {
   color: inherit;
 }
 
-/* Focus ring uses brand blue */
+/* Focus ring uses the chip-sky token so all focus rings sit in one
+   color family. Visible outlines only on keyboard nav. */
 :focus-visible {
-  outline: 2px solid var(--primary-blue);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
-/* ---------- Shared component classes (Monday-style) ---------- */
+/* ---------- Shared component classes ---------- */
 @layer components {
   .input {
     @apply h-9 w-full px-3 rounded-base text-sm bg-surface border border-border-medium text-text-primary placeholder:text-text-disabled outline-none transition-colors duration-100;
@@ -116,43 +116,80 @@ input, textarea, select {
     @apply inline-flex items-center justify-center h-9 px-3 rounded-base bg-transparent text-text-primary text-sm font-medium hover:bg-hover transition-colors duration-100;
   }
 
-  /* ---------- Typography utility classes (Monday-night spec) ----------
-     Centralized so every column header / cell / group title shares the
-     same scale and weight. */
-  /* Column headers — 14px medium, slight tracking. Reads as confident
-     metadata without competing with cell text. */
-  .col-header-text {
-    font-size: 14px;
+  /* ---------- Premium typography — exactly three tiers ----------
+     22/600 = board title only.
+     13/500 / ls .02em = column headers + buttons.
+     13/400 / white = cell text.
+     Anchor on these classes; ad-hoc font-size overrides are removed
+     across the board in chunk 12. */
+  .text-title {
+    font-size: var(--fs-title);
+    line-height: var(--lh-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+  }
+  .text-header {
+    font-size: var(--fs-header);
+    line-height: 16px;
     font-weight: 500;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.02em;
     color: var(--text-secondary);
   }
-  /* Row / cell body text — 14px regular. Pair with 48px row height so
-     the chips and body text sit at the same visual weight, neither
-     dominating. */
-  .cell-text {
-    font-size: 14px;
+  .text-body {
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
     font-weight: 400;
     color: var(--text-primary);
   }
+
+  /* Legacy aliases (kept so non-board pages don't break). They map onto
+     the three tiers above. */
+  .col-header-text { @apply text-header; text-transform: none; }
+  .cell-text       { @apply text-body; }
   .group-title-text {
-    font-size: 18px;
+    font-size: 16px;
+    line-height: 20px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em;
   }
-  /* Saturated-chip standard: full-bleed, edge-to-edge, NO inset. The
-     cell's own 1px hairline border is the only seam between adjacent
-     chips. 13px medium white text — confident but not shouty. */
+
+  /* ---------- Premium chip-cell ----------
+     A cell that IS a chip: fills its container, sharp corners, white
+     text, no border. Padding lives inside the chip. Background color
+     is supplied inline via style={{ background: '...' }} or by adding
+     bg-chip-* utility. */
+  .chip-cell {
+    @apply w-full h-full inline-flex items-center text-[13px] font-medium text-white;
+    padding: var(--cell-pad-y) var(--cell-pad-x);
+    border-radius: var(--radius-cell);
+  }
+  .chip-cell-center { @apply justify-center text-center; }
+  .chip-cell-start  { @apply justify-start; }
+
+  /* Legacy alias — same idea, kept until LabelCell migrates in chunk 2. */
   .status-chip {
-    @apply w-full h-full inline-flex items-center justify-center text-[13px] font-medium text-white px-3;
-    border-radius: 2px;
+    @apply chip-cell chip-cell-center;
+  }
+
+  /* Ghost secondary button — toolbar / filter / sort / hide / group by
+     all share this look. Transparent until hover. */
+  .btn-ghost-soft {
+    @apply inline-flex items-center gap-1.5 h-8 px-2.5 rounded-button text-[13px] font-medium text-text-secondary transition-colors duration-100;
+    letter-spacing: 0.02em;
+  }
+  .btn-ghost-soft:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+  }
+  .btn-ghost-soft[data-active='true'] {
+    background: rgba(255, 255, 255, 0.10);
+    color: var(--text-primary);
   }
 }
 
 /* ---------- Tiptap prose styling ---------- */
-.ProseMirror {
-  outline: none;
-}
+.ProseMirror { outline: none; }
 .ProseMirror p { margin: 0.25rem 0; }
 .ProseMirror p:first-child { margin-top: 0; }
 .ProseMirror p:last-child  { margin-bottom: 0; }
@@ -178,11 +215,7 @@ input, textarea, select {
 }
 .task-panel-enter { animation: slideInRight 250ms cubic-bezier(0.32, 0.72, 0, 1); }
 
-/* ---------- Custom slim scrollbar (board table x-axis) ----------
-   The default chunky browser scrollbar disrupts the dense data grid.
-   We restyle webkit + firefox to a slim, rounded, low-contrast bar
-   that only pops on hover. Applied to the single horizontal scroll
-   container in BoardContent. */
+/* ---------- Custom slim scrollbar (board table x-axis) ---------- */
 .scroll-x-slim {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
@@ -191,9 +224,7 @@ input, textarea, select {
   height: 10px;
   width: 10px;
 }
-.scroll-x-slim::-webkit-scrollbar-track {
-  background: transparent;
-}
+.scroll-x-slim::-webkit-scrollbar-track { background: transparent; }
 .scroll-x-slim::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.12);
   border-radius: 8px;
@@ -203,6 +234,4 @@ input, textarea, select {
 .scroll-x-slim::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 255, 255, 0.22);
 }
-.scroll-x-slim::-webkit-scrollbar-corner {
-  background: transparent;
-}
+.scroll-x-slim::-webkit-scrollbar-corner { background: transparent; }

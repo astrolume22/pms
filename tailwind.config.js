@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Brand — Monday-night spec uses #2B7FFF as the primary action.
+        // Brand — primary action color.
         brand: {
           DEFAULT: '#2B7FFF',
           hover: '#1E6FE8',
@@ -18,12 +18,29 @@ export default {
         hover: 'var(--bg-hover)',
         selected: 'var(--bg-selected)',
         dark: 'var(--bg-dark)',
+        canvas: 'var(--bg-canvas)',
+        card: 'var(--bg-card)',
+        row: 'var(--bg-row)',
+        'row-hover': 'var(--bg-row-hover)',
         'border-light': 'var(--border-light)',
         'border-medium': 'var(--border-medium)',
+        'border-hair': 'var(--border-hair)',
         'text-primary': 'var(--text-primary)',
         'text-secondary': 'var(--text-secondary)',
         'text-disabled': 'var(--text-disabled)',
+        'text-tertiary': 'var(--text-tertiary)',
         'text-on-dark': 'var(--text-on-dark)',
+        // Premium polish chip palette — OKLCH band, only hue varies.
+        chip: {
+          amber:  'var(--chip-amber)',
+          slate:  'var(--chip-slate)',
+          teal:   'var(--chip-teal)',
+          pink:   'var(--chip-pink)',
+          purple: 'var(--chip-purple)',
+          sky:    'var(--chip-sky)',
+          mint:   'var(--chip-mint)',
+          coral:  'var(--chip-coral)',
+        },
         // Semantic
         success: '#00C875',
         warning: '#FDAB3D',
@@ -52,7 +69,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Figtree', 'Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        sans: ['Geist', 'Figtree', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
         mono: ['"Roboto Mono"', '"Fira Code"', 'monospace'],
       },
       fontSize: {
@@ -86,6 +103,10 @@ export default {
         md: '8px',
         lg: '12px',
         pill: '9999px',
+        // Premium polish primitives — cells are sharp, cards 12, buttons 8.
+        cell: 'var(--radius-cell)',
+        card: 'var(--radius-card)',
+        button: 'var(--radius-button)',
       },
       boxShadow: {
         sm: '0 1px 2px rgba(0,0,0,0.04)',
