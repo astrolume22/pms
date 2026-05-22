@@ -8,7 +8,7 @@ import { useDuplicateGroup } from '@/hooks/duplicate';
 import type { GroupRow, ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { ItemRow as ItemRowComp } from './ItemRow';
 import { AddItemRow } from './AddItemRow';
-import { ColumnFooter } from './ColumnFooter';
+import { SummaryStrip } from './SummaryStrip';
 import { useUpdateGroup, useDeleteGroup } from '@/hooks/groups';
 import { useBoardViewStore } from '@/state/boardViewStore';
 import { cn } from '@/lib/cn';
@@ -367,8 +367,10 @@ export function GroupBlock({
               disabled={false}
             />
           )}
-          {/* Column footer summaries */}
-          <ColumnFooter
+          {/* Premium polish: 6px per-column stacked color summary strip,
+              replacing the old numeric ColumnFooter. Aligned to columns
+              by the same widths ItemRow uses. */}
+          <SummaryStrip
             visibleColumns={visibleColumns}
             items={items}
             valuesByItemColumn={valuesByItemColumn}
