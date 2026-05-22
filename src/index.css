@@ -172,6 +172,24 @@ input, textarea, select {
     @apply chip-cell chip-cell-center;
   }
 
+  /* Cells become focusable surfaces with a 2px INSET chip-sky ring on
+     keyboard focus (criterion 24). The :focus-visible cue replaces the
+     default outline so the cell stays seamless with the row.
+     Hover-brightness on chip cells provides the "8% white overlay" cue
+     (criterion 23) without needing a separate overlay layer. */
+  .cell-focusable {
+    outline: none;
+    transition: filter 100ms ease;
+  }
+  .cell-focusable:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--chip-sky);
+  }
+  .cell-focusable:hover .chip-cell,
+  .chip-cell.cell-focusable:hover {
+    filter: brightness(1.08);
+  }
+
   /* Ghost secondary button — toolbar / filter / sort / hide / group by
      all share this look. Transparent until hover. */
   .btn-ghost-soft {

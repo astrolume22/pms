@@ -56,11 +56,23 @@ export function LabelCell({
     <>
       <div
         ref={anchorRef}
+        // Keyboard-focusable surface — :focus-visible adds the 2px
+        // inset chip-sky ring per criterion 24. Enter / Space opens
+        // the picker just like the click handler does.
+        tabIndex={readonly ? -1 : 0}
+        role={readonly ? undefined : 'button'}
         className={cn(
-          'group/labelcell relative w-full h-full overflow-hidden',
+          'cell-focusable group/labelcell relative w-full h-full overflow-hidden',
           !readonly && 'cursor-pointer',
         )}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
+        onKeyDown={(e) => {
+          if (readonly) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (isEditing) onEndEdit(); else onStartEdit();
+          }
+        }}
       >
         {isEmpty ? (
           // Empty cell: neutral slate fill (--bg-row) — empty is a STYLE,
@@ -111,7 +123,7 @@ export function LabelCell({
           // mapped through chipColorFor() so Status / Priority / Task
           // Type / Co-Work Time all pull from the OKLCH chip palette.
           <span
-            className="chip-cell chip-cell-center"
+            className="chip-cell chip-cell-center group-hover/labelcell:brightness-110 transition-[filter] duration-100"
             style={{ background: tokenColorFor(selectedLabels[0].id) }}
             title={selectedLabels[0].name}
           >

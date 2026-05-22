@@ -36,11 +36,20 @@ export function DateCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
     <>
       <div
         ref={anchorRef}
+        tabIndex={readonly ? -1 : 0}
+        role={readonly ? undefined : 'button'}
         className={cn(
-          'group/datecell w-full h-full',
+          'cell-focusable group/datecell w-full h-full',
           !readonly && 'cursor-pointer',
         )}
         onClick={() => !readonly && (isEditing ? onEndEdit() : onStartEdit())}
+        onKeyDown={(e) => {
+          if (readonly) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (isEditing) onEndEdit(); else onStartEdit();
+          }
+        }}
       >
         {iso ? (
           <span

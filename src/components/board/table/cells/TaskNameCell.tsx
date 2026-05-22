@@ -39,9 +39,15 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
     <div
       // Task-name is the only "wide" cell that is NOT a chip — transparent
       // background, plain 13/400 white text, left-aligned. Hover gives the
-      // 8% white overlay (chunk 13).
-      className="group/cell flex items-center h-full w-full px-4 hover:bg-white/[0.08] transition-colors duration-100"
+      // 8% white overlay; focus the 2px chip-sky inset ring (chunk 13).
+      tabIndex={readonly ? -1 : 0}
+      role={readonly ? undefined : 'button'}
+      className="cell-focusable group/cell flex items-center h-full w-full px-4 hover:bg-white/[0.08] transition-colors duration-100"
       onClick={() => !readonly && !isEditing && onStartEdit()}
+      onKeyDown={(e) => {
+        if (readonly || isEditing) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStartEdit(); }
+      }}
     >
       {isEditing && !readonly ? (
         <input
