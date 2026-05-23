@@ -323,15 +323,21 @@ const TOOLS = {
       'type. To get task_id + column_id from human names, call get_board first: every ' +
       'task is in tasks[] with its id+name; every column is in columns[] with its ' +
       'id+name+column_type. Pass the column by id (column_id) OR by name (column_name); ' +
-      'if both are given, column_id wins. Value shape matches the column type:\n' +
-      '  text/long_text → { value: "…" }\n' +
-      '  numbers        → { value: 123 }     (also accepts "number")\n' +
-      '  date           → { value: "YYYY-MM-DD" }\n' +
-      '  checkbox       → { checked: true|false }\n' +
-      '  link           → { url: "https://…", label?: "display text" }\n' +
-      '  status/priority single-select → { label_id } | { label_name }\n' +
-      '  dropdown multi-select         → { label_ids: [...] } | { label_names: [...] }\n' +
-      '  people         → { user_ids: [<uuid>, …] }\n' +
+      'if both are given, column_id wins.\n' +
+      '\n' +
+      'The "value" field accepts ANY natural shape — pass a primitive or an object, ' +
+      'whichever is simpler. Examples by column type (any of the rows below works):\n' +
+      '\n' +
+      '  text/long_text → "Run the checkout flow…"   OR   { "value": "…" }   OR { "text": "…" }\n' +
+      '  numbers        → 42                          OR   { "value": 42 }    OR { "num": 42 }\n' +
+      '  date           → "2026-05-30"                OR   { "value": "2026-05-30" }   OR { "date": "…" }\n' +
+      '  checkbox       → true / false                OR   { "checked": true }\n' +
+      '  link           → "https://example.com"       OR   { "url": "…", "label"?: "…" }\n' +
+      '  status         → "Done"                      OR   { "label_name": "Done" }   OR { "label_id": "<uuid>" }\n' +
+      '  priority       → same as status\n' +
+      '  dropdown       → ["EU", "US"]                OR   { "label_names": ["EU", "US"] }   OR { "label_ids": [...] }\n' +
+      '  people         → ["<uuid>", …]               OR   { "user_ids": ["<uuid>", …] }\n' +
+      '\n' +
       'Tenancy-checked + sensitive-workspace-gated.',
     inputSchema: {
       type: 'object',
@@ -1107,27 +1113,22 @@ async function toolCreateTask(
     // Should never happen — group is in this board per assertGroupInBoard
     throw new Error(`internal: could not resolve group ref for ${args.group_id}`);
   }
-  // Translate column-name keys → column-ref keys; pass values through.
+  // Translate column-name keys → column-ref keys.
+  //
+  // The applier (api/_shared/applier.ts) expects each cell in the
+  // *action* shape ({value, label_ref, label_refs, checked, url, …}).
+  // The bug-fix from the same commit teaches update_task_cell to accept
+  // LLM-natural shapes (bare strings, numbers, arrays, etc.); we apply
+  // the same normalisation here so create_task's cells path is
+  // consistent. Without this, create_task silently SKIPS bad-shape
+  // cells (the applier returns null and the cell never lands).
   const cellsByRef: Record<string, unknown> = {};
   if (args.cells) {
     for (const [colName, cv] of Object.entries(args.cells)) {
       const col = ctx.columns.find((c) => c.name === colName);
       if (!col) continue;     // silently skip unknown columns
-      // If the cell is a label_ref by NAME, resolve to ref too.
-      if (cv && typeof cv === 'object' && 'label_ref' in (cv as object)) {
-        const wantName = String((cv as { label_ref: string }).label_ref);
-        const label = col.labels.find((l) => l.name === wantName);
-        if (!label) continue;
-        cellsByRef[col.ref] = { label_ref: label.ref };
-      } else if (cv && typeof cv === 'object' && 'label_refs' in (cv as object)) {
-        const wantNames = (cv as { label_refs: string[] }).label_refs;
-        const refs = wantNames
-          .map((n) => col.labels.find((l) => l.name === n)?.ref)
-          .filter((x): x is string => typeof x === 'string');
-        if (refs.length > 0) cellsByRef[col.ref] = { label_refs: refs };
-      } else {
-        cellsByRef[col.ref] = cv;
-      }
+      const normalised = normaliseCellToActionShape(cv, col);
+      if (normalised !== null) cellsByRef[col.ref] = normalised;
     }
   }
 
@@ -1637,7 +1638,14 @@ async function toolUpdateTaskCell(
   // (label_id, label_ids).
   const dbValue = await translateMcpCellValue(sb, columnRow, args.value);
   if (dbValue == null) {
-    throw new Error('value did not resolve — check shape against the tool description');
+    // Echo what we got + what the column expects so the LLM can self-correct
+    // without having to re-read the tool description.
+    const seen = `typeof=${typeof args.value} value=${JSON.stringify(args.value).slice(0, 200)}`;
+    const hint = exampleValueFor(columnRow.column_type);
+    throw new Error(
+      `value did not resolve for ${columnRow.column_type} column "${columnRow.name}". ` +
+      `Received: ${seen}. Try: ${hint}.`,
+    );
   }
 
   const actor = await getServiceActorId(sb);
@@ -1677,51 +1685,279 @@ async function toolUpdateTaskCell(
 // Cell-value translator that ALSO accepts {label_name, label_names,
 // label_id, label_ids, user_ids, value, checked, url}. Resolves
 // name→id where needed by querying column_labels on this column.
+// translateMcpCellValue — LLM-friendly cell-value normaliser.
+//
+// Returns the DB-shape jsonb that goes into item_column_values.value.
+// Accepts EVERY natural shape an LLM client might send (string, number,
+// boolean, array, the documented {value|label_ref|label_name|...} forms,
+// and a few alias keys). The previous version's first line was a
+// `typeof raw !== 'object' → null` short-circuit that rejected primitives
+// before any column-type logic ran — that was the -32002 root cause.
+//
+// Resolves label names → ids inline. Throws on truly unrecognisable
+// inputs so the caller surfaces a useful JSON-RPC error.
 async function translateMcpCellValue(
   sb: SupabaseClient,
   column: { id: string; column_type: string },
   raw: unknown,
 ): Promise<unknown | null> {
-  if (raw == null || typeof raw !== 'object') return null;
-  const v = raw as Record<string, unknown>;
+  if (raw === undefined) return null;
+  // Explicit null clears in the LLM-friendly form aren't supported yet;
+  // returning null here lets the caller throw a clear message.
+  if (raw === null) return null;
+
   const colType = column.column_type;
 
-  // status/priority single-select
+  // Step 1 — auto-box bare primitives / arrays into the canonical object
+  //          form for the column type. After this branch `v` is always
+  //          a plain object the per-type logic can read keys from.
+  let v: Record<string, unknown>;
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    v = raw as Record<string, unknown>;
+  } else {
+    // raw is a primitive (string|number|boolean|bigint) or an array.
+    if (colType === 'text' || colType === 'numbers' || colType === 'date') {
+      v = { value: raw };
+    } else if (colType === 'checkbox') {
+      v = { checked: raw };
+    } else if (colType === 'status' || colType === 'priority') {
+      v = { label_name: String(raw) };
+    } else if (colType === 'dropdown') {
+      v = Array.isArray(raw) ? { label_names: raw } : { label_names: [String(raw)] };
+    } else if (colType === 'people') {
+      v = Array.isArray(raw) ? { user_ids: raw } : { user_ids: [String(raw)] };
+    } else if (colType === 'link') {
+      v = { url: String(raw) };
+    } else {
+      return null;
+    }
+  }
+
+  // Step 2 — per-type DB-shape resolution. Accepts the documented keys
+  //          plus a couple of natural aliases (`text`/`date`/`num`).
   if (colType === 'status' || colType === 'priority') {
     if (typeof v.label_id === 'string') return { label_id: v.label_id };
-    if (typeof v.label_name === 'string') {
-      const { data } = await sb.from('column_labels')
-        .select('id').eq('column_id', column.id).eq('name', v.label_name).maybeSingle();
-      const id = (data as { id?: string } | null)?.id;
-      if (!id) throw new Error(`label "${v.label_name}" not found on column ${column.id}`);
+    const wantName =
+      typeof v.label_name === 'string' ? v.label_name :
+      typeof v.value      === 'string' ? v.value :
+      null;
+    if (wantName) {
+      const id = await resolveLabelIdByName(sb, column.id, wantName);
+      if (!id) throw new Error(`label "${wantName}" not found on column ${column.id}`);
       return { label_id: id };
     }
+    return null;
   }
-  // dropdown multi-select
   if (colType === 'dropdown') {
-    if (Array.isArray(v.label_ids)) return { label_ids: v.label_ids };
-    if (Array.isArray(v.label_names)) {
-      const { data } = await sb.from('column_labels')
-        .select('id, name').eq('column_id', column.id).in('name', v.label_names as string[]);
-      const ids = (data ?? []).map((r) => (r as { id: string }).id);
-      return ids.length ? { label_ids: ids } : null;
+    if (Array.isArray(v.label_ids) && (v.label_ids as unknown[]).every((x) => typeof x === 'string')) {
+      return { label_ids: v.label_ids };
+    }
+    const names =
+      Array.isArray(v.label_names)  ? v.label_names as unknown[] :
+      typeof v.label_name === 'string' ? [v.label_name] :
+      Array.isArray(v.value)        ? v.value as unknown[] :
+      typeof v.value === 'string'   ? [v.value] :
+      null;
+    if (names && names.every((x) => typeof x === 'string')) {
+      const ids = await resolveLabelIdsByNames(sb, column.id, names as string[]);
+      if (ids.length === 0) {
+        throw new Error(`no matching labels for [${(names as string[]).join(', ')}] on column ${column.id}`);
+      }
+      return { label_ids: ids };
+    }
+    return null;
+  }
+  if (colType === 'people') {
+    if (Array.isArray(v.user_ids) && (v.user_ids as unknown[]).every((x) => typeof x === 'string')) {
+      return { user_ids: v.user_ids };
+    }
+    if (typeof v.user_id === 'string') return { user_ids: [v.user_id] };
+    return null;
+  }
+  if (colType === 'checkbox') {
+    if ('checked' in v) return { checked: coerceBool(v.checked) };
+    if ('value'   in v) return { checked: coerceBool(v.value) };
+    return null;
+  }
+  if (colType === 'link') {
+    if (typeof v.url === 'string') {
+      return { url: v.url, label: typeof v.label === 'string' ? v.label : null };
+    }
+    return null;
+  }
+  if (colType === 'date') {
+    // Accept either { value } or { date }. Pass through as a string —
+    // the UI's date renderer expects YYYY-MM-DD but we don't enforce.
+    const s = v.value ?? v.date;
+    if (s === undefined || s === null) return null;
+    return { value: String(s) };
+  }
+  if (colType === 'numbers') {
+    const candidate = v.value ?? v.num ?? v.number;
+    if (candidate === undefined || candidate === null) return null;
+    const n = typeof candidate === 'number' ? candidate : Number(candidate);
+    if (!Number.isFinite(n)) return null;
+    return { value: n };
+  }
+  // text — accept value | text | str | content; cast to string.
+  if (colType === 'text') {
+    const s = v.value ?? v.text ?? v.str ?? v.content;
+    if (s === undefined || s === null) return null;
+    return { value: String(s) };
+  }
+  return null;
+}
+
+async function resolveLabelIdByName(
+  sb: SupabaseClient, columnId: string, name: string,
+): Promise<string | null> {
+  const { data } = await sb
+    .from('column_labels')
+    .select('id')
+    .eq('column_id', columnId)
+    .eq('name', name)
+    .maybeSingle();
+  return (data as { id?: string } | null)?.id ?? null;
+}
+
+async function resolveLabelIdsByNames(
+  sb: SupabaseClient, columnId: string, names: string[],
+): Promise<string[]> {
+  const { data } = await sb
+    .from('column_labels')
+    .select('id')
+    .eq('column_id', columnId)
+    .in('name', names);
+  return (data ?? []).map((r) => (r as { id: string }).id);
+}
+
+function coerceBool(x: unknown): boolean {
+  if (typeof x === 'boolean') return x;
+  if (typeof x === 'number')  return x !== 0;
+  if (typeof x === 'string') {
+    const s = x.trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes' || s === 'y';
+  }
+  return !!x;
+}
+
+// Returns a one-line example string for the "value did not resolve"
+// error message — keeps the failure surface self-documenting so an LLM
+// agent can self-correct from the error text alone.
+function exampleValueFor(columnType: string): string {
+  switch (columnType) {
+    case 'text':     return '"some text"   or   { "value": "…" }';
+    case 'numbers':  return '42            or   { "value": 42 }';
+    case 'date':     return '"2026-05-30"  or   { "value": "YYYY-MM-DD" }';
+    case 'checkbox': return 'true          or   { "checked": true }';
+    case 'link':     return '"https://…"   or   { "url": "https://…", "label"?: "…" }';
+    case 'status':
+    case 'priority': return '"Done"        or   { "label_name": "Done" }   or   { "label_id": "<uuid>" }';
+    case 'dropdown': return '["EU","US"]   or   { "label_names": ["EU","US"] }';
+    case 'people':   return '["<uuid>", …] or   { "user_ids": ["<uuid>", …] }';
+    default:         return '(unsupported column type for MCP writes)';
+  }
+}
+
+// normaliseCellToActionShape — converts an LLM-natural cell value into
+// the *action-shape* the applier (api/_shared/applier.ts) expects.
+// This is the create_task counterpart to translateMcpCellValue (which
+// produces the DB shape). The two functions share the same input
+// language so create_task and update_task_cell behave identically for
+// the same caller inputs.
+//
+// IMPORTANT: outputs the {value | label_ref | label_refs | checked |
+// url | user_ids} shape — the applier resolves refs against the
+// engine context. Label lookups happen against the supplied column's
+// labels[] (already cached in the engine context, so this is sync).
+function normaliseCellToActionShape(
+  raw: unknown,
+  column: { id: string; ref: string; column_type: string; labels: { id: string; ref: string; name: string }[] },
+): unknown | null {
+  if (raw === undefined || raw === null) return null;
+  const colType = column.column_type;
+
+  // Step 1 — box primitives + arrays per column type.
+  let v: Record<string, unknown>;
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    v = raw as Record<string, unknown>;
+  } else {
+    if (colType === 'text' || colType === 'numbers' || colType === 'date') {
+      v = { value: raw };
+    } else if (colType === 'checkbox') {
+      v = { checked: raw };
+    } else if (colType === 'status' || colType === 'priority') {
+      v = { label_name: String(raw) };
+    } else if (colType === 'dropdown') {
+      v = Array.isArray(raw) ? { label_names: raw } : { label_names: [String(raw)] };
+    } else if (colType === 'people') {
+      v = Array.isArray(raw) ? { user_ids: raw } : { user_ids: [String(raw)] };
+    } else if (colType === 'link') {
+      v = { url: String(raw) };
+    } else {
+      return null;
     }
   }
-  // people
+
+  // Step 2 — resolve to the action-shape the applier consumes.
+  if (colType === 'status' || colType === 'priority') {
+    // applier expects label_ref (NOT label_id) so the ref-map can
+    // round-trip; we resolve name→ref against the column's labels.
+    if (typeof v.label_ref === 'string') return { label_ref: v.label_ref };
+    const wantName =
+      typeof v.label_name === 'string' ? v.label_name :
+      typeof v.value      === 'string' ? v.value :
+      null;
+    if (!wantName) return null;
+    const lab = column.labels.find((l) => l.name === wantName);
+    return lab ? { label_ref: lab.ref } : null;
+  }
+  if (colType === 'dropdown') {
+    if (Array.isArray(v.label_refs)) return { label_refs: v.label_refs };
+    const names =
+      Array.isArray(v.label_names) ? v.label_names as unknown[] :
+      typeof v.label_name === 'string' ? [v.label_name] :
+      Array.isArray(v.value)        ? v.value as unknown[] :
+      typeof v.value === 'string'   ? [v.value] :
+      null;
+    if (!names || !names.every((x) => typeof x === 'string')) return null;
+    const refs = (names as string[])
+      .map((n) => column.labels.find((l) => l.name === n)?.ref)
+      .filter((x): x is string => typeof x === 'string');
+    return refs.length > 0 ? { label_refs: refs } : null;
+  }
   if (colType === 'people') {
     if (Array.isArray(v.user_ids)) return { user_ids: v.user_ids };
+    if (typeof v.user_id === 'string') return { user_ids: [v.user_id] };
+    return null;
   }
-  // checkbox
-  if (colType === 'checkbox' && 'checked' in v) return { checked: !!v.checked };
-  // link
-  if (colType === 'link' && typeof v.url === 'string') {
-    return { url: v.url, label: typeof v.label === 'string' ? v.label : null };
+  if (colType === 'checkbox') {
+    if ('checked' in v) return { checked: coerceBool(v.checked) };
+    if ('value'   in v) return { checked: coerceBool(v.value) };
+    return null;
   }
-  // text/numbers/date — generic value
-  if ('value' in v) {
-    if (colType === 'date') return { value: String(v.value) };
-    if (colType === 'numbers') return { value: Number(v.value) };
-    return { value: String(v.value) };
+  if (colType === 'link') {
+    if (typeof v.url === 'string') {
+      return { url: v.url, ...(typeof v.label === 'string' ? { label: v.label } : {}) };
+    }
+    return null;
+  }
+  if (colType === 'date') {
+    const s = v.value ?? v.date;
+    if (s === undefined || s === null) return null;
+    return { value: String(s) };
+  }
+  if (colType === 'numbers') {
+    const candidate = v.value ?? v.num ?? v.number;
+    if (candidate === undefined || candidate === null) return null;
+    const n = typeof candidate === 'number' ? candidate : Number(candidate);
+    if (!Number.isFinite(n)) return null;
+    return { value: n };
+  }
+  if (colType === 'text') {
+    const s = v.value ?? v.text ?? v.str ?? v.content;
+    if (s === undefined || s === null) return null;
+    return { value: String(s) };
   }
   return null;
 }
