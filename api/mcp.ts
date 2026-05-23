@@ -352,6 +352,27 @@ const TOOLS = {
     },
   },
 
+  // ----- 3d chunk 6 — create_workspace -----------------------------
+  create_workspace: {
+    name: 'create_workspace',
+    description:
+      'Create a new workspace (a tenant boundary). Use this when onboarding a new ' +
+      'company/team. is_main is ALWAYS false here — only one main workspace exists ' +
+      'and it\'s the single seeded one. Returns workspace_id; pass that to ' +
+      'create_board / design_board_from_spec to populate it. Workspaces have no ' +
+      'soft-delete; this phase does not expose delete_workspace.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name:       { type: 'string', minLength: 1, maxLength: 120 },
+        icon_emoji: { type: 'string', description: 'Optional, defaults to 🏠.' },
+        icon_color: { type: 'string', description: 'Optional #hex or oklch(); defaults to brand blue.' },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+
   // ----- 3d chunk 5 — board ops ------------------------------------
   rename_board: {
     name: 'rename_board',
@@ -753,6 +774,10 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
             break;
           case 'delete_board':
             payload = await toolDeleteBoard(sb, args as unknown as ToolDeleteBoardArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 6 (workspace) -------------------------------
+          case 'create_workspace':
+            payload = await toolCreateWorkspace(sb, args as unknown as ToolCreateWorkspaceArgs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -2166,6 +2191,58 @@ async function toolDeleteBoard(
     prompt: '(soft-delete)', responseSummary: `board=${board.boardId} soft-deleted`,
   });
   return { board_id: board.boardId, workspace_id: board.workspaceId, deleted_at: stamp };
+}
+
+// =====================================================================
+// 3d chunk 6 — create_workspace
+// =====================================================================
+
+interface ToolCreateWorkspaceArgs {
+  name: string;
+  icon_emoji?: string;
+  icon_color?: string;
+}
+
+async function toolCreateWorkspace(
+  sb: SupabaseClient,
+  args: ToolCreateWorkspaceArgs,
+): Promise<{ workspace_id: string; name: string; icon_emoji: string; icon_color: string }> {
+  if (!args.name || args.name.trim().length === 0) throw new Error('name is required');
+
+  // is_main is ALWAYS false here — the schema has a partial unique index
+  // (workspaces_only_one_main) preventing more than one main workspace,
+  // and the seeded "Main workspace" already holds that slot.
+  const insert = {
+    name:       args.name.trim(),
+    icon_emoji: args.icon_emoji ?? '🏠',
+    icon_color: args.icon_color ?? '#0073EA',
+    is_main:    false,
+  };
+  const { data, error } = await sb
+    .from('workspaces')
+    .insert(insert as never)
+    .select('id, name, icon_emoji, icon_color')
+    .single();
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'create_workspace', status: 'error',
+      workspaceId: null, boardId: null,
+      prompt: args.name, responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`workspaces insert failed: ${error.message}`);
+  }
+  const row = data as { id: string; name: string; icon_emoji: string; icon_color: string };
+  await logMcpRun(sb, {
+    toolName: 'create_workspace', status: 'success',
+    workspaceId: row.id, boardId: null,
+    prompt: args.name, responseSummary: `workspace_id=${row.id}`,
+  });
+  return {
+    workspace_id: row.id,
+    name:         row.name,
+    icon_emoji:   row.icon_emoji,
+    icon_color:   row.icon_color,
+  };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
