@@ -133,7 +133,12 @@ const TOOLS = {
       'update_task_cell is unambiguous; use the columns[] array to map column_id → ' +
       'column_name. Archived items are included with archived:true; soft-deleted items ' +
       'are excluded. Returns workspace_id so the caller can verify tenancy before any ' +
-      'follow-up write.',
+      'follow-up write.\n' +
+      '\n' +
+      '⚠️ Before adding a new column, scan columns[] for an existing one with the same ' +
+      'name. If a Status / Priority / dropdown column already exists and you just need ' +
+      'a new chip option, call add_column_label (NOT create_column — that makes a ' +
+      'duplicate column).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -369,6 +374,79 @@ const TOOLS = {
     },
   },
 
+  // ----- 3d follow-up #2 — column management -----------------------
+  add_column_label: {
+    name: 'add_column_label',
+    description:
+      'Add one or more labels to an EXISTING status/priority/dropdown column. ' +
+      'Use this when you need a new chip option on a column that already exists — ' +
+      'do NOT call create_column for this (that makes a whole new column). To find ' +
+      'the column, call get_board first and look in columns[] for the column by ' +
+      'name; capture its id and type. Refuses if the column is not a status/' +
+      'priority/dropdown. New labels append at the end (sort_order = max+1). ' +
+      'Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        column_id:   { type: 'string', description: 'UUID of the column. Mutually exclusive with column_name + board_id.' },
+        board_id:    { type: 'string', description: 'Required only if you pass column_name instead of column_id.' },
+        column_name: { type: 'string', description: 'Display name. Requires board_id.' },
+        labels: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              name:  { type: 'string', minLength: 1, maxLength: 80 },
+              color: { type: 'string', description: 'Optional #RRGGBB hex or oklch(); defaults to #C4C4C4.' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+          },
+        },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['labels'],
+      additionalProperties: false,
+    },
+  },
+
+  delete_column: {
+    name: 'delete_column',
+    description:
+      'SOFT-delete a column (sets columns.archived_at — column rows are recoverable). ' +
+      'Refuses without confirm_delete: true. Refuses on task_name columns regardless ' +
+      'of confirm_delete (the task_name column is required per-board and the DB-side ' +
+      'guard_task_name_column trigger would block it anyway — this surface refuses ' +
+      'earlier with a clear message). Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        column_id:      { type: 'string' },
+        confirm_delete: { type: 'boolean', default: false,
+                          description: 'Required — set to true to acknowledge soft-deletion.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['column_id'],
+      additionalProperties: false,
+    },
+  },
+
+  rename_column: {
+    name: 'rename_column',
+    description: 'Rename an existing column. Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        column_id: { type: 'string' },
+        new_name:  { type: 'string', minLength: 1, maxLength: 80 },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['column_id', 'new_name'],
+      additionalProperties: false,
+    },
+  },
+
   // ----- 3d chunk 6 — create_workspace -----------------------------
   create_workspace: {
     name: 'create_workspace',
@@ -527,9 +605,15 @@ const TOOLS = {
   create_column: {
     name: 'create_column',
     description:
-      'Add a new column to an existing board. Use this to add an "Instructions" / ' +
-      '"Notes" text column, a "Due date" date column, a custom status, etc. For ' +
-      'comments / discussion ON a task, use add_task_update instead.\n' +
+      'Create a NEW column on a board. Always makes a fresh column. ' +
+      '⚠️ DO NOT use this to add a label to a column that already exists — that\'s ' +
+      'add_column_label. Calling create_column with the same name as an existing ' +
+      'column produces a DUPLICATE column, not an updated one.\n' +
+      '\n' +
+      'Use this to add a brand-new "Instructions" / "Notes" text column, a "Due date" ' +
+      'date column, a brand-new custom status column, etc. For comments / discussion ' +
+      'ON a task, use add_task_update instead.\n' +
+      '\n' +
       'column_type accepts the 10 user-creatable types (task_name is auto-seeded ' +
       'per-board and refused here):\n' +
       '  text | long_text | numbers | number | date | checkbox | link |\n' +
@@ -795,6 +879,16 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
           // ----- 3d chunk 6 (workspace) -------------------------------
           case 'create_workspace':
             payload = await toolCreateWorkspace(sb, args as unknown as ToolCreateWorkspaceArgs);
+            break;
+          // ----- 3d follow-up #2 (column management) ------------------
+          case 'add_column_label':
+            payload = await toolAddColumnLabel(sb, args as unknown as ToolAddColumnLabelArgs, sensitiveWs);
+            break;
+          case 'delete_column':
+            payload = await toolDeleteColumn(sb, args as unknown as ToolDeleteColumnArgs, sensitiveWs);
+            break;
+          case 'rename_column':
+            payload = await toolRenameColumn(sb, args as unknown as ToolRenameColumnArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -2561,6 +2655,245 @@ async function toolCreateWorkspace(
     icon_emoji:   row.icon_emoji,
     icon_color:   row.icon_color,
   };
+}
+
+// =====================================================================
+// 3d follow-up #2 — column management
+// =====================================================================
+
+interface ToolAddColumnLabelArgs {
+  column_id?: string;
+  board_id?: string;
+  column_name?: string;
+  labels: Array<{ name: string; color?: string }>;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolAddColumnLabel(
+  sb: SupabaseClient,
+  args: ToolAddColumnLabelArgs,
+  sensitive: Set<string>,
+): Promise<{
+  column_id: string;
+  column_name: string;
+  column_type: string;
+  board_id: string;
+  workspace_id: string;
+  inserted: Array<{ id: string; name: string; color: string; sort_order: number }>;
+}> {
+  if (!Array.isArray(args.labels) || args.labels.length === 0) {
+    throw new Error('labels[] is required (at least one)');
+  }
+
+  // Resolve the column: column_id wins; else require board_id + column_name.
+  let columnRow: { id: string; name: string; column_type: string; board_id: string } | null = null;
+  if (args.column_id) {
+    const { data, error } = await sb
+      .from('columns')
+      .select('id, name, column_type, board_id, archived_at')
+      .eq('id', args.column_id)
+      .maybeSingle();
+    if (error) throw new Error(`columns select failed: ${error.message}`);
+    if (!data) throw new TenancyError(`Column ${args.column_id} not found`);
+    const row = data as { id: string; name: string; column_type: string; board_id: string; archived_at: string | null };
+    if (row.archived_at) throw new Error(`Column ${args.column_id} is archived`);
+    columnRow = { id: row.id, name: row.name, column_type: row.column_type, board_id: row.board_id };
+  } else {
+    if (!args.board_id || !args.column_name) {
+      throw new Error('Pass either column_id, or (board_id + column_name)');
+    }
+    const { data, error } = await sb
+      .from('columns')
+      .select('id, name, column_type, board_id')
+      .eq('board_id', args.board_id)
+      .eq('name', args.column_name)
+      .is('archived_at', null)
+      .maybeSingle();
+    if (error) throw new Error(`columns select failed: ${error.message}`);
+    if (!data) throw new TenancyError(`Column "${args.column_name}" not found on board ${args.board_id}`);
+    columnRow = data as { id: string; name: string; column_type: string; board_id: string };
+  }
+
+  // Refuse non-labelable column types.
+  if (!['status', 'priority', 'dropdown'].includes(columnRow.column_type)) {
+    throw new Error(
+      `Column "${columnRow.name}" is a ${columnRow.column_type} column; labels only apply to ` +
+      `status/priority/dropdown. Use create_column to add a labeled column, or update_task_cell ` +
+      `to write a value into this one.`,
+    );
+  }
+
+  // Tenancy chain: board → workspace.
+  const board = await resolveWorkspaceForBoard(sb, columnRow.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Next sort_order: max existing + 1 (so new labels append to the bottom of
+  // the picker, never reordering existing ones).
+  const { data: existing } = await sb
+    .from('column_labels')
+    .select('sort_order')
+    .eq('column_id', columnRow.id);
+  let nextSort = ((existing ?? []).reduce(
+    (m: number, l: { sort_order: number }) => Math.max(m, l.sort_order), -1,
+  )) + 1;
+
+  const inserted: Array<{ id: string; name: string; color: string; sort_order: number }> = [];
+  for (const l of args.labels) {
+    const name  = l.name.trim();
+    const color = (l.color && l.color.trim()) ? l.color.trim() : '#C4C4C4';
+    if (!name) continue;
+    const { data, error } = await sb
+      .from('column_labels')
+      .insert({ column_id: columnRow.id, name, color, sort_order: nextSort } as never)
+      .select('id, name, color, sort_order')
+      .single();
+    if (error) {
+      // Surface the first insert failure but don't roll back what we already
+      // inserted — the response carries the partial list.
+      await logMcpRun(sb, {
+        toolName: 'add_column_label', status: 'error',
+        workspaceId: board.workspaceId, boardId: board.boardId,
+        prompt: `${columnRow.name} ← ${name}`,
+        responseSummary: `insert failed at "${name}": ${error.message}; partial=${inserted.length}`,
+        errorMessage: error.message,
+      });
+      throw new Error(`column_labels insert failed for "${name}": ${error.message}. ` +
+        `${inserted.length} earlier label(s) DID land — re-call with the remaining labels only to retry.`);
+    }
+    inserted.push(data as { id: string; name: string; color: string; sort_order: number });
+    nextSort += 1;
+  }
+
+  await logMcpRun(sb, {
+    toolName: 'add_column_label', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: `${columnRow.name} ← ${inserted.map((l) => l.name).join(', ')}`,
+    responseSummary: `col=${columnRow.id} added=${inserted.length}`,
+  });
+
+  return {
+    column_id:    columnRow.id,
+    column_name:  columnRow.name,
+    column_type:  columnRow.column_type,
+    board_id:     board.boardId,
+    workspace_id: board.workspaceId,
+    inserted,
+  };
+}
+
+interface ToolDeleteColumnArgs {
+  column_id: string;
+  confirm_delete?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolDeleteColumn(
+  sb: SupabaseClient,
+  args: ToolDeleteColumnArgs,
+  sensitive: Set<string>,
+): Promise<{ column_id: string; column_name: string; board_id: string; workspace_id: string; archived_at: string }> {
+  if (!args.column_id) throw new Error('column_id is required');
+  if (args.confirm_delete !== true) {
+    throw new Error('delete_column refuses without confirm_delete: true. Soft-deletes are reversible (clear archived_at) but still require explicit consent.');
+  }
+
+  const { data: col, error: cErr } = await sb
+    .from('columns')
+    .select('id, name, column_type, board_id, archived_at')
+    .eq('id', args.column_id)
+    .maybeSingle();
+  if (cErr) throw new Error(`columns select failed: ${cErr.message}`);
+  if (!col) throw new TenancyError(`Column ${args.column_id} not found`);
+  const colRow = col as { id: string; name: string; column_type: string; board_id: string; archived_at: string | null };
+
+  // Refuse on task_name columns at the tool level (the DB trigger
+  // guard_task_name_column blocks DELETE; we're doing a soft-delete so
+  // the trigger wouldn't fire, but the intent is the same: task_name is
+  // required per board).
+  if (colRow.column_type === 'task_name') {
+    throw new Error(
+      `Refusing to soft-delete column "${colRow.name}" — it's the task_name column, ` +
+      `which is required per board (matches the DB-side guard_task_name_column trigger\'s intent).`,
+    );
+  }
+  if (colRow.archived_at) {
+    throw new Error(`Column "${colRow.name}" is already archived (archived_at=${colRow.archived_at})`);
+  }
+
+  const board = await resolveWorkspaceForBoard(sb, colRow.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const stamp = new Date().toISOString();
+  const { error } = await sb
+    .from('columns')
+    .update({ archived_at: stamp } as never)
+    .eq('id', colRow.id);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'delete_column', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: colRow.name, responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`columns soft-delete failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'delete_column', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: colRow.name, responseSummary: `col=${colRow.id} archived`,
+  });
+  return {
+    column_id:    colRow.id,
+    column_name:  colRow.name,
+    board_id:     board.boardId,
+    workspace_id: board.workspaceId,
+    archived_at:  stamp,
+  };
+}
+
+interface ToolRenameColumnArgs {
+  column_id: string;
+  new_name: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolRenameColumn(
+  sb: SupabaseClient,
+  args: ToolRenameColumnArgs,
+  sensitive: Set<string>,
+): Promise<{ column_id: string; board_id: string; workspace_id: string; new_name: string }> {
+  if (!args.column_id) throw new Error('column_id is required');
+  if (!args.new_name || args.new_name.trim().length === 0) throw new Error('new_name is required');
+
+  const { data: col, error: cErr } = await sb
+    .from('columns')
+    .select('id, board_id, archived_at')
+    .eq('id', args.column_id)
+    .maybeSingle();
+  if (cErr) throw new Error(`columns select failed: ${cErr.message}`);
+  if (!col) throw new TenancyError(`Column ${args.column_id} not found`);
+  const colRow = col as { id: string; board_id: string; archived_at: string | null };
+  if (colRow.archived_at) throw new Error(`Column ${args.column_id} is archived`);
+
+  const board = await resolveWorkspaceForBoard(sb, colRow.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const trimmed = args.new_name.trim();
+  const { error } = await sb
+    .from('columns').update({ name: trimmed } as never).eq('id', colRow.id);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'rename_column', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: trimmed, responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`columns update failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'rename_column', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: trimmed, responseSummary: `col=${colRow.id} renamed`,
+  });
+  return { column_id: colRow.id, board_id: board.boardId, workspace_id: board.workspaceId, new_name: trimmed };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
