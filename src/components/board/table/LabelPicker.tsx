@@ -172,12 +172,17 @@ export function LabelPicker({
           onClick={() => setAddOpen((v) => !v)}
           aria-label="New label"
           title="New label"
-          className="h-9 inline-flex items-center justify-center text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.05]"
+          className="h-9 inline-flex items-center justify-center text-[13px] font-medium text-text-secondary hover:text-text-primary"
           style={{
-            border: '1px dashed rgba(255,255,255,0.18)',
+            // Theme-aware overlays so the picker reads correctly in
+            // both themes (was rgba(255,255,255,0.X) only).
+            border: '1px dashed var(--overlay-18)',
             borderRadius: 0,
             letterSpacing: '0.02em',
+            background: 'transparent',
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--overlay-6)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         >
           <Plus className="h-3.5 w-3.5 mr-1" />
           New label
@@ -195,8 +200,8 @@ export function LabelPicker({
         <div
           className="mt-3 p-2.5 rounded-button"
           style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.06)',
+            background: 'var(--overlay-3)',
+            border: '1px solid var(--overlay-6)',
           }}
         >
           <input
@@ -212,8 +217,8 @@ export function LabelPicker({
             spellCheck={false}
             className="w-full h-9 px-2.5 rounded-button text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.10)',
+              background: 'var(--overlay-6)',
+              border: '1px solid var(--overlay-10)',
               letterSpacing: '0.02em',
             }}
           />
@@ -263,7 +268,7 @@ export function LabelPicker({
             <button
               type="button"
               onClick={() => setAddOpen(false)}
-              className="h-8 px-2.5 rounded-button text-[12px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+              className="h-8 px-2.5 rounded-button text-[12px] font-medium text-text-secondary hover:bg-[var(--overlay-6)] hover:text-text-primary"
             >
               Cancel
             </button>
@@ -284,12 +289,12 @@ export function LabelPicker({
       {/* Footer — Edit Labels + Auto-assign + (optional) Done */}
       <div
         className="mt-3 pt-2"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ borderTop: '1px solid var(--overlay-6)' }}
       >
         <button
           type="button"
           onClick={onOpenLabelsEditor}
-          className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-button text-[13px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+          className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-button text-[13px] text-text-secondary hover:bg-[var(--overlay-6)] hover:text-text-primary"
           style={{ letterSpacing: '0.02em' }}
         >
           <Settings className="h-4 w-4" />

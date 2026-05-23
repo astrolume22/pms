@@ -24,7 +24,8 @@ export interface InviteRow {
   board_id: string | null;
   created_by: string;
   created_at: string;
-  expires_at: string;
+  // Migration 0037 allows null ⇒ "never expires".
+  expires_at: string | null;
   used_at: string | null;
   used_by: string | null;
   revoked_at: string | null;
@@ -57,16 +58,21 @@ export function useCreateInvite() {
       role: UserRole;
       boardId: string | null;
       groupId?: string | null;
-      expiresInHours?: number;
-    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string }> => {
+      // null  ⇒ never expires (migration 0037)
+      // undef ⇒ default of 7 days
+      // number ⇒ explicit hours (1..720)
+      expiresInHours?: number | null;
+    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null }> => {
       const { data, error } = await supabase.rpc('create_invite', {
         p_role: args.role,
         p_board_id: args.boardId,
-        p_expires_in_hours: args.expiresInHours ?? 168,
+        // Pass the value as-is when explicitly null — RPC treats null as
+        // "never expires". Only fall back to 168 when undefined.
+        p_expires_in_hours: args.expiresInHours === undefined ? 168 : args.expiresInHours,
         p_group_id: args.groupId ?? null,
       });
       if (error) throw error;
-      return data as { id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string };
+      return data as { id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null };
     },
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({
@@ -100,7 +106,8 @@ export interface InviteCheckResult {
   role?: UserRole;
   board_id?: string | null;
   board_name?: string | null;
-  expires_at?: string;
+  // null ⇒ never expires (migration 0037).
+  expires_at?: string | null;
 }
 
 export function useInviteByToken(token: string | undefined) {

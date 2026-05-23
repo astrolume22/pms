@@ -41,8 +41,31 @@
      --bg-surface           = --bg-row (#2A2E36) row chips sit here
      --bg-hover             = --bg-row-hover (#32363F)
    --border-light is a 6%-white hairline so the 1px gap between chips
-   reads as the only seam. */
+   reads as the only seam.
+
+   The new tokens (--bg-canvas, --bg-row, --bg-card, --bg-row-hover,
+   --bg-sidebar-new, --border-hair) now hold LIGHT values at :root and
+   get overridden to dark hexes here. Without this override the board
+   surfaces stayed dark in light mode because components consume those
+   tokens directly. */
 .dark {
+  /* Override the new polish-pass surface ramp with the dark hex palette. */
+  --bg-canvas:      #0F1117;
+  --bg-sidebar-new: #181B22;
+  --bg-card:        #1A1D24;
+  --bg-row:         #2A2E36;
+  --bg-row-hover:   #32363F;
+  --border-hair:    rgba(255, 255, 255, 0.06);
+
+  /* Flip the overlay tokens to white tints — they live on dark surfaces here. */
+  --overlay-3:   rgba(255, 255, 255, 0.03);
+  --overlay-6:   rgba(255, 255, 255, 0.06);
+  --overlay-8:   rgba(255, 255, 255, 0.08);
+  --overlay-10:  rgba(255, 255, 255, 0.10);
+  --overlay-12:  rgba(255, 255, 255, 0.12);
+  --overlay-18:  rgba(255, 255, 255, 0.18);
+
+  /* Legacy tokens remapped onto the (now-dark) polish-pass ramp. */
   --bg-dark:     var(--bg-canvas);          /* #0F1117 */
   --bg-app:      var(--bg-canvas);          /* canvas behind table */
   --bg-sidebar:  var(--bg-sidebar-new);     /* #181B22 */
@@ -197,11 +220,11 @@ input, textarea, select {
     letter-spacing: 0.02em;
   }
   .btn-ghost-soft:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--overlay-8);
     color: var(--text-primary);
   }
   .btn-ghost-soft[data-active='true'] {
-    background: rgba(255, 255, 255, 0.10);
+    background: var(--overlay-10);
     color: var(--text-primary);
   }
 }
@@ -234,9 +257,12 @@ input, textarea, select {
 .task-panel-enter { animation: slideInRight 250ms cubic-bezier(0.32, 0.72, 0, 1); }
 
 /* ---------- Custom slim scrollbar (board table x-axis) ---------- */
+/* Scrollbar tints. The track stays transparent so the canvas behind
+   shows through; the thumb uses theme-aware overlays so it's visible
+   in both light and dark. */
 .scroll-x-slim {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: var(--overlay-18) transparent;
 }
 .scroll-x-slim::-webkit-scrollbar {
   height: 10px;
@@ -244,12 +270,12 @@ input, textarea, select {
 }
 .scroll-x-slim::-webkit-scrollbar-track { background: transparent; }
 .scroll-x-slim::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.12);
+  background-color: var(--overlay-12);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .scroll-x-slim::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.22);
+  background-color: var(--overlay-18);
 }
 .scroll-x-slim::-webkit-scrollbar-corner { background: transparent; }

@@ -134,7 +134,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <h1
               onClick={() => canEdit && setEditingName(true)}
               title={titleTooltip}
-              className={cn('text-title truncate', canEdit && 'cursor-text hover:bg-white/[0.05] px-1 -mx-1 rounded-button')}
+              className={cn('text-title truncate', canEdit && 'cursor-text hover:bg-[var(--overlay-6)] px-1 -mx-1 rounded-button')}
             >
               {board.name}
             </h1>
@@ -152,7 +152,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               }}
               title={hasDesc ? 'Edit description' : 'Add description'}
               aria-label={hasDesc ? 'Edit description' : 'Add description'}
-              className="h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
+              className="h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
             >
               <FileText className="h-3.5 w-3.5" />
             </button>
@@ -174,7 +174,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
                   toast.error(err instanceof Error ? err.message : 'Could not update favorite');
                 }
               }}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
               title={board.is_favorite ? 'Unfavorite' : 'Add to favorites'}
             >
               <Star
@@ -224,7 +224,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               type="button"
               aria-label="More"
               onClick={() => setMenuOpen((v) => !v)}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-100"
+              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
@@ -336,7 +336,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               onClick={() => canEdit && setEditingDesc(true)}
               className={cn(
                 'text-[13px] text-text-secondary truncate',
-                canEdit && 'cursor-text hover:bg-white/[0.05] px-1 -mx-1 rounded-button',
+                canEdit && 'cursor-text hover:bg-[var(--overlay-6)] px-1 -mx-1 rounded-button',
               )}
               title={board.description ?? ''}
             >
@@ -346,7 +346,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <button
               type="button"
               onClick={() => setEditingDesc(true)}
-              className="text-[13px] text-text-secondary italic px-1 -mx-1 rounded-button hover:bg-white/[0.05]"
+              className="text-[13px] text-text-secondary italic px-1 -mx-1 rounded-button hover:bg-[var(--overlay-6)]"
             >
               Add description…
             </button>

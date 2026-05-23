@@ -82,7 +82,7 @@ export function LabelCell({
           <span
             className={cn(
               'chip-cell chip-cell-center text-text-secondary',
-              !readonly && 'hover:bg-white/[0.08]',
+              !readonly && 'hover:bg-[var(--overlay-8)]',
             )}
             style={{ background: 'var(--bg-row)' }}
           >

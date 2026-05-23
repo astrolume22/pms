@@ -156,7 +156,7 @@ export function ItemRow({
             <button
               type="button"
               onClick={onToggleSubitems}
-              className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-white/[0.08] rounded-sm"
+              className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-[var(--overlay-8)] rounded-sm"
               aria-label={isExpanded ? 'Collapse subitems' : 'Expand subitems'}
             >
               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}

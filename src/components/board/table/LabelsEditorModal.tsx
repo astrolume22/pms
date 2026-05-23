@@ -292,7 +292,7 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
               <button
                 type="button"
                 onClick={() => setPendingAddOpen(false)}
-                className="h-8 px-2.5 rounded-base text-[12px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+                className="h-8 px-2.5 rounded-base text-[12px] font-medium text-text-secondary hover:bg-[var(--overlay-6)] hover:text-text-primary"
               >
                 Cancel
               </button>

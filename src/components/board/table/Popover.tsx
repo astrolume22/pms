@@ -201,8 +201,11 @@ export function Popover({
           ? {
               background: 'var(--bg-card)',
               borderRadius: 'var(--radius-card)',
+              // 8% black drop + 1px hairline ring. The hairline switches
+              // sign with the theme so it's always visible against the
+              // surrounding canvas.
               boxShadow:
-                '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.06)',
+                '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--overlay-6)',
             }
           : null),
       }}
@@ -221,8 +224,10 @@ export function Popover({
             top: -6,
             left: placement!.caretLeft,
             background: 'var(--bg-card)',
-            borderTop:  '1px solid rgba(255, 255, 255, 0.08)',
-            borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+            // Theme-aware caret borders so the arrow stays visible in
+            // light mode against the white popover surface.
+            borderTop:  '1px solid var(--overlay-8)',
+            borderLeft: '1px solid var(--overlay-8)',
           }}
         />
       )}

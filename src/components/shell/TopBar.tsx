@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { Bell, Inbox, Search, Sun, Moon, LogOut, User as UserIcon, Shield } from 'lucide-react';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
@@ -15,6 +16,10 @@ export function TopBar() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const navigate = useNavigate();
+  // We clear the react-query cache on sign-out so the next user that
+  // logs in on this browser tab doesn't briefly see the previous user's
+  // cached boards/items/etc. before the new session refetches.
+  const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -33,6 +38,10 @@ export function TopBar() {
   const onSignOut = async () => {
     setOpen(false);
     await signOut();
+    // Drop every cached query — boards, items, members, etc. — so the
+    // next user logging in on this browser doesn't see the previous
+    // user's data flash through before refetch.
+    queryClient.clear();
     toast.success('Signed out');
     navigate({ to: '/login' });
   };

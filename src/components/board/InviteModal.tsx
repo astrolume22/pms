@@ -40,7 +40,9 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
   // single group on this board.
   const [scope, setScope] = useState<'board' | 'workspace' | 'group'>('board');
   const [groupId, setGroupId] = useState<string | null>(null);
-  const [expires, setExpires] = useState<24 | 168 | 720>(168);
+  // `null` ⇒ never expires (sent as null to RPC; migration 0037 treats
+  // null expires_at as no-expiry).
+  const [expires, setExpires] = useState<24 | 168 | 720 | null>(168);
   const [newLink, setNewLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -59,6 +61,8 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
         role: 'manager',
         boardId: scope === 'workspace' ? null : boardId,
         groupId: scope === 'group' ? groupId : null,
+        // expires === null is the "Never expires" choice — sent through
+        // to the RPC, which stores expires_at = NULL.
         expiresInHours: expires,
       });
       const link = `${window.location.origin}/invite/${data.token}`;
@@ -153,13 +157,19 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
           )}
         </Section>
 
-        {/* Expires */}
+        {/* Expires — four options now, including "Never". */}
         <Section label="Expires after">
           <div className="flex items-center gap-2">
-            <ExpiresChoice value={24}  current={expires} onSelect={setExpires} label="24 hours" />
-            <ExpiresChoice value={168} current={expires} onSelect={setExpires} label="7 days" />
-            <ExpiresChoice value={720} current={expires} onSelect={setExpires} label="30 days" />
+            <ExpiresChoice value={24}   current={expires} onSelect={setExpires} label="24 hours" />
+            <ExpiresChoice value={168}  current={expires} onSelect={setExpires} label="7 days" />
+            <ExpiresChoice value={720}  current={expires} onSelect={setExpires} label="30 days" />
+            <ExpiresChoice value={null} current={expires} onSelect={setExpires} label="Never" />
           </div>
+          {expires === null && (
+            <p className="text-[11px] text-warning mt-1.5">
+              Never-expiring invites stay valid until you revoke them. Use sparingly.
+            </p>
+          )}
         </Section>
 
         {/* Generate / copy row */}
@@ -200,8 +210,14 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
                   : scope === 'group'
                   ? ' scoped to the selected group on this board.'
                   : ' subscribed to this board.'}
-                {' '}Share it on WhatsApp / Signal / etc. — it's single-use and
-                expires in {expires === 24 ? '24 hours' : expires === 168 ? '7 days' : '30 days'}.
+                {' '}Share it on WhatsApp / Signal / etc. — it's single-use and{' '}
+                {expires === null
+                  ? 'never expires (revoke it manually when no longer needed).'
+                  : expires === 24
+                  ? 'expires in 24 hours.'
+                  : expires === 168
+                  ? 'expires in 7 days.'
+                  : 'expires in 30 days.'}
               </p>
               <button
                 type="button"
@@ -259,7 +275,11 @@ function InviteListItem({ invite, onRevoke }: { invite: InviteRow; onRevoke: () 
       <RoleBadge role={invite.role} />
       <div className="flex-1 min-w-0">
         <p className="text-[13px] text-text-secondary truncate">
-          {state.label} · expires {new Date(invite.expires_at).toLocaleDateString()}
+          {state.label}
+          {' · '}
+          {invite.expires_at
+            ? `expires ${new Date(invite.expires_at).toLocaleDateString()}`
+            : 'never expires'}
         </p>
         <p className="text-[11px] text-text-disabled font-mono truncate">
           {invite.token}
@@ -292,7 +312,10 @@ function InviteListItem({ invite, onRevoke }: { invite: InviteRow; onRevoke: () 
 function deriveState(inv: InviteRow): { kind: 'active' | 'used' | 'expired' | 'revoked'; label: string } {
   if (inv.revoked_at) return { kind: 'revoked', label: 'Revoked' };
   if (inv.used_at)    return { kind: 'used',    label: `Used ${new Date(inv.used_at).toLocaleDateString()}` };
-  if (new Date(inv.expires_at) <= new Date()) return { kind: 'expired', label: 'Expired' };
+  // Null expires_at ⇒ never expires (migration 0037).
+  if (inv.expires_at && new Date(inv.expires_at) <= new Date()) {
+    return { kind: 'expired', label: 'Expired' };
+  }
   return { kind: 'active', label: 'Active' };
 }
 
@@ -331,7 +354,10 @@ function ScopeChoice<T extends string>({
   );
 }
 
-function ExpiresChoice<T extends number>({
+// Accepts either a number (hours) or null (never expires). The state in
+// the parent is `24 | 168 | 720 | null`; we generalize so the same chip
+// component can render the "Never" choice too.
+function ExpiresChoice<T extends number | null>({
   value, current, onSelect, label,
 }: { value: T; current: T; onSelect: (v: T) => void; label: string }) {
   const active = value === current;

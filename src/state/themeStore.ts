@@ -48,14 +48,23 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       /* ignore */
     }
     set({ theme });
-    // Persist to the user's profile (best-effort).
+    // Persist to the user's profile (best-effort). If the network is
+    // dead the toggle still works locally via the localStorage write
+    // above; we just won't sync the preference. The 15s fetch timeout
+    // in lib/supabase.ts guarantees this won't hang the UI.
     const profile = useAuthStore.getState().profile;
     if (profile && profile.theme !== theme) {
       void supabase
         .from('users')
         .update({ theme } as never)
         .eq('id', profile.id)
-        .then(() => useAuthStore.getState().refreshProfile());
+        .then(({ error }) => {
+          if (error) {
+            console.warn('[theme] persist failed (kept locally):', error.message);
+            return;
+          }
+          void useAuthStore.getState().refreshProfile();
+        });
     }
   },
   toggle: () => get().setTheme(get().theme === 'light' ? 'dark' : 'light'),

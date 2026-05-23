@@ -153,7 +153,7 @@ function CategoricalStrip({
   const totalAssigned = Array.from(counts.values()).reduce((a, b) => a + b, 0);
   const totalForPct = multi ? Math.max(1, totalAssigned + empty) : Math.max(1, items.length);
   if (items.length === 0) {
-    return <div className="h-full w-full" style={{ background: 'rgba(255,255,255,0.04)' }} />;
+    return <div className="h-full w-full" style={{ background: 'var(--overlay-3)' }} />;
   }
 
   return (
@@ -175,7 +175,7 @@ function CategoricalStrip({
       {empty > 0 && (
         <Segment
           width={(empty / totalForPct) * 100}
-          background="rgba(255,255,255,0.06)"
+          background="var(--overlay-6)"
           tooltip={`No value · ${empty} task${empty === 1 ? '' : 's'}`}
         />
       )}
@@ -216,7 +216,7 @@ function DateStrip({
       {seg(today,    dateChipColor('today')!,    'Today')}
       {seg(tomorrow, dateChipColor('tomorrow')!, 'Tomorrow')}
       {seg(future,   'var(--chip-slate)',         'Future')}
-      {seg(empty,    'rgba(255,255,255,0.06)',    'No date')}
+      {seg(empty,    'var(--overlay-6)',    'No date')}
     </div>
   );
 }
@@ -248,7 +248,7 @@ function CoverageStrip({
       {empty > 0 && (
         <Segment
           width={(empty / total) * 100}
-          background="rgba(255,255,255,0.06)"
+          background="var(--overlay-6)"
           tooltip={`No value · ${empty} task${empty === 1 ? '' : 's'}`}
         />
       )}
@@ -284,7 +284,7 @@ function PeopleCoverageStrip({
       {empty > 0 && (
         <Segment
           width={(empty / total) * 100}
-          background="rgba(255,255,255,0.06)"
+          background="var(--overlay-6)"
           tooltip={`Unassigned · ${empty} task${empty === 1 ? '' : 's'}`}
         />
       )}
@@ -319,7 +319,7 @@ function CheckboxStrip({
       {undone > 0 && (
         <Segment
           width={(undone / total) * 100}
-          background="rgba(255,255,255,0.06)"
+          background="var(--overlay-6)"
           tooltip={`Open · ${undone} task${undone === 1 ? '' : 's'}`}
         />
       )}

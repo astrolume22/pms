@@ -132,7 +132,7 @@ export function GroupBlock({
         <button
           type="button"
           onClick={() => toggleCollapsed(group.id)}
-          className="h-6 w-6 inline-flex items-center justify-center rounded-sm hover:bg-white/[0.08]"
+          className="h-6 w-6 inline-flex items-center justify-center rounded-sm hover:bg-[var(--overlay-8)]"
           aria-label={collapsed ? 'Expand group' : 'Collapse group'}
           // Caret picks up the group's identity color so it ties to the
           // spine below.
@@ -198,7 +198,7 @@ export function GroupBlock({
         )}
         <span
           className="inline-flex items-center h-5 px-2 rounded-pill text-[12px] font-medium text-text-secondary"
-          style={{ background: 'rgba(255,255,255,0.06)' }}
+          style={{ background: 'var(--overlay-6)' }}
           title={`${items.length} task${items.length === 1 ? '' : 's'}`}
         >
           {items.length} task{items.length === 1 ? '' : 's'}
@@ -210,7 +210,7 @@ export function GroupBlock({
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="Group menu"
-              className="opacity-0 group-hover/groupheader:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-white/[0.08] transition-opacity duration-100"
+              className="opacity-0 group-hover/groupheader:opacity-100 h-6 w-6 inline-flex items-center justify-center rounded-sm text-text-secondary hover:bg-[var(--overlay-8)] transition-opacity duration-100"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
@@ -264,7 +264,7 @@ export function GroupBlock({
             {colorPickerOpen && (
               <div
                 className="absolute right-0 top-7 z-30 bg-card rounded-card p-3 grid grid-cols-4 gap-2 w-[180px]"
-                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06)' }}
+                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--overlay-6)' }}
                 onMouseLeave={() => setColorPickerOpen(false)}
               >
                 {COLORS.map((c) => (

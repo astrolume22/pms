@@ -71,33 +71,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // ---------------------------------------------------------------
     // Idle-tab wake handler.
     //
-    // Backgrounded browser tabs aggressively throttle setTimeout, so
-    // the Supabase auto-refresh timer can sleep past the access-token
-    // expiry. When the user returns, the next API call goes out with a
-    // dead token and gets a 401, which surfaces as "backend stops
-    // working after a few minutes".
+    // The previous version called `getSession()` on visibilitychange,
+    // but `getSession()` only reads cached state and only triggers a
+    // network refresh if the cached token is *already known* expired.
+    // That's not enough: while the tab was hidden, Chrome throttled
+    // the auto-refresh timer AND parked the HTTP/2 socket. The next
+    // user mutation goes out on a half-dead connection and the fetch
+    // sits pending for minutes — hence the infinite spinner the user
+    // reported even after the first fix.
     //
-    // The fix: when the tab becomes visible OR regains focus, poke
-    // Supabase's session API. If the access token is close to expiry
-    // (or already expired), this triggers an immediate refresh using
-    // the long-lived refresh token, restoring a valid auth header
-    // before the user clicks anything.
+    // The right fix has two parts:
+    //   1. `lib/supabase.ts` now wraps fetch in a 15s AbortController
+    //      timeout, so no request can hang indefinitely.
+    //   2. Here we call `refreshSession()` (forces a network round-
+    //      trip to /auth/v1/token) — that proactively opens a fresh
+    //      connection AND rotates the access token before any user
+    //      action lands. The 15s timeout above guarantees the refresh
+    //      itself can't hang either.
     //
-    // We listen on both events because Chrome fires `visibilitychange`
-    // when the tab itself is shown/hidden, while `focus` covers
-    // window-level activation (e.g. alt-tabbing back from another app
-    // when the tab was already visible).
+    // We debounce: visibilitychange + focus often fire together when
+    // the user alt-tabs back, and `refreshSession()` is one of the few
+    // calls supabase-js can't trivially deduplicate.
     // ---------------------------------------------------------------
     if (typeof document !== 'undefined') {
+      let wakeInFlight = false;
+      let lastWakeAt   = 0;
+      const WAKE_COOLDOWN_MS = 5_000;
       const wake = () => {
-        // Only wake when we believe we're authenticated — no point
-        // hitting auth endpoints if the user is on the login screen.
         if (get().status !== 'authenticated') return;
-        // Fire-and-forget; the auth-state listener above will update
-        // session/profile when the refresh resolves.
-        void supabase.auth.getSession().catch((err) => {
-          console.warn('[auth] wake getSession failed', err);
-        });
+        const now = Date.now();
+        if (wakeInFlight) return;
+        if (now - lastWakeAt < WAKE_COOLDOWN_MS) return;
+        wakeInFlight = true;
+        lastWakeAt   = now;
+        // refreshSession() forces a network call; the fetch wrapper
+        // bounds it to 15s. If the refresh fails (network error /
+        // expired refresh token), we just log — the next user click
+        // will surface a clean error toast via the same path.
+        supabase.auth
+          .refreshSession()
+          .catch((err) => {
+            console.warn('[auth] wake refreshSession failed', err);
+          })
+          .finally(() => { wakeInFlight = false; });
       };
       const onVisible = () => {
         if (document.visibilityState === 'visible') wake();

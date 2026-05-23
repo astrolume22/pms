@@ -13,15 +13,48 @@
    ===================================================================== */
 
 :root {
-  /* ---- Surfaces ---- */
-  --bg-canvas:       #0F1117;
-  --bg-sidebar-new:  #181B22;
-  --bg-card:         #1A1D24;
-  --bg-row:          #2A2E36;
-  --bg-row-hover:    #32363F;
+  /* ---- Surfaces ----
+     LIGHT-MODE values at :root (the default). The dark hex ramp is
+     defined inside `.dark` below so a single class toggle flips the
+     whole board.  Until this fix the surface ramp was hard-coded dark
+     here and the board kept rendering dark patches in light mode
+     (canvas behind the table, popover surface, row hover, empty-cell
+     fill — all of those use these tokens directly).
 
-  /* ---- Borders ---- */
-  --border-hair:     rgba(255, 255, 255, 0.06);
+     Light-mode values mirror the legacy --bg-app / --bg-surface / etc.
+     so a board in light mode picks up the same surface palette the
+     admin pages already use. */
+  --bg-canvas:       #F6F7FB;     /* canvas behind the table — shows
+                                     through 1px cell gaps as seams   */
+  --bg-sidebar-new:  #FFFFFF;     /* app frame / sidebar              */
+  --bg-card:         #FFFFFF;     /* popover / floating cards         */
+  --bg-row:          #FFFFFF;     /* empty-cell fill — white rectangle
+                                     on the gray canvas (mirrors the
+                                     dark ramp where row is one step
+                                     lighter than canvas)             */
+  --bg-row-hover:    #F1F2F5;     /* one step DARKER than row on hover
+                                     (in light mode the contrast move
+                                     inverts: hover = a touch darker) */
+
+  /* ---- Borders ----
+     6%-black hairline in light mode so it stays subtle on the white
+     surface ramp. Flipped to 6%-white inside `.dark`. */
+  --border-hair:     rgba(0, 0, 0, 0.06);
+
+  /* ---- Theme-aware translucent overlays ----
+     The polish pass used `rgba(255,255,255,0.0X)` literals everywhere
+     for popover-inner fields, summary-strip "empty" segments, ghost-
+     button hovers, etc.  Those vanish on a white surface in light mode.
+     These tokens carry the sign of the contrast inversion: black tints
+     at :root (light), white tints inside `.dark`.
+
+     Use --overlay-N where N is the alpha * 100 (so --overlay-6 ≈ 6%). */
+  --overlay-3:   rgba(0, 0, 0, 0.04);
+  --overlay-6:   rgba(0, 0, 0, 0.06);
+  --overlay-8:   rgba(0, 0, 0, 0.08);
+  --overlay-10:  rgba(0, 0, 0, 0.10);
+  --overlay-12:  rgba(0, 0, 0, 0.12);
+  --overlay-18:  rgba(0, 0, 0, 0.18);
 
   /* ---- Text ---- */
   --text-primary-new:   #FFFFFF;

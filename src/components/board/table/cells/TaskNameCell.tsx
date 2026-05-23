@@ -42,7 +42,7 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
       // 8% white overlay; focus the 2px chip-sky inset ring (chunk 13).
       tabIndex={readonly ? -1 : 0}
       role={readonly ? undefined : 'button'}
-      className="cell-focusable group/cell flex items-center h-full w-full px-4 hover:bg-white/[0.08] transition-colors duration-100"
+      className="cell-focusable group/cell flex items-center h-full w-full px-4 hover:bg-[var(--overlay-8)] transition-colors duration-100"
       onClick={() => !readonly && !isEditing && onStartEdit()}
       onKeyDown={(e) => {
         if (readonly || isEditing) return;

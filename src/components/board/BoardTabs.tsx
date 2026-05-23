@@ -68,7 +68,7 @@ export function BoardTabs({ boardId, activeViewId, onSwitch, canEdit }: BoardTab
           <button
             type="button"
             onClick={() => setAddOpen((v) => !v)}
-            className="ml-1 h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08] hover:text-text-primary"
+            className="ml-1 h-7 w-7 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary"
             aria-label="Add view"
             title="Add view"
           >
@@ -98,7 +98,7 @@ function Tab({ active, icon, label, onClick }: { active?: boolean; icon: React.R
         'relative inline-flex items-center gap-1 py-2 px-3 -mb-px text-[13px] font-medium rounded-button transition-colors duration-100',
         active
           ? 'text-text-primary'
-          : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.05]',
+          : 'text-text-secondary hover:text-text-primary hover:bg-[var(--overlay-6)]',
       )}
       style={{ letterSpacing: '0.02em' }}
     >
@@ -158,7 +158,7 @@ function ViewTab({ view, active, canEdit, onClick }: {
             'relative inline-flex items-center gap-1 py-2 pl-3 pr-1 -mb-px text-[13px] font-medium rounded-button transition-colors duration-100',
             active
               ? 'text-text-primary'
-              : 'text-text-secondary hover:text-text-primary hover:bg-white/[0.05]',
+              : 'text-text-secondary hover:text-text-primary hover:bg-[var(--overlay-6)]',
           )}
           style={{ letterSpacing: '0.02em' }}
         >

@@ -59,7 +59,7 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"
-          className="h-8 pl-8 pr-7 rounded-button bg-white/[0.04] hover:bg-white/[0.08] focus:bg-white/[0.10] text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[200px] transition-colors duration-100"
+          className="h-8 pl-8 pr-7 rounded-button bg-[var(--overlay-3)] hover:bg-[var(--overlay-8)] focus:bg-[var(--overlay-10)] text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[200px] transition-colors duration-100"
           style={{ letterSpacing: '0.02em' }}
         />
         {search && (
@@ -67,7 +67,7 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
             type="button"
             aria-label="Clear search"
             onClick={() => setSearch('')}
-            className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-white/[0.08]"
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)]"
           >
             <X className="h-3 w-3" />
           </button>
