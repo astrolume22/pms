@@ -122,16 +122,24 @@ const TOOLS = {
   get_board: {
     name: 'get_board',
     description:
-      'Fetch a board\'s structural context: groups (id, name, color, sort_order), ' +
-      'columns (id, name, column_type, sort_order), and labels per column (id, name, ' +
-      'color, sort_order). Same shape api/ai-build.ts produces for the Gemini engine. ' +
-      'Returns workspace_id so the caller can verify tenancy.',
+      'Snapshot of a board — groups + columns (with labels) + EVERY non-deleted task ' +
+      'on the board with its current cell values. Use this as the discovery step for ' +
+      'any per-task write:\n' +
+      '  1. list_boards → pick board_id\n' +
+      '  2. get_board    → find a task by name in the tasks[] array; capture its id\n' +
+      '  3. update_task_cell / add_task_update / update_task_name / update_task_status / ' +
+      'delete_task with that task_id\n' +
+      'Task cells are keyed by column_id (NOT column name) so the round-trip into ' +
+      'update_task_cell is unambiguous; use the columns[] array to map column_id → ' +
+      'column_name. Archived items are included with archived:true; soft-deleted items ' +
+      'are excluded. Returns workspace_id so the caller can verify tenancy before any ' +
+      'follow-up write.',
     inputSchema: {
       type: 'object',
       properties: {
         board_id: {
           type: 'string',
-          description: 'UUID of the board to fetch.',
+          description: 'UUID of the board to snapshot.',
         },
       },
       required: ['board_id'],
@@ -288,7 +296,8 @@ const TOOLS = {
     name: 'add_task_update',
     description:
       'Post an update/comment on a task — appears in the task panel\'s Updates feed. ' +
-      'Input: task_id + body (plain text OR an HTML fragment). Resolves task → board → ' +
+      'Input: task_id + body (plain text OR an HTML fragment). To get the task_id from ' +
+      'a task name, call get_board first and look in tasks[]. Resolves task → board → ' +
       'workspace, refuses cross-tenant + sensitive-workspace writes. Use this for ' +
       'comments / status notes on EXISTING tasks; for STRUCTURED data like an ' +
       '"Instructions" field, use create_column + update_task_cell instead.',
@@ -311,8 +320,10 @@ const TOOLS = {
     name: 'update_task_cell',
     description:
       'Set ANY cell value on a task — generalizes update_task_status to every column ' +
-      'type. Pass the column by id (column_id) OR by name (column_name); if both are ' +
-      'given, column_id wins. Value shape matches the column type:\n' +
+      'type. To get task_id + column_id from human names, call get_board first: every ' +
+      'task is in tasks[] with its id+name; every column is in columns[] with its ' +
+      'id+name+column_type. Pass the column by id (column_id) OR by name (column_name); ' +
+      'if both are given, column_id wins. Value shape matches the column type:\n' +
       '  text/long_text → { value: "…" }\n' +
       '  numbers        → { value: 123 }     (also accepts "number")\n' +
       '  date           → { value: "YYYY-MM-DD" }\n' +
@@ -896,6 +907,26 @@ interface BoardSnapshot {
     sort_order: number;
     labels: Array<{ id: string; name: string; color: string; sort_order: number }>;
   }>;
+  // 3d follow-up: items[] is the bridge that makes the per-task write
+  // tools (update_task_cell / add_task_update / update_task_name /
+  // delete_task / update_task_status) usable end-to-end — the caller
+  // discovers a task's UUID by NAME from this array, then uses it as
+  // task_id in the write call. Soft-deleted items are excluded; archived
+  // items are included with archived:true so callers can choose to
+  // ignore them. Cell values are keyed by column_id (NOT column_name)
+  // so the round-trip into update_task_cell is unambiguous.
+  tasks: Array<{
+    id: string;
+    name: string;
+    task_code: string;
+    group_id: string;
+    parent_item_id: string | null;
+    sort_order: number;
+    archived: boolean;
+    cells: Record<string, unknown>;
+  }>;
+  // Convenience counter so the caller doesn't have to scan tasks.length.
+  task_count: number;
 }
 
 async function toolGetBoard(
@@ -926,8 +957,13 @@ async function toolGetBoard(
     .eq('id', board.workspace_id)
     .maybeSingle();
 
-  // Groups + columns in parallel (each scoped to this board).
-  const [{ data: groups, error: gErr }, { data: columns, error: cErr }] = await Promise.all([
+  // Groups + columns + items in parallel (each scoped to this board).
+  // items pulled here so the snapshot is one round-trip for the LLM.
+  const [
+    { data: groups, error: gErr },
+    { data: columns, error: cErr },
+    { data: items, error: iErr },
+  ] = await Promise.all([
     sb.from('groups')
       .select('id, name, color, sort_order')
       .eq('board_id', boardId)
@@ -938,26 +974,70 @@ async function toolGetBoard(
       .eq('board_id', boardId)
       .is('archived_at', null)
       .order('sort_order'),
+    // RLS_BYPASS-REVIEWED-3D-FOLLOWUP: service-role read of items in
+    // this board. Tenancy is asserted at the BOARD level above (we
+    // refuse soft-deleted boards), and the response surfaces the board
+    // → workspace mapping so the caller can verify tenancy before any
+    // write. Per-task soft-delete is filtered here; archived items are
+    // returned with archived:true so the caller can choose to skip.
+    sb.from('items')
+      .select('id, name, task_code, group_id, parent_item_id, sort_order, archived_at')
+      .eq('board_id', boardId)
+      .is('deleted_at', null)
+      .order('group_id')
+      .order('sort_order'),
   ]);
   if (gErr) throw new Error(`groups select failed: ${gErr.message}`);
   if (cErr) throw new Error(`columns select failed: ${cErr.message}`);
+  if (iErr) throw new Error(`items select failed: ${iErr.message}`);
 
-  // Labels per column — one round-trip filtered by column_id IN (...).
-  const colIds = (columns ?? []).map((c) => c.id);
+  // Labels per column + cell values per item — fired in parallel because
+  // they target different tables.
+  const colIds  = (columns ?? []).map((c) => c.id);
+  const itemIds = (items   ?? []).map((i) => (i as { id: string }).id);
   const labelsByCol = new Map<string, Array<{ id: string; name: string; color: string; sort_order: number }>>();
-  if (colIds.length > 0) {
-    const { data: labels, error: lErr } = await sb
-      .from('column_labels')
-      .select('id, column_id, name, color, sort_order')
-      .in('column_id', colIds)
-      .order('sort_order');
-    if (lErr) throw new Error(`labels select failed: ${lErr.message}`);
-    for (const l of (labels ?? []) as Array<{ id: string; column_id: string; name: string; color: string; sort_order: number }>) {
-      const arr = labelsByCol.get(l.column_id) ?? [];
-      arr.push({ id: l.id, name: l.name, color: l.color, sort_order: l.sort_order });
-      labelsByCol.set(l.column_id, arr);
-    }
+  // Keyed by item_id → (column_id → raw jsonb value). The exact shape
+  // of `value` varies by column_type — see update_task_cell's docs.
+  const cellsByItem = new Map<string, Record<string, unknown>>();
+  const [labelsRes, cellsRes] = await Promise.all([
+    colIds.length === 0
+      ? Promise.resolve({ data: [] as Array<{ id: string; column_id: string; name: string; color: string; sort_order: number }>, error: null })
+      : sb.from('column_labels')
+          .select('id, column_id, name, color, sort_order')
+          .in('column_id', colIds)
+          .order('sort_order'),
+    itemIds.length === 0
+      ? Promise.resolve({ data: [] as Array<{ item_id: string; column_id: string; value: unknown }>, error: null })
+      : sb.from('item_column_values')
+          .select('item_id, column_id, value')
+          .in('item_id', itemIds),
+  ]);
+  if (labelsRes.error) throw new Error(`labels select failed: ${labelsRes.error.message}`);
+  if (cellsRes.error)  throw new Error(`item_column_values select failed: ${cellsRes.error.message}`);
+  for (const l of (labelsRes.data ?? []) as Array<{ id: string; column_id: string; name: string; color: string; sort_order: number }>) {
+    const arr = labelsByCol.get(l.column_id) ?? [];
+    arr.push({ id: l.id, name: l.name, color: l.color, sort_order: l.sort_order });
+    labelsByCol.set(l.column_id, arr);
   }
+  for (const r of (cellsRes.data ?? []) as Array<{ item_id: string; column_id: string; value: unknown }>) {
+    const map = cellsByItem.get(r.item_id) ?? {};
+    map[r.column_id] = r.value;
+    cellsByItem.set(r.item_id, map);
+  }
+
+  const tasksOut: BoardSnapshot['tasks'] = ((items ?? []) as Array<{
+    id: string; name: string; task_code: string; group_id: string;
+    parent_item_id: string | null; sort_order: number; archived_at: string | null;
+  }>).map((it) => ({
+    id:             it.id,
+    name:           it.name,
+    task_code:      it.task_code,
+    group_id:       it.group_id,
+    parent_item_id: it.parent_item_id,
+    sort_order:     it.sort_order,
+    archived:       !!it.archived_at,
+    cells:          cellsByItem.get(it.id) ?? {},
+  }));
 
   return {
     board: {
@@ -978,6 +1058,8 @@ async function toolGetBoard(
         sort_order: c.sort_order,
         labels: labelsByCol.get(c.id) ?? [],
       })),
+    tasks: tasksOut,
+    task_count: tasksOut.length,
   };
 }
 
