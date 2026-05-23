@@ -352,6 +352,62 @@ const TOOLS = {
     },
   },
 
+  // ----- 3d chunk 5 — board ops ------------------------------------
+  rename_board: {
+    name: 'rename_board',
+    description: 'Rename a board. Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id: { type: 'string' },
+        new_name: { type: 'string', minLength: 1, maxLength: 200 },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['board_id', 'new_name'],
+      additionalProperties: false,
+    },
+  },
+
+  archive_board: {
+    name: 'archive_board',
+    description:
+      'Archive (or un-archive) a board. Sets boards.archived_at to now (or null when ' +
+      'restore=true). Non-destructive — the row stays, just hides from default sidebar ' +
+      'lists. Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id: { type: 'string' },
+        restore:  { type: 'boolean', default: false,
+                    description: 'If true, set archived_at = null (unarchive).' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['board_id'],
+      additionalProperties: false,
+    },
+  },
+
+  delete_board: {
+    name: 'delete_board',
+    description:
+      'SOFT-delete a board (sets boards.deleted_at). The most destructive tool on ' +
+      'this server — refuses without confirm_delete: true. Tenancy + sensitive-' +
+      'workspace gated. Soft-delete does NOT fire the DB cascade trigger; child rows ' +
+      '(groups, columns, items) keep their data and become recoverable by clearing ' +
+      'deleted_at later.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id:       { type: 'string' },
+        confirm_delete: { type: 'boolean', default: false,
+                          description: 'Required — set to true to acknowledge soft-deletion.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['board_id'],
+      additionalProperties: false,
+    },
+  },
+
   // ----- 3d chunk 4 — delete_task (soft) ---------------------------
   delete_task: {
     name: 'delete_task',
@@ -687,6 +743,16 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
           // ----- 3d chunk 4 (delete_task) -----------------------------
           case 'delete_task':
             payload = await toolDeleteTask(sb, args as unknown as ToolDeleteTaskArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 5 (board ops) -------------------------------
+          case 'rename_board':
+            payload = await toolRenameBoard(sb, args as unknown as ToolRenameBoardArgs, sensitiveWs);
+            break;
+          case 'archive_board':
+            payload = await toolArchiveBoard(sb, args as unknown as ToolArchiveBoardArgs, sensitiveWs);
+            break;
+          case 'delete_board':
+            payload = await toolDeleteBoard(sb, args as unknown as ToolDeleteBoardArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -1982,6 +2048,124 @@ async function toolDeleteTask(
     responseSummary: `task=${t.taskId} soft-deleted`,
   });
   return { task_id: t.taskId, board_id: t.boardId, workspace_id: t.workspaceId, deleted_at: stamp };
+}
+
+// =====================================================================
+// 3d chunk 5 — board ops (rename / archive / soft-delete)
+// =====================================================================
+
+interface ToolRenameBoardArgs {
+  board_id: string;
+  new_name: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolRenameBoard(
+  sb: SupabaseClient,
+  args: ToolRenameBoardArgs,
+  sensitive: Set<string>,
+): Promise<{ board_id: string; workspace_id: string; new_name: string }> {
+  if (!args.board_id) throw new Error('board_id is required');
+  if (!args.new_name || args.new_name.trim().length === 0) throw new Error('new_name is required');
+
+  const board = await resolveWorkspaceForBoard(sb, args.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const trimmed = args.new_name.trim();
+  const { error } = await sb
+    .from('boards').update({ name: trimmed } as never).eq('id', board.boardId);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'rename_board', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: trimmed, responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`boards update failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'rename_board', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: trimmed, responseSummary: `board=${board.boardId} renamed`,
+  });
+  return { board_id: board.boardId, workspace_id: board.workspaceId, new_name: trimmed };
+}
+
+interface ToolArchiveBoardArgs {
+  board_id: string;
+  restore?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolArchiveBoard(
+  sb: SupabaseClient,
+  args: ToolArchiveBoardArgs,
+  sensitive: Set<string>,
+): Promise<{ board_id: string; workspace_id: string; archived_at: string | null }> {
+  if (!args.board_id) throw new Error('board_id is required');
+
+  const board = await resolveWorkspaceForBoard(sb, args.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const restore = args.restore === true;
+  const stamp = restore ? null : new Date().toISOString();
+  const { error } = await sb
+    .from('boards').update({ archived_at: stamp } as never).eq('id', board.boardId);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'archive_board', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: restore ? '(restore)' : '(archive)',
+      responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`boards archive update failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'archive_board', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: restore ? '(restore)' : '(archive)',
+    responseSummary: restore ? 'archived_at cleared' : `archived_at=${stamp}`,
+  });
+  return { board_id: board.boardId, workspace_id: board.workspaceId, archived_at: stamp };
+}
+
+interface ToolDeleteBoardArgs {
+  board_id: string;
+  confirm_delete?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolDeleteBoard(
+  sb: SupabaseClient,
+  args: ToolDeleteBoardArgs,
+  sensitive: Set<string>,
+): Promise<{ board_id: string; workspace_id: string; deleted_at: string }> {
+  if (!args.board_id) throw new Error('board_id is required');
+  if (args.confirm_delete !== true) {
+    throw new Error('delete_board refuses without confirm_delete: true. Soft-delete is reversible but still requires explicit consent.');
+  }
+
+  const board = await resolveWorkspaceForBoard(sb, args.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Already soft-deleted? resolveWorkspaceForBoard already filters those
+  // out, so reaching here means the board is live.
+  const stamp = new Date().toISOString();
+  const { error } = await sb
+    .from('boards').update({ deleted_at: stamp } as never).eq('id', board.boardId);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'delete_board', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: '(soft-delete)', responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`boards soft-delete failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'delete_board', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: '(soft-delete)', responseSummary: `board=${board.boardId} soft-deleted`,
+  });
+  return { board_id: board.boardId, workspace_id: board.workspaceId, deleted_at: stamp };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
