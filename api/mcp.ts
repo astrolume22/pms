@@ -267,7 +267,8 @@ const TOOLS = {
       'Set the Status of a task to a specific label by name. Resolves task → board → ' +
       'workspace before writing; refuses if the workspace is sensitive without ' +
       'confirm_sensitive_workspace. The status column is the first status-type column ' +
-      'on the task\'s board (matches the applier\'s convention).',
+      'on the task\'s board (matches the applier\'s convention). For OTHER column ' +
+      'types use update_task_cell.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -276,6 +277,77 @@ const TOOLS = {
         confirm_sensitive_workspace: { type: 'boolean', default: false },
       },
       required: ['task_id', 'status_label'],
+      additionalProperties: false,
+    },
+  },
+
+  // =================================================================
+  // 3d chunk 1 — non-destructive expansions
+  // =================================================================
+  add_task_update: {
+    name: 'add_task_update',
+    description:
+      'Post an update/comment on a task — appears in the task panel\'s Updates feed. ' +
+      'Input: task_id + body (plain text OR an HTML fragment). Resolves task → board → ' +
+      'workspace, refuses cross-tenant + sensitive-workspace writes. Use this for ' +
+      'comments / status notes on EXISTING tasks; for STRUCTURED data like an ' +
+      '"Instructions" field, use create_column + update_task_cell instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'UUID of the task.' },
+        body:    { type: 'string', minLength: 1, maxLength: 20000,
+                   description: 'Update body. Plain text is wrapped in <p>; HTML is stored as-is.' },
+        is_html: { type: 'boolean', default: false,
+                   description: 'If true, body is treated as HTML; otherwise wrapped in <p>…</p>.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['task_id', 'body'],
+      additionalProperties: false,
+    },
+  },
+
+  update_task_cell: {
+    name: 'update_task_cell',
+    description:
+      'Set ANY cell value on a task — generalizes update_task_status to every column ' +
+      'type. Pass the column by id (column_id) OR by name (column_name); if both are ' +
+      'given, column_id wins. Value shape matches the column type:\n' +
+      '  text/long_text → { value: "…" }\n' +
+      '  numbers        → { value: 123 }     (also accepts "number")\n' +
+      '  date           → { value: "YYYY-MM-DD" }\n' +
+      '  checkbox       → { checked: true|false }\n' +
+      '  link           → { url: "https://…", label?: "display text" }\n' +
+      '  status/priority single-select → { label_id } | { label_name }\n' +
+      '  dropdown multi-select         → { label_ids: [...] } | { label_names: [...] }\n' +
+      '  people         → { user_ids: [<uuid>, …] }\n' +
+      'Tenancy-checked + sensitive-workspace-gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id:     { type: 'string' },
+        column_id:   { type: 'string', description: 'UUID of the column. Mutually exclusive with column_name (id wins).' },
+        column_name: { type: 'string', description: 'Display name of the column on the task\'s board.' },
+        value:       { description: 'Shape varies by column type — see tool description.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['task_id', 'value'],
+      additionalProperties: false,
+    },
+  },
+
+  update_task_name: {
+    name: 'update_task_name',
+    description:
+      'Rename a task. Resolves task → board → workspace; sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id:  { type: 'string' },
+        new_name: { type: 'string', minLength: 1, maxLength: 500 },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['task_id', 'new_name'],
       additionalProperties: false,
     },
   },
@@ -466,6 +538,16 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
             break;
           case 'update_task_status':
             payload = await toolUpdateTaskStatus(sb, args as unknown as ToolUpdateTaskStatusArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 1 (non-destructive) -------------------------
+          case 'add_task_update':
+            payload = await toolAddTaskUpdate(sb, args as unknown as ToolAddTaskUpdateArgs, sensitiveWs);
+            break;
+          case 'update_task_cell':
+            payload = await toolUpdateTaskCell(sb, args as unknown as ToolUpdateTaskCellArgs, sensitiveWs);
+            break;
+          case 'update_task_name':
+            payload = await toolUpdateTaskName(sb, args as unknown as ToolUpdateTaskNameArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -1105,6 +1187,286 @@ async function toolUpdateTaskStatus(
     workspace_id: t.workspaceId,
     label_id: label.id,
   };
+}
+
+// =====================================================================
+// 3d chunk 1 — non-destructive expansions
+// =====================================================================
+
+// ----- add_task_update ----------------------------------------------
+interface ToolAddTaskUpdateArgs {
+  task_id: string;
+  body: string;
+  is_html?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolAddTaskUpdate(
+  sb: SupabaseClient,
+  args: ToolAddTaskUpdateArgs,
+  sensitive: Set<string>,
+): Promise<{ update_id: string; task_id: string; board_id: string; workspace_id: string }> {
+  if (!args.task_id) throw new Error('task_id is required');
+  if (!args.body || args.body.trim().length === 0) throw new Error('body is required');
+
+  // Tenancy chain: task → board → workspace.
+  const t = await assertTaskBoardAndWorkspace(sb, args.task_id);
+  assertWorkspaceWriteAllowed(t.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Wrap plain text in <p>; treat is_html=true as caller-supplied
+  // markup (no sanitization beyond what the DB stores — the UI already
+  // renders this field through DOMPurify on read).
+  const bodyHtml = args.is_html
+    ? args.body
+    : `<p>${escapeHtml(args.body)}</p>`;
+
+  const actor = await getServiceActorId(sb);
+  const { data, error } = await sb
+    .from('updates')
+    .insert({
+      item_id:   t.taskId,
+      author_id: actor,
+      body_html: bodyHtml,
+      body_json: null,
+    } as never)
+    .select('id')
+    .single();
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'add_task_update', status: 'error',
+      workspaceId: t.workspaceId, boardId: t.boardId,
+      prompt: args.body.slice(0, 200),
+      responseSummary: `insert failed: ${error.message}`,
+      errorMessage: error.message,
+    });
+    throw new Error(`updates insert failed: ${error.message}`);
+  }
+  const updateId = (data as { id: string }).id;
+  await logMcpRun(sb, {
+    toolName: 'add_task_update', status: 'success',
+    workspaceId: t.workspaceId, boardId: t.boardId,
+    prompt: args.body.slice(0, 200),
+    responseSummary: `update_id=${updateId}`,
+  });
+  return { update_id: updateId, task_id: t.taskId, board_id: t.boardId, workspace_id: t.workspaceId };
+}
+
+// ----- update_task_cell ---------------------------------------------
+interface ToolUpdateTaskCellArgs {
+  task_id: string;
+  column_id?: string;
+  column_name?: string;
+  value: unknown;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolUpdateTaskCell(
+  sb: SupabaseClient,
+  args: ToolUpdateTaskCellArgs,
+  sensitive: Set<string>,
+): Promise<{
+  task_id: string; column_id: string; column_type: string;
+  board_id: string; workspace_id: string;
+}> {
+  if (!args.task_id) throw new Error('task_id is required');
+  if (!args.column_id && !args.column_name) {
+    throw new Error('one of column_id or column_name is required');
+  }
+  if (args.value === undefined || args.value === null) {
+    throw new Error('value is required (use { value: null } to clear is not yet supported)');
+  }
+
+  const t = await assertTaskBoardAndWorkspace(sb, args.task_id);
+  assertWorkspaceWriteAllowed(t.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Resolve the column on the task's board. column_id wins when both
+  // are present, and we re-verify the column actually belongs to this
+  // board (cross-board column_id is refused).
+  let columnRow: { id: string; column_type: string; name: string } | null = null;
+  if (args.column_id) {
+    const { data, error } = await sb
+      .from('columns')
+      .select('id, column_type, name, board_id, archived_at')
+      .eq('id', args.column_id)
+      .maybeSingle();
+    if (error) throw new Error(`columns select failed: ${error.message}`);
+    if (!data) throw new Error(`column ${args.column_id} not found`);
+    const row = data as { id: string; column_type: string; name: string; board_id: string; archived_at: string | null };
+    if (row.archived_at) throw new Error(`column ${args.column_id} is archived`);
+    if (row.board_id !== t.boardId) {
+      throw new TenancyError(
+        `Cross-board write refused: column ${args.column_id} belongs to board ` +
+        `${row.board_id}, not to the task's board (${t.boardId}).`,
+      );
+    }
+    columnRow = { id: row.id, column_type: row.column_type, name: row.name };
+  } else if (args.column_name) {
+    const { data, error } = await sb
+      .from('columns')
+      .select('id, column_type, name')
+      .eq('board_id', t.boardId)
+      .eq('name', args.column_name)
+      .is('archived_at', null)
+      .maybeSingle();
+    if (error) throw new Error(`columns select failed: ${error.message}`);
+    if (!data) throw new Error(`column named "${args.column_name}" not found on this board`);
+    columnRow = data as { id: string; column_type: string; name: string };
+  }
+  if (!columnRow) throw new Error('column resolution failed');
+  if (columnRow.column_type === 'task_name') {
+    throw new Error('use update_task_name for the task_name column, not update_task_cell');
+  }
+  if (columnRow.column_type === 'files') {
+    throw new Error('files column writes are not exposed via MCP in 3d');
+  }
+
+  // Translate the caller's value shape → DB JSON. We accept both
+  // human-readable forms (label_name, label_names) and id forms
+  // (label_id, label_ids).
+  const dbValue = await translateMcpCellValue(sb, columnRow, args.value);
+  if (dbValue == null) {
+    throw new Error('value did not resolve — check shape against the tool description');
+  }
+
+  const actor = await getServiceActorId(sb);
+  const { error } = await sb
+    .from('item_column_values')
+    .upsert({
+      item_id:    t.taskId,
+      column_id:  columnRow.id,
+      value:      dbValue,
+      updated_by: actor,
+    } as never, { onConflict: 'item_id,column_id' });
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'update_task_cell', status: 'error',
+      workspaceId: t.workspaceId, boardId: t.boardId,
+      prompt: `${columnRow.name} = ${JSON.stringify(args.value)}`.slice(0, 200),
+      responseSummary: `upsert failed: ${error.message}`,
+      errorMessage: error.message,
+    });
+    throw new Error(`item_column_values upsert failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'update_task_cell', status: 'success',
+    workspaceId: t.workspaceId, boardId: t.boardId,
+    prompt: `${columnRow.name} = ${JSON.stringify(args.value)}`.slice(0, 200),
+    responseSummary: `task=${t.taskId} col=${columnRow.id} type=${columnRow.column_type}`,
+  });
+  return {
+    task_id: t.taskId,
+    column_id: columnRow.id,
+    column_type: columnRow.column_type,
+    board_id: t.boardId,
+    workspace_id: t.workspaceId,
+  };
+}
+
+// Cell-value translator that ALSO accepts {label_name, label_names,
+// label_id, label_ids, user_ids, value, checked, url}. Resolves
+// name→id where needed by querying column_labels on this column.
+async function translateMcpCellValue(
+  sb: SupabaseClient,
+  column: { id: string; column_type: string },
+  raw: unknown,
+): Promise<unknown | null> {
+  if (raw == null || typeof raw !== 'object') return null;
+  const v = raw as Record<string, unknown>;
+  const colType = column.column_type;
+
+  // status/priority single-select
+  if (colType === 'status' || colType === 'priority') {
+    if (typeof v.label_id === 'string') return { label_id: v.label_id };
+    if (typeof v.label_name === 'string') {
+      const { data } = await sb.from('column_labels')
+        .select('id').eq('column_id', column.id).eq('name', v.label_name).maybeSingle();
+      const id = (data as { id?: string } | null)?.id;
+      if (!id) throw new Error(`label "${v.label_name}" not found on column ${column.id}`);
+      return { label_id: id };
+    }
+  }
+  // dropdown multi-select
+  if (colType === 'dropdown') {
+    if (Array.isArray(v.label_ids)) return { label_ids: v.label_ids };
+    if (Array.isArray(v.label_names)) {
+      const { data } = await sb.from('column_labels')
+        .select('id, name').eq('column_id', column.id).in('name', v.label_names as string[]);
+      const ids = (data ?? []).map((r) => (r as { id: string }).id);
+      return ids.length ? { label_ids: ids } : null;
+    }
+  }
+  // people
+  if (colType === 'people') {
+    if (Array.isArray(v.user_ids)) return { user_ids: v.user_ids };
+  }
+  // checkbox
+  if (colType === 'checkbox' && 'checked' in v) return { checked: !!v.checked };
+  // link
+  if (colType === 'link' && typeof v.url === 'string') {
+    return { url: v.url, label: typeof v.label === 'string' ? v.label : null };
+  }
+  // text/numbers/date — generic value
+  if ('value' in v) {
+    if (colType === 'date') return { value: String(v.value) };
+    if (colType === 'numbers') return { value: Number(v.value) };
+    return { value: String(v.value) };
+  }
+  return null;
+}
+
+// ----- update_task_name ---------------------------------------------
+interface ToolUpdateTaskNameArgs {
+  task_id: string;
+  new_name: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolUpdateTaskName(
+  sb: SupabaseClient,
+  args: ToolUpdateTaskNameArgs,
+  sensitive: Set<string>,
+): Promise<{ task_id: string; board_id: string; workspace_id: string; new_name: string }> {
+  if (!args.task_id) throw new Error('task_id is required');
+  if (!args.new_name || args.new_name.trim().length === 0) {
+    throw new Error('new_name is required');
+  }
+  const t = await assertTaskBoardAndWorkspace(sb, args.task_id);
+  assertWorkspaceWriteAllowed(t.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const actor = await getServiceActorId(sb);
+  const trimmed = args.new_name.trim();
+  const { error } = await sb
+    .from('items')
+    .update({ name: trimmed, updated_by: actor } as never)
+    .eq('id', t.taskId);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'update_task_name', status: 'error',
+      workspaceId: t.workspaceId, boardId: t.boardId,
+      prompt: trimmed, responseSummary: `update failed: ${error.message}`,
+      errorMessage: error.message,
+    });
+    throw new Error(`items update failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'update_task_name', status: 'success',
+    workspaceId: t.workspaceId, boardId: t.boardId,
+    prompt: trimmed, responseSummary: `task=${t.taskId} renamed`,
+  });
+  return { task_id: t.taskId, board_id: t.boardId, workspace_id: t.workspaceId, new_name: trimmed };
+}
+
+// Minimal HTML-escape for the plain-text path. Updates body_html is
+// rendered through the UI's prose pipeline which already escapes, but
+// we don't want raw '<' / '>' to break the rendered markup when the
+// caller passes plain text.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // =====================================================================
