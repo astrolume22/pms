@@ -312,14 +312,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ---- 2. Bearer-token auth ----------------------------------------
-    const authHeader = req.headers.authorization ?? '';
-    const presented = authHeader.startsWith('Bearer ')
+    // The token MAY arrive via either path:
+    //   (1) Authorization: Bearer <MCP_BEARER>  — preferred. Used by
+    //       curl, the smoke scripts, mcp-inspector, and any client that
+    //       lets you set custom headers.
+    //   (2) ?token=<MCP_BEARER> query parameter — fallback added in 3c
+    //       prep for claude.ai's "Add custom connector" UI, which does
+    //       NOT expose a custom-header field. Either path satisfies the
+    //       check; the header wins when both are present.
+    //
+    //   Security note: query-param secrets can leak into access logs,
+    //   referer headers, and browser history. We accept that tradeoff
+    //   because (a) MCP_BEARER is a long random secret, (b) it is
+    //   rotatable via Vercel env in seconds, and (c) the only way
+    //   claude.ai's connector UI can auth today is via the URL. To
+    //   minimise the leak surface we deliberately do NOT log req.url
+    //   anywhere in this handler — only the JSON-RPC method name when
+    //   diagnosing the catch-all 500. If you add logging below, do NOT
+    //   include req.url.
+    const authHeader  = req.headers.authorization ?? '';
+    const headerToken = authHeader.startsWith('Bearer ')
       ? authHeader.slice(7).trim()
       : '';
+    const queryTokenRaw = req.query?.token;
+    // Reject array-shaped ?token=a&token=b — we want a single string.
+    const queryToken = typeof queryTokenRaw === 'string' ? queryTokenRaw.trim() : '';
+    const presented  = headerToken || queryToken;
     if (!presented) {
       // No bearer → JSON-RPC auth error, NOT a crash. id is unknown
       // because we haven't parsed the body yet.
-      res.status(401).json(err(null, ERR_AUTH, 'Missing Authorization: Bearer <MCP_BEARER>'));
+      res.status(401).json(err(null, ERR_AUTH,
+        'Missing bearer — provide Authorization: Bearer <MCP_BEARER> ' +
+        'header OR ?token=<MCP_BEARER> query parameter'));
       return;
     }
     if (!constantTimeEquals(presented, bearer)) {
