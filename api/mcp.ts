@@ -179,8 +179,11 @@ const TOOLS = {
     description:
       'Create many tasks in one call. Each task is attempted independently — the ' +
       'response carries a per-task report ({ index, ok, task_id?, error? }) so a ' +
-      'partial failure never lies about success. Tenancy + sensitive-workspace checks ' +
-      'happen once for the parent board.',
+      'partial failure never lies about success. The top-level board_id+group_id ' +
+      'are defaults; an individual task may override group_id to write into a ' +
+      'different group on the SAME board (cross-board overrides are refused per task ' +
+      'by the tenancy helper, surfaced as that task\'s error without aborting the ' +
+      'batch). Sensitive-workspace check runs once for the parent board.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -193,8 +196,9 @@ const TOOLS = {
           items: {
             type: 'object',
             properties: {
-              name:  { type: 'string', minLength: 1, maxLength: 200 },
-              cells: { type: 'object', additionalProperties: true },
+              name:     { type: 'string', minLength: 1, maxLength: 200 },
+              group_id: { type: 'string', description: 'Optional per-task override; falls back to the top-level group_id.' },
+              cells:    { type: 'object', additionalProperties: true },
             },
             required: ['name'],
             additionalProperties: false,
@@ -760,7 +764,7 @@ async function toolCreateTask(
 interface ToolBulkCreateTasksArgs {
   board_id: string;
   group_id: string;
-  tasks: Array<{ name: string; cells?: Record<string, unknown> }>;
+  tasks: Array<{ name: string; group_id?: string; cells?: Record<string, unknown> }>;
   confirm_sensitive_workspace?: boolean;
 }
 
@@ -786,16 +790,21 @@ async function toolBulkCreateTasks(
     throw new Error('tasks must be a non-empty array');
   }
 
-  // Per-task try/catch so one bad row doesn't poison the rest.
+  // Per-task try/catch so one bad row doesn't poison the rest. Each
+  // task honours its own group_id override (falling back to the
+  // batch's group_id). toolCreateTask runs the full tenancy chain for
+  // every per-task group_id, so a cross-board override surfaces as
+  // THAT task's TenancyError without aborting the batch.
   const results: Array<{ index: number; ok: boolean; task_id?: string; name: string; error?: string }> = [];
   let succeeded = 0;
   let failed = 0;
   for (let i = 0; i < args.tasks.length; i += 1) {
     const t = args.tasks[i];
+    const effectiveGroupId = t.group_id ?? args.group_id;
     try {
       const r = await toolCreateTask(sb, {
         board_id: args.board_id,
-        group_id: args.group_id,
+        group_id: effectiveGroupId,
         name: t.name,
         cells: t.cells,
         confirm_sensitive_workspace: args.confirm_sensitive_workspace,
