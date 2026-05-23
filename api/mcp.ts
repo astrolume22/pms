@@ -352,6 +352,26 @@ const TOOLS = {
     },
   },
 
+  // ----- 3d chunk 4 — delete_task (soft) ---------------------------
+  delete_task: {
+    name: 'delete_task',
+    description:
+      'SOFT-delete a task (sets items.deleted_at). Refuses without confirm_delete: ' +
+      'true. Cell values, updates/comments, and subitems stay in the DB — only the ' +
+      'task row itself is marked deleted. Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id:        { type: 'string' },
+        confirm_delete: { type: 'boolean', default: false,
+                          description: 'Required — set to true to acknowledge soft-deletion.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['task_id'],
+      additionalProperties: false,
+    },
+  },
+
   // ----- 3d chunk 3 — group ops ------------------------------------
   create_group: {
     name: 'create_group',
@@ -663,6 +683,10 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
             break;
           case 'delete_group':
             payload = await toolDeleteGroup(sb, args as unknown as ToolDeleteGroupArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 4 (delete_task) -----------------------------
+          case 'delete_task':
+            payload = await toolDeleteTask(sb, args as unknown as ToolDeleteTaskArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -1903,6 +1927,61 @@ async function toolDeleteGroup(
     deleted_at:     stamp,
     tasks_in_group: taskCount,
   };
+}
+
+// =====================================================================
+// 3d chunk 4 — delete_task (soft)
+// =====================================================================
+
+interface ToolDeleteTaskArgs {
+  task_id: string;
+  confirm_delete?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolDeleteTask(
+  sb: SupabaseClient,
+  args: ToolDeleteTaskArgs,
+  sensitive: Set<string>,
+): Promise<{ task_id: string; board_id: string; workspace_id: string; deleted_at: string }> {
+  if (!args.task_id) throw new Error('task_id is required');
+  if (args.confirm_delete !== true) {
+    throw new Error('delete_task refuses without confirm_delete: true. Soft-delete is reversible but still requires explicit consent.');
+  }
+
+  const t = await assertTaskBoardAndWorkspace(sb, args.task_id);
+  assertWorkspaceWriteAllowed(t.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Already soft-deleted? Surface a friendly error.
+  const { data: cur } = await sb
+    .from('items').select('deleted_at, name').eq('id', t.taskId).maybeSingle();
+  const curRow = cur as { deleted_at: string | null; name: string } | null;
+  if (curRow?.deleted_at) {
+    throw new Error(`Task ${t.taskId} is already soft-deleted (deleted_at=${curRow.deleted_at})`);
+  }
+
+  const stamp = new Date().toISOString();
+  const actor = await getServiceActorId(sb);
+  const { error } = await sb
+    .from('items')
+    .update({ deleted_at: stamp, updated_by: actor } as never)
+    .eq('id', t.taskId);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'delete_task', status: 'error',
+      workspaceId: t.workspaceId, boardId: t.boardId,
+      prompt: curRow?.name ?? t.taskId,
+      responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`items soft-delete failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'delete_task', status: 'success',
+    workspaceId: t.workspaceId, boardId: t.boardId,
+    prompt: curRow?.name ?? t.taskId,
+    responseSummary: `task=${t.taskId} soft-deleted`,
+  });
+  return { task_id: t.taskId, board_id: t.boardId, workspace_id: t.workspaceId, deleted_at: stamp };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
