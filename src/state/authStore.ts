@@ -69,60 +69,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
 
     // ---------------------------------------------------------------
-    // Idle-tab wake handler.
+    // NOTE on idle-tab wake-up:
     //
-    // The previous version called `getSession()` on visibilitychange,
-    // but `getSession()` only reads cached state and only triggers a
-    // network refresh if the cached token is *already known* expired.
-    // That's not enough: while the tab was hidden, Chrome throttled
-    // the auto-refresh timer AND parked the HTTP/2 socket. The next
-    // user mutation goes out on a half-dead connection and the fetch
-    // sits pending for minutes — hence the infinite spinner the user
-    // reported even after the first fix.
+    // We INTENTIONALLY do not register our own visibilitychange/focus
+    // handler that calls refreshSession() here.  An earlier version
+    // of this file did, and it caused the "every operation spins
+    // forever after a quick tab-switch" bug:
     //
-    // The right fix has two parts:
-    //   1. `lib/supabase.ts` now wraps fetch in a 15s AbortController
-    //      timeout, so no request can hang indefinitely.
-    //   2. Here we call `refreshSession()` (forces a network round-
-    //      trip to /auth/v1/token) — that proactively opens a fresh
-    //      connection AND rotates the access token before any user
-    //      action lands. The 15s timeout above guarantees the refresh
-    //      itself can't hang either.
+    //   • Supabase's @supabase/auth-js already has its own
+    //     visibilitychange listener which calls _recoverAndRefresh()
+    //     when the tab becomes visible. That handler acquires the
+    //     auth lock.
+    //   • Our manual `supabase.auth.refreshSession()` on the same
+    //     event ALSO acquires the auth lock.
+    //   • Both ran in the same microtask after visibility change.
+    //     Combined with a fragile lock implementation, the contention
+    //     wedged the lock and every later `supabase.from(...)` (which
+    //     calls getSession internally) hung forever.
     //
-    // We debounce: visibilitychange + focus often fire together when
-    // the user alt-tabs back, and `refreshSession()` is one of the few
-    // calls supabase-js can't trivially deduplicate.
+    // The lock has since been rewritten to be deadlock-proof (see
+    // `lib/supabase.ts`), but the right fix is to ALSO drop the
+    // redundant wake handler so we don't race the library at all.
+    //
+    // What still works without it:
+    //   • Supabase's built-in visibility handler refreshes the session
+    //     when the tab becomes visible.
+    //   • The 15s fetch timeout in `lib/supabase.ts` guarantees no
+    //     individual request hangs longer than 15s — if a stale
+    //     HTTP/2 socket parks a request, it aborts and the user gets
+    //     a clear error (and the next call opens a fresh socket).
+    //   • TOKEN_REFRESHED below keeps our session state in sync when
+    //     auth-js rotates the token.
     // ---------------------------------------------------------------
-    if (typeof document !== 'undefined') {
-      let wakeInFlight = false;
-      let lastWakeAt   = 0;
-      const WAKE_COOLDOWN_MS = 5_000;
-      const wake = () => {
-        if (get().status !== 'authenticated') return;
-        const now = Date.now();
-        if (wakeInFlight) return;
-        if (now - lastWakeAt < WAKE_COOLDOWN_MS) return;
-        wakeInFlight = true;
-        lastWakeAt   = now;
-        // refreshSession() forces a network call; the fetch wrapper
-        // bounds it to 15s. If the refresh fails (network error /
-        // expired refresh token), we just log — the next user click
-        // will surface a clean error toast via the same path.
-        supabase.auth
-          .refreshSession()
-          .catch((err) => {
-            console.warn('[auth] wake refreshSession failed', err);
-          })
-          .finally(() => { wakeInFlight = false; });
-      };
-      const onVisible = () => {
-        if (document.visibilityState === 'visible') wake();
-      };
-      document.addEventListener('visibilitychange', onVisible);
-      window.addEventListener('focus', wake);
-      // Initialize is called once at app boot, so we intentionally do
-      // NOT detach these — they need to live for the app's lifetime.
-    }
   },
 
   signInWithUsername: async (username, password, _remember) => {
