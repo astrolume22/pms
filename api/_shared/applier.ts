@@ -1,139 +1,78 @@
 /**
- * CLIENT TWIN of api/_shared/applier.ts (Phase 3b).
- *   This file applies actions via the client anon JWT against the user's
- *   session. The server twin (api/_shared/applier.ts) uses the
- *   service-role JWT and is invoked by api/mcp.ts.
+ * SERVER TWIN of src/lib/ai-applier.ts (Phase 3b).
  *
- * ⚠️ KEEP IN SYNC: any change to action semantics here MUST be mirrored
- *   server-side, and vice versa. Grep for "SERVER TWIN" / "CLIENT TWIN"
- *   to find both files. Sharing one source-of-truth is deferred — Vite
- *   bundler and Vercel NodeNext have different module-resolution rules,
- *   so the refactor is non-trivial. Both implementations are kept
- *   byte-comparable structurally so review can spot drift.
+ * Same Action types (from api/_shared/actions-schema.ts), same refMap
+ * conventions, same sort_order computation, same cell-value→DB-JSON
+ * translation. The only structural difference is that the caller passes
+ * in a SupabaseClient — so this file works equally with the anon JWT
+ * (for parity with the client) or with the service-role JWT (used by
+ * api/mcp.ts). Auth is therefore the caller's responsibility.
  *
- * Client-side applier for the "Build with AI" actions list.
+ * ⚠️ KEEP IN SYNC WITH src/lib/ai-applier.ts
+ *   If you change the action semantics here, update there too, and vice
+ *   versa. The future DRY-up is intentional but deferred — see Phase 3b
+ *   pre-build notes for why we didn't pull this into a single source of
+ *   truth yet. Grep for "SERVER TWIN" / "CLIENT TWIN" to find both files.
  *
- * Walks the actions in order. Maintains a refMap that resolves the AI's
- * synthetic refs (group_ref / column_ref / label_ref / task_ref) into
- * real DB ids as rows are created. Primed at the start with refs from
- * the engine's BOARD CONTEXT (existing rows the AI saw) so actions can
- * point at pre-existing groups / columns / labels.
- *
- * Each step is a single Supabase write; the applier doesn't try to be
- * clever about transactions — if step N fails, earlier steps stay
- * committed and we surface which action failed. The Preview step in
- * the modal lets the admin sanity-check the plan before any writes,
- * so partial-apply is rare in practice.
- *
- * Progress is reported via the onProgress callback so the modal can
- * render "creating group 'Discovery'…".
+ * Scope of writes (each step is a single Supabase insert/upsert):
+ *   - groups, columns, column_labels, items, item_column_values.
+ * The applier does NOT manage transactions; if step N fails, earlier
+ * steps stay committed. Callers can scope this with an SQL transaction
+ * via an RPC if atomicity is required (not in 3b).
  */
-import { supabase } from './supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Action } from './actions-schema.js';
+import type { EngineContext } from './gemini-engine.js';
 
-// ---------- Types mirrored from api/_shared/actions-schema.ts ----------
-// Kept duplicated (not imported from api/) because the api/ directory
-// is the Vercel Function code; the client bundle should not import
-// from there. The Zod schema lives server-side; the client trusts the
-// validated output the function returned.
-
-type Ref = string;
-
-type CellValue =
-  | { value: string | number | boolean }
-  | { label_ref: Ref }
-  | { label_refs: Ref[] }
-  | { checked: boolean }
-  | { url: string; label?: string };
-
-type ColumnTypeForCreate =
-  | 'text' | 'status' | 'people' | 'date'
-  | 'priority' | 'numbers' | 'checkbox' | 'dropdown' | 'link';
-
-export type Action =
-  | { type: 'create_group'; ref?: Ref; name: string; color?: string }
-  | {
-      type: 'create_column';
-      ref?: Ref;
-      column_type: ColumnTypeForCreate;
-      name: string;
-      labels?: { ref?: Ref; name: string; color: string }[];
-    }
-  | { type: 'create_label'; ref?: Ref; column_ref: Ref; name: string; color: string }
-  | { type: 'create_task'; ref?: Ref; group_ref: Ref; name: string; cells?: Record<Ref, CellValue> }
-  | { type: 'update_task_status'; task_ref: Ref; status_ref: Ref };
-
-// Engine context shape (what api/ai-build.ts returns alongside actions).
-export interface EngineContextLabel { id: string; ref: string; name: string; color: string }
-export interface EngineContextColumn { id: string; ref: string; name: string; column_type: string; labels: EngineContextLabel[] }
-export interface EngineContextGroup { id: string; ref: string; name: string; color: string }
-export interface EngineContext {
-  board_id?: string;
-  board_name?: string;
-  groups: EngineContextGroup[];
-  columns: EngineContextColumn[];
-}
-
-// ---------- Plan summary (used by the Preview screen) ------------------
-export interface PlanSummary {
-  groups: number;
-  columns: number;
-  labels: number;      // both inline-in-column and standalone create_label
-  tasks: number;
-  status_updates: number;
-}
-export function summarizePlan(actions: Action[]): PlanSummary {
-  const s: PlanSummary = { groups: 0, columns: 0, labels: 0, tasks: 0, status_updates: 0 };
-  for (const a of actions) {
-    switch (a.type) {
-      case 'create_group':         s.groups += 1; break;
-      case 'create_column':        s.columns += 1; s.labels += (a.labels?.length ?? 0); break;
-      case 'create_label':         s.labels += 1; break;
-      case 'create_task':          s.tasks += 1; break;
-      case 'update_task_status':   s.status_updates += 1; break;
-    }
-  }
-  return s;
-}
-
-// ---------- The applier -----------------------------------------------
 export interface ApplyArgs {
   boardId: string;
   actions: Action[];
-  context: EngineContext;
-  userId: string;
-  // Called before EACH action. The modal renders the description.
+  context: EngineContext;       // seeds refMap with real DB ids
+  userId: string;               // stored on items.created_by + item_column_values.updated_by
+  sb: SupabaseClient;           // injected — service-role for MCP, anon for the client mirror
   onProgress?: (info: { index: number; total: number; description: string }) => void;
 }
 
 export interface ApplyResult {
   applied: number;
   failedAt?: { index: number; description: string; error: string };
+  // Real db ids that came out of the apply, keyed by AI ref.
+  refMap: {
+    groups: Record<string, string>;
+    columns: Record<string, string>;
+    labels: Record<string, string>;
+    tasks: Record<string, string>;
+  };
 }
 
-export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
-  const { boardId, actions, context, userId, onProgress } = args;
+type CellValue =
+  | { value: string | number | boolean }
+  | { label_ref: string }
+  | { label_refs: string[] }
+  | { checked: boolean }
+  | { url: string; label?: string };
 
-  // Prime the refMap from the engine context — refs the AI saw are real
-  // ids already.
-  const groupIdByRef: Record<string, string> = {};
+export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
+  const { boardId, actions, context, userId, sb, onProgress } = args;
+
+  // -------- refMap: seeded from BOARD CONTEXT (real ids the AI saw) ---
+  const groupIdByRef:  Record<string, string> = {};
   const columnIdByRef: Record<string, string> = {};
-  const labelIdByRef: Record<string, string> = {};
-  const taskIdByRef: Record<string, string> = {};
+  const labelIdByRef:  Record<string, string> = {};
+  const taskIdByRef:   Record<string, string> = {};
   for (const g of context.groups) groupIdByRef[g.ref] = g.id;
   for (const c of context.columns) {
     columnIdByRef[c.ref] = c.id;
     for (const l of c.labels) labelIdByRef[l.ref] = l.id;
   }
 
-  // We need next sort_order counters per group / per column so newly
-  // inserted rows append correctly. Fetch the current max once at the
-  // start; bump locally as we insert.
-  const { data: existingGroups } = await supabase
+  // -------- sort_order counters, fetched once + bumped locally --------
+  const { data: existingGroups } = await sb
     .from('groups').select('sort_order').eq('board_id', boardId);
   let nextGroupSort = ((existingGroups ?? []).reduce(
     (m: number, g: { sort_order: number }) => Math.max(m, g.sort_order), -1,
   )) + 1;
-  const { data: existingColumns } = await supabase
+  const { data: existingColumns } = await sb
     .from('columns').select('sort_order').eq('board_id', boardId);
   let nextColumnSort = ((existingColumns ?? []).reduce(
     (m: number, c: { sort_order: number }) => Math.max(m, c.sort_order), -1,
@@ -145,7 +84,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
       itemSortByGroup.set(groupId, v);
       return v;
     }
-    const { data: existing } = await supabase
+    const { data: existing } = await sb
       .from('items').select('sort_order').eq('group_id', groupId);
     const v = ((existing ?? []).reduce(
       (m: number, i: { sort_order: number }) => Math.max(m, i.sort_order), -1,
@@ -153,7 +92,6 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     itemSortByGroup.set(groupId, v);
     return v;
   }
-  // Label sort_order — bumped per column as we insert labels.
   const labelSortByColumn = new Map<string, number>();
   async function nextLabelSort(columnId: string): Promise<number> {
     if (labelSortByColumn.has(columnId)) {
@@ -161,7 +99,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
       labelSortByColumn.set(columnId, v);
       return v;
     }
-    const { data: existing } = await supabase
+    const { data: existing } = await sb
       .from('column_labels').select('sort_order').eq('column_id', columnId);
     const v = ((existing ?? []).reduce(
       (m: number, l: { sort_order: number }) => Math.max(m, l.sort_order), -1,
@@ -170,13 +108,10 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     return v;
   }
 
-  // Resolve a column ref → real id (and column_type if needed).
   function resolveColumnId(ref: string): string | null {
     return columnIdByRef[ref] ?? null;
   }
 
-  // Cell-value translator: turns AI refs into real label_ids; passes
-  // through scalar values as-is.
   function translateCell(value: CellValue, columnType: string): unknown | null {
     if ('label_ref' in value) {
       const lid = labelIdByRef[value.label_ref];
@@ -189,7 +124,6 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     if ('checked' in value) return { checked: !!value.checked };
     if ('url' in value)     return { url: value.url, label: value.label ?? null };
     if ('value' in value) {
-      // Shape matches DB conventions per column_type.
       if (columnType === 'date')    return { value: String(value.value) };
       if (columnType === 'numbers') return { value: Number(value.value) };
       return { value: String(value.value) };
@@ -197,7 +131,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     return null;
   }
 
-  // -------------- The action loop --------------
+  // -------- action loop ----------------------------------------------
   for (let i = 0; i < actions.length; i += 1) {
     const a = actions[i];
     const description = describeAction(a);
@@ -205,7 +139,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     try {
       switch (a.type) {
         case 'create_group': {
-          const { data, error } = await supabase
+          const { data, error } = await sb
             .from('groups')
             .insert({
               board_id: boardId,
@@ -222,7 +156,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
         }
 
         case 'create_column': {
-          const { data: col, error } = await supabase
+          const { data: col, error } = await sb
             .from('columns')
             .insert({
               board_id: boardId,
@@ -238,7 +172,6 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
           const colId = (col as { id: string }).id;
           if (a.ref) columnIdByRef[a.ref] = colId;
 
-          // Inline label seeds (status / priority / dropdown only).
           if (a.labels && a.labels.length > 0) {
             const isLabelType = a.column_type === 'status'
               || a.column_type === 'priority'
@@ -246,7 +179,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
             if (isLabelType) {
               for (const l of a.labels) {
                 const sort = await nextLabelSort(colId);
-                const { data: lab, error: lErr } = await supabase
+                const { data: lab, error: lErr } = await sb
                   .from('column_labels')
                   .insert({
                     column_id: colId,
@@ -268,7 +201,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
           const colId = resolveColumnId(a.column_ref);
           if (!colId) throw new Error(`unknown column_ref "${a.column_ref}"`);
           const sort = await nextLabelSort(colId);
-          const { data, error } = await supabase
+          const { data, error } = await sb
             .from('column_labels')
             .insert({
               column_id: colId,
@@ -287,7 +220,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
           const groupId = groupIdByRef[a.group_ref];
           if (!groupId) throw new Error(`unknown group_ref "${a.group_ref}"`);
           const sort = await nextItemSort(groupId);
-          const { data: item, error } = await supabase
+          const { data: item, error } = await sb
             .from('items')
             .insert({
               board_id: boardId,
@@ -303,18 +236,16 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
           const itemId = (item as { id: string }).id;
           if (a.ref) taskIdByRef[a.ref] = itemId;
 
-          // Cell values.
           if (a.cells && Object.keys(a.cells).length > 0) {
             for (const [colRef, raw] of Object.entries(a.cells)) {
               const colId = resolveColumnId(colRef);
-              if (!colId) continue;  // skip silently; the column may be
-              // a stale ref the model used incorrectly.
-              const { data: colMeta } = await supabase
+              if (!colId) continue;
+              const { data: colMeta } = await sb
                 .from('columns').select('column_type').eq('id', colId).single();
               const columnType = (colMeta as { column_type?: string } | null)?.column_type ?? 'text';
               const dbValue = translateCell(raw, columnType);
               if (dbValue == null) continue;
-              const { error: vErr } = await supabase
+              const { error: vErr } = await sb
                 .from('item_column_values')
                 .upsert({
                   item_id: itemId,
@@ -329,12 +260,10 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
         }
 
         case 'update_task_status': {
-          const itemId = taskIdByRef[a.task_ref];
+          const itemId  = taskIdByRef[a.task_ref];
           const labelId = labelIdByRef[a.status_ref];
           if (!itemId || !labelId) throw new Error('unknown task_ref or status_ref');
-          // Find the status column on this board (single status column
-          // assumption for V1; if there are multiple we pick the first).
-          const { data: statusCols } = await supabase
+          const { data: statusCols } = await sb
             .from('columns')
             .select('id')
             .eq('board_id', boardId)
@@ -344,7 +273,7 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
             .limit(1);
           const statusColId = (statusCols ?? [])[0]?.id;
           if (!statusColId) throw new Error('no status column on this board');
-          const { error } = await supabase
+          const { error } = await sb
             .from('item_column_values')
             .upsert({
               item_id: itemId,
@@ -357,7 +286,6 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
         }
 
         default: {
-          // Exhaustiveness check — TS narrows `a` to never here.
           const _unreachable: never = a;
           void _unreachable;
         }
@@ -365,21 +293,18 @@ export async function applyActions(args: ApplyArgs): Promise<ApplyResult> {
     } catch (err) {
       return {
         applied: i,
-        failedAt: {
-          index: i,
-          description,
-          error: formatErr(err),
-        },
+        failedAt: { index: i, description, error: formatErr(err) },
+        refMap: { groups: groupIdByRef, columns: columnIdByRef, labels: labelIdByRef, tasks: taskIdByRef },
       };
     }
   }
-  return { applied: actions.length };
+  return {
+    applied: actions.length,
+    refMap: { groups: groupIdByRef, columns: columnIdByRef, labels: labelIdByRef, tasks: taskIdByRef },
+  };
 }
 
-// Format both PostgrestError (plain object: {code, message, details, hint})
-// and standard Error / string into a readable single line. Without this,
-// String({...}) renders "[object Object]" which is what the modal toast
-// was showing — useless for debugging.
+// ---------- Helpers — mirrors of the client applier's helpers --------
 function formatErr(err: unknown): string {
   if (err && typeof err === 'object') {
     const e = err as { message?: string; code?: string; details?: string; hint?: string };
@@ -395,8 +320,7 @@ function formatErr(err: unknown): string {
   return String(err);
 }
 
-// ---------- Helpers ----------------------------------------------------
-function defaultWidthFor(t: ColumnTypeForCreate): number {
+function defaultWidthFor(t: string): number {
   switch (t) {
     case 'status':
     case 'priority':   return 180;
