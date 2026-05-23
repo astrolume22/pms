@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn';
 import type { ColumnRow } from '@/lib/database.types';
 import { useDeleteColumn, useUpdateColumn } from '@/hooks/columns';
 import { useBoardViewStore } from '@/state/boardViewStore';
+import { TASK_NAME_MIN_WIDTH, TASK_NAME_MAX_WIDTH } from './tableLayout';
 import { toast } from 'sonner';
 
 interface ColumnHeaderProps {
@@ -25,10 +26,15 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
 
   // task_name column is always pinned-first → no drag for it
   const sortable = useSortable({ id: column.id, disabled: isTaskName || !canEdit });
+  // Brief A.4: task_name renders within a 240–360 band regardless of the
+  // DB-stored width so the header stays in lock-step with the row above.
+  const effectiveWidth = isTaskName
+    ? Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, column.width))
+    : column.width;
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
-    width: column.width,
+    width: effectiveWidth,
   };
 
   const [renaming, setRenaming] = useState(false);
@@ -96,7 +102,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
       ref={sortable.setNodeRef}
       style={{
         ...style,
-        width: draftWidth ?? column.width,
+        width: draftWidth ?? effectiveWidth,
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(
@@ -105,7 +111,7 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         // row's gap-x; chunk 6 finalizes the 36px row + hairline bottom).
         'group/col relative shrink-0 flex items-center px-3 bg-canvas col-header-text',
         sortable.isDragging && 'z-10',
-        isTaskName && 'sticky left-10 z-[5] bg-canvas',
+        isTaskName && 'sticky left-[88px] z-[5] bg-canvas',
       )}
     >
       {/* Per the polish spec: 13/500 ls .02em title-case text in the

@@ -27,6 +27,8 @@ import {
   COMMENT_COL_WIDTH,
   TASK_CODE_COL_WIDTH,
   ADD_COL_WIDTH,
+  TASK_NAME_MIN_WIDTH,
+  TASK_NAME_MAX_WIDTH,
 } from './table/tableLayout';
 import type { BoardWithOwner } from '@/hooks/boards';
 import type { ColumnRow, GroupRow, ItemRow } from '@/lib/database.types';
@@ -281,9 +283,17 @@ export function BoardContent({ board }: BoardContentProps) {
   // The synthetic comment + task-code cells live in ItemRow between the
   // task_name column and the rest, so we add them once to the row width
   // here too.  Layout constants are centralised in `tableLayout.ts`.
+  // Brief A.4: clamp the task-name column's contribution to the 240–360
+  // band so the header / rows / strip all line up after the new gutter
+  // anatomy (88px) + Task Code (100px) adjustments below.
   const dataWidth =
     GUTTER_WIDTH
-    + visibleColumns.reduce((sum, c) => sum + c.width, 0)
+    + visibleColumns.reduce((sum, c) => {
+        if (c.column_type === 'task_name') {
+          return sum + Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, c.width));
+        }
+        return sum + c.width;
+      }, 0)
     + COMMENT_COL_WIDTH
     + TASK_CODE_COL_WIDTH;
   const tableMinWidth = dataWidth + (canEdit ? ADD_COL_WIDTH : 0);

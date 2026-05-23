@@ -1,17 +1,23 @@
 /**
- * Synthetic comment-indicator cell.
+ * Synthetic comment-indicator cell — brief section L.
  *
- *   • Zero comments  → a faint "+" speech-bubble outline at 60% opacity,
- *                      becomes 100% on row hover. Click opens the task
- *                      panel (which is where comments live).
- *   • ≥1 comment     → an oval count badge.
- *   • Unread > 0     → small chip-pink dot on the badge's top-right.
+ *   • 16×16 speech-bubble icon, centered in the cell.
+ *   • 0 comments  → outline icon at 40% opacity; row hover lifts the
+ *                   opacity and shows a "+" affordance.
+ *   • ≥1 comment  → filled icon at 100% opacity, with a small COUNT
+ *                   badge tucked into the bottom-right corner of the
+ *                   icon. Badge background = bg-card so it punches
+ *                   through the canvas as a tiny enclosed pill.
+ *   • Unread > 0  → 6px chip-pink dot at the top-right corner of the
+ *                   icon. Sits independent of the count badge.
  *
- * Real unread tracking arrives later (chunk in a separate phase); for
- * now we render the indicator from the item.updates_count / item.unread
- * fields if present, defaulting to 0 / false.
+ * Click anywhere in the cell opens the task panel (where comments live).
+ *
+ * The unread / total counters read item.updates_count / unread_count
+ * loosely so the indicator degrades gracefully if those fields aren't
+ * surfaced by the row.
  */
-import { MessageSquarePlus, MessageSquare } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ItemRow } from '@/lib/database.types';
 
@@ -20,9 +26,6 @@ interface CommentIndicatorProps {
   onOpen: () => void;
 }
 
-// item.updates_count / item.unread_count exist on the live row but
-// aren't always in the TS type — read them via a loose lookup so the
-// component degrades to "0 / no unread" if absent.
 function readCounts(item: ItemRow): { total: number; unread: boolean } {
   const loose = item as unknown as { updates_count?: number; unread_count?: number };
   const total  = typeof loose.updates_count === 'number' ? loose.updates_count : 0;
@@ -32,44 +35,61 @@ function readCounts(item: ItemRow): { total: number; unread: boolean } {
 
 export function CommentIndicator({ item, onOpen }: CommentIndicatorProps) {
   const { total, unread } = readCounts(item);
-
-  if (total === 0) {
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label="Add a comment"
-        title="Open task to add a comment"
-        className={cn(
-          'h-6 w-6 inline-flex items-center justify-center rounded-sm',
-          'text-text-secondary opacity-60 group-hover/row:opacity-100',
-          'hover:bg-white/[0.08] transition-colors duration-100',
-        )}
-      >
-        <MessageSquarePlus className="h-3.5 w-3.5" />
-      </button>
-    );
-  }
+  const hasComments = total > 0;
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`${total} comment${total === 1 ? '' : 's'}`}
-      title={`${total} comment${total === 1 ? '' : 's'}`}
+      aria-label={hasComments ? `${total} comment${total === 1 ? '' : 's'}` : 'Add a comment'}
+      title={hasComments ? `${total} comment${total === 1 ? '' : 's'}` : 'Open task to add a comment'}
       className={cn(
-        'relative inline-flex items-center gap-1 h-6 px-2 rounded-pill',
-        'bg-white/[0.08] text-text-primary hover:bg-white/[0.14] transition-colors duration-100',
+        'relative h-6 w-6 inline-flex items-center justify-center rounded-sm transition-opacity duration-100',
+        hasComments
+          ? 'text-text-primary opacity-100'
+          : 'text-text-secondary opacity-40 group-hover/row:opacity-100',
       )}
     >
-      <MessageSquare className="h-3 w-3 text-text-secondary" />
-      <span className="text-[11px] font-medium leading-none">{total}</span>
-      {unread && (
-        // Small chip-pink unread dot — sits on the top-right of the badge.
+      {/* Speech bubble — 16x16 (h-4 w-4) outline. Filled visual is
+          conveyed by the count badge sitting on top of it, not by a
+          different icon glyph, so the chip family stays minimal. */}
+      <MessageCircle
+        className="h-4 w-4"
+        fill={hasComments ? 'currentColor' : 'none'}
+        strokeWidth={1.75}
+      />
+      {/* On-hover "+" affordance — only when there are no comments. */}
+      {!hasComments && (
         <span
-          className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-pill"
-          style={{ background: 'var(--chip-pink)' }}
+          aria-hidden="true"
+          className="absolute inset-0 inline-flex items-center justify-center text-[12px] leading-none opacity-0 group-hover/row:opacity-60 transition-opacity duration-100"
+        >
+          +
+        </span>
+      )}
+      {/* Bottom-right count badge (icon-corner badge per section L). */}
+      {hasComments && total > 1 && (
+        <span
+          className="absolute -bottom-1 -right-1 inline-flex items-center justify-center min-w-[14px] h-[14px] px-[3px] rounded-pill text-[10px] font-semibold leading-none"
+          style={{
+            background: 'var(--bg-card)',
+            color: 'var(--text-primary)',
+            boxShadow: '0 0 0 1.5px var(--bg-canvas)',
+          }}
+        >
+          {total > 99 ? '99+' : total}
+        </span>
+      )}
+      {/* Top-right unread dot — 6px chip-pink, sits independent of the
+          count so a single-unread row still shows it. */}
+      {unread && (
+        <span
           aria-label="Unread"
+          className="absolute top-0 right-0 h-1.5 w-1.5 rounded-pill"
+          style={{
+            background: 'var(--chip-pink)',
+            boxShadow: '0 0 0 1.5px var(--bg-canvas)',
+          }}
         />
       )}
     </button>

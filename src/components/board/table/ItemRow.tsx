@@ -7,7 +7,16 @@ import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import { CellRenderer } from './cells/CellRenderer';
 import { useUpdateCellValue } from '@/hooks/items';
 import { useBoardViewStore, ITEM_HEIGHT_PX } from '@/state/boardViewStore';
-import { COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH, GUTTER_WIDTH } from './tableLayout';
+import {
+  COMMENT_COL_WIDTH,
+  TASK_CODE_COL_WIDTH,
+  GUTTER_WIDTH,
+  GUTTER_DRAG_WIDTH,
+  GUTTER_CHECK_WIDTH,
+  GUTTER_EXPAND_WIDTH,
+  TASK_NAME_MIN_WIDTH,
+  TASK_NAME_MAX_WIDTH,
+} from './tableLayout';
 import { useAuthStore } from '@/state/authStore';
 import { canEditCell } from '@/lib/permissions';
 import { CommentIndicator } from './cells/CommentIndicator';
@@ -95,53 +104,76 @@ export function ItemRow({
         isSubitem && 'opacity-95',
       )}
     >
-      {/* Gutter: drag handle + checkbox + expand. Transparent (canvas shows).
-          Selected row → 4px chip-sky left accent on this column. */}
+      {/* Gutter — brief section A: three transparent sub-cells (drag 24
+          + checkbox 40 + expand 24). Selected row → 4px chip-sky inset
+          accent at the very left of the row, distinct from the group
+          spine (which sits on the data block's left edge). */}
       <div
         className={cn(
-          'shrink-0 flex items-center justify-center gap-0.5 sticky left-0 z-[3] bg-canvas',
+          'shrink-0 flex items-stretch sticky left-0 z-[3] bg-canvas',
           isSelected && 'shadow-[inset_4px_0_0_0_var(--chip-sky)]',
         )}
         style={{ width: GUTTER_WIDTH }}
       >
-        {canEdit && !isSubitem && (
-          <button
-            type="button"
-            {...sortable.attributes}
-            {...sortable.listeners}
-            className="opacity-0 group-hover/row:opacity-30 hover:!opacity-100 h-5 w-3 flex items-center justify-center text-text-secondary cursor-grab active:cursor-grabbing"
-            aria-label="Drag to reorder"
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
-        )}
-        {/* Selection checkbox drives the bulk-action bar — admin-only feature. */}
-        {canEdit && (
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => toggleSel(item.id)}
-            className="h-3.5 w-3.5 accent-brand cursor-pointer"
-            aria-label={isSelected ? 'Deselect task' : 'Select task'}
-          />
-        )}
-        {hasSubitems && onToggleSubitems && !isSubitem && (
-          <button
-            type="button"
-            onClick={onToggleSubitems}
-            className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-white/[0.08] rounded-sm"
-            aria-label={isExpanded ? 'Collapse subitems' : 'Expand subitems'}
-          >
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          </button>
-        )}
+        {/* (1) Drag handle — 24px, hover-only at 30% opacity */}
+        <div
+          className="flex items-center justify-center"
+          style={{ width: GUTTER_DRAG_WIDTH }}
+        >
+          {canEdit && !isSubitem && (
+            <button
+              type="button"
+              {...sortable.attributes}
+              {...sortable.listeners}
+              className="opacity-0 group-hover/row:opacity-30 hover:!opacity-100 h-5 w-5 inline-flex items-center justify-center text-text-secondary cursor-grab active:cursor-grabbing transition-opacity duration-100"
+              aria-label="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {/* (2) Selection checkbox — 40px, drives the bulk-action bar */}
+        <div
+          className="flex items-center justify-center"
+          style={{ width: GUTTER_CHECK_WIDTH }}
+        >
+          {canEdit && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleSel(item.id)}
+              className="h-4 w-4 accent-brand cursor-pointer"
+              aria-label={isSelected ? 'Deselect task' : 'Select task'}
+            />
+          )}
+        </div>
+        {/* (3) Expand caret — 24px, only visible when the row has subtasks */}
+        <div
+          className="flex items-center justify-center"
+          style={{ width: GUTTER_EXPAND_WIDTH }}
+        >
+          {hasSubitems && onToggleSubitems && !isSubitem && (
+            <button
+              type="button"
+              onClick={onToggleSubitems}
+              className="h-5 w-5 inline-flex items-center justify-center text-text-secondary hover:bg-white/[0.08] rounded-sm"
+              aria-label={isExpanded ? 'Collapse subitems' : 'Expand subitems'}
+            >
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Task-name cell (sticky-left after the gutter). Transparent — NOT a
-          chip. Plain 13px white text left-aligned. */}
+          chip. Plain 13px white text left-aligned. Brief A.4: flex with
+          min 240 / max 360 — DB-stored width is clamped to this band so
+          the column never feels cramped or sprawling. */}
       {taskNameCol && (
         <div
-          style={{ width: taskNameCol.width }}
+          style={{
+            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
+          }}
           className={cn(
             'shrink-0 sticky z-[2] bg-canvas',
             // 1px horizontal gap to the next cell — canvas shows through

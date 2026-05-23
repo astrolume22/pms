@@ -15,7 +15,13 @@
  */
 import { useActiveUsers } from '@/hooks/users';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
-import { GUTTER_WIDTH, COMMENT_COL_WIDTH, TASK_CODE_COL_WIDTH } from './tableLayout';
+import {
+  GUTTER_WIDTH,
+  COMMENT_COL_WIDTH,
+  TASK_CODE_COL_WIDTH,
+  TASK_NAME_MIN_WIDTH,
+  TASK_NAME_MAX_WIDTH,
+} from './tableLayout';
 import { chipColorFor, dateToneFor, dateChipColor } from '@/lib/chipColor';
 
 interface SummaryStripProps {
@@ -45,9 +51,15 @@ export function SummaryStrip({
       {/* Gutter — empty, no bar. */}
       <div className="shrink-0 mr-px" style={{ width: GUTTER_WIDTH }} />
 
-      {/* Task name — NO bar (criterion 14). */}
+      {/* Task name — NO bar (criterion 14). Width clamped to the brief's
+          240–360 band to stay aligned with the row above. */}
       {taskNameCol && (
-        <div className="shrink-0 mr-px" style={{ width: taskNameCol.width }} />
+        <div
+          className="shrink-0 mr-px"
+          style={{
+            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
+          }}
+        />
       )}
 
       {/* Comment indicator — NO bar. */}
