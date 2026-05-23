@@ -1,6 +1,23 @@
 /**
- * Anchored popover positioned below/right of an anchor element.
- * Closes on outside click + Escape. Used by all cell editors.
+ * Anchored popover with VIEWPORT-AWARE smart positioning.
+ *
+ * Strategy (matches the right-click-menu UX users expect):
+ *   1. Measure the trigger via getBoundingClientRect().
+ *   2. Render the popover off-screen + invisible on the first frame so
+ *      we can measure its rendered width × height.
+ *   3. Pick the side with room:
+ *        vertical   — try below; if popoverHeight overflows viewport
+ *                     bottom, flip to above.
+ *        horizontal — start at trigger.left; if popoverWidth overflows
+ *                     viewport right, slide the popover leftwards just
+ *                     enough to fit; if it then underflows left, clamp
+ *                     to the safe-area margin (caret follows the
+ *                     trigger so the anchor visually remains tied).
+ *   4. After committing the final position, show the popover.
+ *
+ * Re-measures on window resize while open so a viewport shrink doesn't
+ * leave the popover off-screen. Closes on outside click + Escape — same
+ * as before.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
@@ -12,37 +29,131 @@ interface PopoverProps {
   children: React.ReactNode;
   className?: string;
   minWidth?: number;
+  /**
+   * "start" anchors at the trigger's left edge (default); "end" prefers
+   * the trigger's right edge. The viewport guard can still slide the
+   * popover further to keep it on-screen.
+   */
   align?: 'start' | 'end';
   /**
-   * "chip" variant — premium label-picker styling: darker bg #31314D,
-   * 8px corners, hairline white border, deep drop shadow, and a small
-   * upward caret anchoring the popover to the cell it opened from.
-   * Default keeps the existing surface look used by other cells.
+   * "chip" variant — premium label-picker styling: --bg-card surface,
+   * 12 radius, deep drop shadow, hairline ring, and a caret anchoring
+   * the popover to the trigger when the popover sits below it. The
+   * caret hides when we flip the popover above the trigger (or the
+   * arrow would point the wrong way).
    */
   variant?: 'default' | 'chip';
+}
+
+const VIEWPORT_MARGIN = 8;     // px breathing room from the screen edge
+const GAP_DEFAULT     = 4;     // gap between trigger and popover
+const GAP_CHIP        = 10;    // extra for the chip-variant caret
+
+interface PlacementState {
+  top: number;
+  left: number;
+  // Did we flip vertically? (governs whether to render the up-caret)
+  flippedVertical: boolean;
+  // Caret horizontal position relative to popover-left, so the arrow
+  // still points at the trigger even when the popover slid sideways.
+  caretLeft: number;
+  // Measured popover size, kept so a re-render doesn't lose it.
+  width: number;
+  height: number;
 }
 
 export function Popover({
   anchorRef, open, onClose, children, className, minWidth, align = 'start', variant = 'default',
 }: PopoverProps) {
   const popRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; anchorLeft: number; anchorWidth: number } | null>(null);
+  // `placement === null` means "measure pass" — render invisible, then
+  // place. Once placed, the popover becomes visible.
+  const [placement, setPlacement] = useState<PlacementState | null>(null);
 
+  // Recompute on open/resize. useLayoutEffect so the user never sees
+  // the first-frame off-screen render — the placement runs before the
+  // browser paints.
   useLayoutEffect(() => {
-    if (!open || !anchorRef.current) return;
-    const rect = anchorRef.current.getBoundingClientRect();
-    const left = align === 'end' ? rect.right : rect.left;
-    // Chip variant offsets a touch more so there's room for the caret.
-    const gap = variant === 'chip' ? 10 : 4;
-    setPos({
-      top: rect.bottom + gap,
-      left,
-      width: rect.width,
-      anchorLeft: rect.left,
-      anchorWidth: rect.width,
-    });
+    if (!open) { setPlacement(null); return; }
+    const measure = () => {
+      const anchor = anchorRef.current;
+      const pop    = popRef.current;
+      if (!anchor || !pop) return;
+
+      const rect = anchor.getBoundingClientRect();
+      // Popover's own rendered size (we mount it off-screen invisible
+      // for this measurement on the first pass).
+      const popRect = pop.getBoundingClientRect();
+      const popW = popRect.width;
+      const popH = popRect.height;
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const gap = variant === 'chip' ? GAP_CHIP : GAP_DEFAULT;
+
+      // --- Vertical: prefer below; flip above if no room. ---
+      const spaceBelow = vh - rect.bottom - gap - VIEWPORT_MARGIN;
+      const spaceAbove = rect.top       - gap - VIEWPORT_MARGIN;
+      let top: number;
+      let flippedVertical = false;
+      if (popH <= spaceBelow) {
+        // Fits below — preferred.
+        top = rect.bottom + gap;
+      } else if (popH <= spaceAbove) {
+        // Doesn't fit below but fits above — flip up.
+        top = rect.top - gap - popH;
+        flippedVertical = true;
+      } else {
+        // Doesn't fit on either side. Pick whichever has more room and
+        // clamp to the viewport so the popover is at least partially
+        // visible (scroll/clamp; height stays as-is — caller picks the
+        // popover content size, we don't resize).
+        if (spaceBelow >= spaceAbove) {
+          top = rect.bottom + gap;
+          if (top + popH > vh - VIEWPORT_MARGIN) {
+            top = Math.max(VIEWPORT_MARGIN, vh - VIEWPORT_MARGIN - popH);
+          }
+        } else {
+          flippedVertical = true;
+          top = rect.top - gap - popH;
+          if (top < VIEWPORT_MARGIN) top = VIEWPORT_MARGIN;
+        }
+      }
+
+      // --- Horizontal: anchor per `align`, then slide to fit. ---
+      let left = align === 'end' ? rect.right - popW : rect.left;
+      // Slide right if we'd underflow the left edge.
+      if (left < VIEWPORT_MARGIN) left = VIEWPORT_MARGIN;
+      // Slide left if we'd overflow the right edge.
+      if (left + popW > vw - VIEWPORT_MARGIN) {
+        left = Math.max(VIEWPORT_MARGIN, vw - VIEWPORT_MARGIN - popW);
+      }
+
+      // Caret should still point at the trigger's centre regardless of
+      // how far the popover slid. Compute trigger-centre in viewport
+      // coords, then convert to popover-relative + clamp inside the
+      // popover (with a small margin so the rotated square stays whole).
+      const triggerCentreX = (rect.left + rect.right) / 2;
+      const caretLeft = Math.max(8, Math.min(popW - 16, triggerCentreX - left - 5));
+
+      setPlacement({ top, left, flippedVertical, caretLeft, width: popW, height: popH });
+    };
+
+    // First render: mount off-screen + invisible (placement=null state),
+    // then measure on the next frame.
+    setPlacement(null);
+    const id = requestAnimationFrame(measure);
+    const onResize = () => measure();
+    window.addEventListener('resize',     onResize);
+    window.addEventListener('scroll',     onResize, true);   // capture so we see internal scroll containers too
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onResize, true);
+    };
   }, [open, anchorRef, align, variant]);
 
+  // Outside click + Escape (unchanged).
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -55,42 +166,39 @@ export function Popover({
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown',   onKey);
     return () => {
       document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown',   onKey);
     };
   }, [open, onClose, anchorRef]);
 
-  if (!open || !pos) return null;
+  if (!open) return null;
 
-  // Compute caret position so the arrow sits centered under the anchor
-  // cell (clamped to stay inside the popover after we know its width).
-  // We always position the popover at the anchor's left edge; the caret
-  // therefore lives ~half-anchor-width from the popover's left.
-  const caretLeft = Math.max(16, Math.min(pos.anchorWidth / 2 - 6, 280));
+  // Two render phases:
+  //   1. placement === null → mount invisible at (-9999, -9999) so we
+  //      can measure the rendered size without flicker.
+  //   2. placement set → show it at the computed coords.
+  const isMeasuring = placement === null;
+  const isChip      = variant === 'chip';
 
-  const isChip = variant === 'chip';
+  const baseStyle: React.CSSProperties = isMeasuring
+    ? { top: -9999, left: -9999, visibility: 'hidden', pointerEvents: 'none' }
+    : { top: placement!.top, left: placement!.left };
+
   return (
     <div
       ref={popRef}
       className={cn(
         'fixed z-50 overflow-visible',
-        // Default variant keeps the previous surface look used by every
-        // other cell editor (people picker, label-editor modal, etc.).
         !isChip && 'bg-surface border border-border-light rounded-md shadow-lg',
         className,
       )}
       style={{
-        top: pos.top,
-        left: align === 'end' ? undefined : pos.left,
-        right: align === 'end' ? window.innerWidth - pos.left : undefined,
-        minWidth: minWidth ?? Math.max(pos.width, 200),
+        ...baseStyle,
+        minWidth: minWidth ?? 200,
         ...(isChip
           ? {
-              // Premium polish: --bg-card surface (#1A1D24), 12px radius,
-              // a hairline + deep shadow combined via box-shadow so the
-              // popover lifts off the canvas cleanly.
               background: 'var(--bg-card)',
               borderRadius: 'var(--radius-card)',
               boxShadow:
@@ -100,18 +208,20 @@ export function Popover({
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* Upward caret — only rendered on the chip variant. A rotated
-          square with two borders matches the popover's bg + border so
-          it reads as a continuous arrow. */}
-      {isChip && (
+      {/* Caret only when:
+            (a) variant === 'chip', AND
+            (b) the popover sits BELOW the trigger (a flipped-above
+                popover would draw the arrow pointing away from the
+                trigger, which reads wrong). */}
+      {isChip && !isMeasuring && !placement!.flippedVertical && (
         <span
           aria-hidden="true"
           className="absolute w-[10px] h-[10px] rotate-45"
           style={{
             top: -6,
-            left: caretLeft,
+            left: placement!.caretLeft,
             background: 'var(--bg-card)',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            borderTop:  '1px solid rgba(255, 255, 255, 0.08)',
             borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
           }}
         />

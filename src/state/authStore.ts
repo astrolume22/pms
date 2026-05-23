@@ -52,9 +52,61 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ status: 'unauthenticated', session: null, profile: null });
         return;
       }
+      // TOKEN_REFRESHED fires every time the auto-refresher rotates the
+      // access token. The user/profile row hasn't changed, so re-fetching
+      // it is pure waste (and burns a network round-trip every refresh).
+      // Update the session in-place and keep the existing profile.
+      if (event === 'TOKEN_REFRESHED') {
+        const existing = get().profile;
+        if (existing) {
+          set({ session, status: 'authenticated' });
+          return;
+        }
+        // Fall through if we somehow have a session but no profile.
+      }
       const profile = await loadProfile(session.user.id);
       set({ status: profile ? 'authenticated' : 'unauthenticated', session, profile });
     });
+
+    // ---------------------------------------------------------------
+    // Idle-tab wake handler.
+    //
+    // Backgrounded browser tabs aggressively throttle setTimeout, so
+    // the Supabase auto-refresh timer can sleep past the access-token
+    // expiry. When the user returns, the next API call goes out with a
+    // dead token and gets a 401, which surfaces as "backend stops
+    // working after a few minutes".
+    //
+    // The fix: when the tab becomes visible OR regains focus, poke
+    // Supabase's session API. If the access token is close to expiry
+    // (or already expired), this triggers an immediate refresh using
+    // the long-lived refresh token, restoring a valid auth header
+    // before the user clicks anything.
+    //
+    // We listen on both events because Chrome fires `visibilitychange`
+    // when the tab itself is shown/hidden, while `focus` covers
+    // window-level activation (e.g. alt-tabbing back from another app
+    // when the tab was already visible).
+    // ---------------------------------------------------------------
+    if (typeof document !== 'undefined') {
+      const wake = () => {
+        // Only wake when we believe we're authenticated — no point
+        // hitting auth endpoints if the user is on the login screen.
+        if (get().status !== 'authenticated') return;
+        // Fire-and-forget; the auth-state listener above will update
+        // session/profile when the refresh resolves.
+        void supabase.auth.getSession().catch((err) => {
+          console.warn('[auth] wake getSession failed', err);
+        });
+      };
+      const onVisible = () => {
+        if (document.visibilityState === 'visible') wake();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      window.addEventListener('focus', wake);
+      // Initialize is called once at app boot, so we intentionally do
+      // NOT detach these — they need to live for the app's lifetime.
+    }
   },
 
   signInWithUsername: async (username, password, _remember) => {

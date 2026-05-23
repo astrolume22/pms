@@ -17,13 +17,15 @@
  *     • "✨ Auto-assign labels" — teal→purple gradient CTA (the ONLY
  *       gradient chip allowed by the polish spec).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Plus, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { useCreateLabel } from '@/hooks/labels';
 import { chipColorFor } from '@/lib/chipColor';
-import { defaultLabelHexFor, tokenHex, type ChipToken } from '@/lib/colorNormalize';
+import {
+  defaultLabelHexFor, tokenHex, TOKEN_HEX, colorsEqual, type ChipToken,
+} from '@/lib/colorNormalize';
 
 interface LabelPickerProps {
   boardId: string;
@@ -43,6 +45,13 @@ const FALLBACK_ROTATION: ChipToken[] = [
   'mint', 'amber', 'coral', 'sky', 'purple', 'pink', 'teal', 'slate',
 ];
 
+// The 8 OKLCH chip-token hexes, surfaced as a stable array for the
+// add-label color picker (same palette LabelsEditorModal uses).
+const PICKER_PALETTE: string[] = [
+  TOKEN_HEX.amber, TOKEN_HEX.slate, TOKEN_HEX.teal,  TOKEN_HEX.pink,
+  TOKEN_HEX.purple, TOKEN_HEX.sky,  TOKEN_HEX.mint,  TOKEN_HEX.coral,
+];
+
 export function LabelPicker({
   boardId, columnId, column, labels, selectedIds, multi, onChange, onOpenLabelsEditor, onDone,
 }: LabelPickerProps) {
@@ -50,6 +59,34 @@ export function LabelPicker({
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Color the user picked (or null = use the smart default derived from
+  // the current name). Re-derived live as the user types so the swatch
+  // grid highlights the "current pick" sensibly.
+  const [pickedColor, setPickedColor] = useState<string | null>(null);
+
+  // Live smart-default color tracking the typed name. If the user has
+  // explicitly picked a swatch, that wins; otherwise we show the
+  // classifier's choice highlighted.
+  const smartDefault = (() => {
+    if (!newName.trim()) return PICKER_PALETTE[0];
+    return defaultLabelHexFor({
+      columnType: column?.column_type,
+      columnName: column?.name,
+      labelName:  newName.trim(),
+      positionInColumn: labels.length,
+      totalInColumn:    labels.length + 1,
+    });
+  })();
+  const effectiveColor = pickedColor ?? smartDefault;
+
+  // Reset the picker state whenever the add-flow closes/opens so we
+  // don't leak a previous half-finished selection.
+  useEffect(() => {
+    if (!addOpen) {
+      setNewName('');
+      setPickedColor(null);
+    }
+  }, [addOpen]);
 
   const toggle = (id: string) => {
     if (multi) {
@@ -72,25 +109,21 @@ export function LabelPicker({
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      // 1. Smart default: classify by label name + column type so a
-      //    new "Done" seeds mint, "Stuck" seeds teal, etc.
-      let color = defaultLabelHexFor({
-        columnType: column?.column_type,
-        columnName: column?.name,
-        labelName:  newName.trim(),
-        positionInColumn: labels.length,
-        totalInColumn:    labels.length + 1,
-      });
-      // 2. If the smart default collides with an existing label's
-      //    color, rotate through the fallback palette until we find an
-      //    unused one — keeps the chips visually distinct.
-      const used = new Set(labels.map((l) => l.color.toUpperCase()));
-      if (used.has(color.toUpperCase())) {
-        const free = FALLBACK_ROTATION.find((t) => !used.has(tokenHex(t).toUpperCase()));
-        if (free) color = tokenHex(free);
+      // If the user explicitly picked a swatch, that wins.
+      // Otherwise fall back to the smart default for the typed name.
+      // If THAT smart default collides with an existing label's color,
+      // rotate through the fallback palette until we find an unused
+      // one so chips stay visually distinct.
+      let color = effectiveColor;
+      if (pickedColor == null) {
+        const used = new Set(labels.map((l) => l.color.toUpperCase()));
+        if (used.has(color.toUpperCase())) {
+          const free = FALLBACK_ROTATION.find((t) => !used.has(tokenHex(t).toUpperCase()));
+          if (free) color = tokenHex(free);
+        }
       }
       await create.mutateAsync({ boardId, columnId, name: newName.trim(), color });
-      setNewName('');
+      // useEffect above resets newName + pickedColor when addOpen flips.
       setAddOpen(false);
     } finally {
       setCreating(false);
@@ -151,39 +184,100 @@ export function LabelPicker({
         </button>
       </div>
 
-      {/* Inline name input for the new label — only shown when the
-          ghost cell is toggled on. Keeps the picker tight when not
-          adding. */}
+      {/* Inline add-label flow — only shown when the ghost cell is
+          toggled on. Three elements per the spec:
+            (a) name input
+            (b) 8-swatch color picker (same hex palette as the editor
+                modal; the smart default is highlighted automatically
+                until the user clicks a swatch)
+            (c) Add / Cancel buttons that actually persist on submit */}
       {addOpen && (
-        <div className="mt-3 flex gap-2">
+        <div
+          className="mt-3 p-2.5 rounded-button"
+          style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
           <input
             type="text"
             autoFocus
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); void onCreate(); }
-              if (e.key === 'Escape') { setAddOpen(false); setNewName(''); }
+              if (e.key === 'Enter')  { e.preventDefault(); void onCreate(); }
+              if (e.key === 'Escape') { setAddOpen(false); }
             }}
             placeholder="New label name"
             spellCheck={false}
-            className="flex-1 h-9 px-2.5 rounded-button text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
+            className="w-full h-9 px-2.5 rounded-button text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
             style={{
               background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.10)',
               letterSpacing: '0.02em',
             }}
           />
-          <button
-            type="button"
-            onClick={() => void onCreate()}
-            disabled={creating || !newName.trim()}
-            className="h-9 px-3 rounded-button text-[13px] font-medium text-white disabled:opacity-40 inline-flex items-center gap-1 hover:brightness-110 transition-[filter] duration-100"
-            style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
-            aria-label="Add label"
-          >
-            Add
-          </button>
+
+          {/* Preview chip + swatch grid. The preview shows the chosen
+              (or smart-default) color so the user sees exactly what
+              they'll get. Click any swatch to override. */}
+          <div className="mt-2 flex items-center gap-2">
+            <span
+              aria-label="Color preview"
+              className="h-7 px-2.5 inline-flex items-center text-[12px] font-medium text-white rounded-sm"
+              style={{ background: effectiveColor, letterSpacing: '0.02em' }}
+              title={effectiveColor}
+            >
+              {newName.trim() || 'preview'}
+            </span>
+            <span className="text-[11px] text-text-secondary">
+              {pickedColor ? 'custom color' : 'smart default'}
+            </span>
+          </div>
+
+          <div className="mt-2 grid grid-cols-8 gap-1.5">
+            {PICKER_PALETTE.map((hex) => {
+              const selected = colorsEqual(effectiveColor, hex);
+              return (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setPickedColor(hex)}
+                  className={cn(
+                    'h-6 w-6 rounded-sm inline-flex items-center justify-center transition-transform',
+                    selected && 'ring-2 ring-white ring-offset-1',
+                  )}
+                  style={{
+                    background: hex,
+                  }}
+                  aria-label={`Pick color ${hex}${selected ? ' (selected)' : ''}`}
+                  title={hex}
+                >
+                  {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAddOpen(false)}
+              className="h-8 px-2.5 rounded-button text-[12px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void onCreate()}
+              disabled={creating || !newName.trim()}
+              className="h-8 px-3 rounded-button text-[12px] font-medium text-white disabled:opacity-40 inline-flex items-center gap-1 hover:brightness-110 transition-[filter] duration-100"
+              style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+              aria-label="Add label"
+            >
+              {creating ? 'Adding…' : 'Add'}
+            </button>
+          </div>
         </div>
       )}
 

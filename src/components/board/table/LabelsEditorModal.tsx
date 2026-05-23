@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 // (Earlier this file wrote oklch() strings; the renderer's name-based
 // override hid the disagreement, but it broke string-equality and the
 // "selected color" highlight on the swatch. Hex everywhere now.)
-import { TOKEN_HEX, colorsEqual, toCanonicalHex } from '@/lib/colorNormalize';
+import { TOKEN_HEX, colorsEqual, toCanonicalHex, defaultLabelHexFor } from '@/lib/colorNormalize';
 const COLOR_PALETTE: string[] = [
   TOKEN_HEX.amber,
   TOKEN_HEX.slate,
@@ -68,29 +68,60 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
   // the most-recently-created id and let LabelRow pick it up.
   const [focusId, setFocusId] = useState<string | null>(null);
 
-  const onAdd = async () => {
+  // Pending-add state — when truthy, an in-modal row shows a name
+  // input + color swatches + Add/Cancel buttons. The row is only
+  // committed to the DB on Add (no more auto-add-then-rename).
+  const [pendingAddOpen, setPendingAddOpen]   = useState(false);
+  const [pendingName, setPendingName]         = useState('');
+  const [pendingColor, setPendingColor]       = useState<string | null>(null);
+  const [pendingSubmitting, setPendingSubmit] = useState(false);
+
+  // Reset the pending-add state when the panel closes/reopens so a
+  // half-finished entry doesn't bleed across sessions.
+  useEffect(() => {
+    if (!pendingAddOpen) {
+      setPendingName('');
+      setPendingColor(null);
+    }
+  }, [pendingAddOpen]);
+
+  // Smart default tracking the typed name. User clicks override.
+  const pendingSmartDefault = (() => {
+    if (!pendingName.trim()) return COLOR_PALETTE[0];
+    return defaultLabelHexFor({
+      columnType: column.column_type,
+      columnName: column.name,
+      labelName:  pendingName.trim(),
+      positionInColumn: labels.length,
+      totalInColumn:    labels.length + 1,
+    });
+  })();
+  const pendingEffectiveColor = pendingColor ?? pendingSmartDefault;
+
+  const onSubmitPending = async () => {
+    const name = pendingName.trim();
+    if (!name) return;
+    setPendingSubmit(true);
     try {
-      // Match the LabelPicker create flow: smart default by name +
-      // column type, fall back to first unused palette color.
-      const { defaultLabelHexFor } = await import('@/lib/colorNormalize');
-      let color = defaultLabelHexFor({
-        columnType: column.column_type,
-        columnName: column.name,
-        labelName:  'New label',
-        positionInColumn: labels.length,
-        totalInColumn:    labels.length + 1,
-      });
-      const used = new Set(labels.map((l) => toCanonicalHex(l.color).toUpperCase()));
-      if (used.has(color.toUpperCase())) {
-        const free = COLOR_PALETTE.find((c) => !used.has(c.toUpperCase()));
-        if (free) color = free;
+      let color = pendingEffectiveColor;
+      if (pendingColor == null) {
+        // Smart default — if it collides with an existing label color,
+        // rotate through the palette for visual distinctness.
+        const used = new Set(labels.map((l) => toCanonicalHex(l.color).toUpperCase()));
+        if (used.has(color.toUpperCase())) {
+          const free = COLOR_PALETTE.find((c) => !used.has(c.toUpperCase()));
+          if (free) color = free;
+        }
       }
       const created = await create.mutateAsync({
-        boardId, columnId: column.id, name: 'New label', color,
+        boardId, columnId: column.id, name, color: toCanonicalHex(color),
       });
       setFocusId(created.id);
+      setPendingAddOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not add label');
+    } finally {
+      setPendingSubmit(false);
     }
   };
 
@@ -178,15 +209,106 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
           />
         ))}
 
-        <button
-          type="button"
-          onClick={() => void onAdd()}
-          disabled={create.isPending}
-          className="w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-base border border-dashed border-border-medium text-sm font-medium text-text-secondary hover:bg-hover hover:text-text-primary disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" />
-          {create.isPending ? 'Adding…' : 'New label'}
-        </button>
+        {/* Add-label flow — toggle between (a) the ghost "+ New label"
+            button and (b) an inline editor that shows a name input + an
+            8-swatch color picker + Add/Cancel. The label is only
+            persisted on Add (no more auto-create blank rows). */}
+        {!pendingAddOpen ? (
+          <button
+            type="button"
+            onClick={() => setPendingAddOpen(true)}
+            className="w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-base border border-dashed border-border-medium text-sm font-medium text-text-secondary hover:bg-hover hover:text-text-primary"
+          >
+            <Plus className="h-4 w-4" />
+            New label
+          </button>
+        ) : (
+          <div
+            className="rounded-base p-2.5 space-y-2"
+            style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.10)',
+            }}
+          >
+            <input
+              type="text"
+              autoFocus
+              value={pendingName}
+              onChange={(e) => setPendingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter')  { e.preventDefault(); void onSubmitPending(); }
+                if (e.key === 'Escape') { setPendingAddOpen(false); }
+              }}
+              placeholder="New label name"
+              spellCheck={false}
+              className="w-full h-9 px-2.5 rounded-sm text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                letterSpacing: '0.02em',
+              }}
+            />
+
+            {/* Preview chip + 8-swatch grid — same pattern as LabelPicker.
+                The smart-default color tracks the typed name until the
+                user clicks a swatch. */}
+            <div className="flex items-center gap-2">
+              <span
+                aria-label="Color preview"
+                className="h-7 px-2.5 inline-flex items-center text-[12px] font-medium text-white rounded-sm"
+                style={{ background: pendingEffectiveColor, letterSpacing: '0.02em' }}
+                title={pendingEffectiveColor}
+              >
+                {pendingName.trim() || 'preview'}
+              </span>
+              <span className="text-[11px] text-text-secondary">
+                {pendingColor ? 'custom color' : 'smart default'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-8 gap-1.5">
+              {COLOR_PALETTE.map((hex) => {
+                const selected = colorsEqual(pendingEffectiveColor, hex);
+                return (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setPendingColor(hex)}
+                    className={cn(
+                      'h-6 w-6 rounded-sm inline-flex items-center justify-center transition-transform',
+                      selected && 'ring-2 ring-white ring-offset-1 ring-offset-surface',
+                    )}
+                    style={{ background: hex }}
+                    aria-label={`Pick color ${hex}${selected ? ' (selected)' : ''}`}
+                    title={hex}
+                  >
+                    {selected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingAddOpen(false)}
+                className="h-8 px-2.5 rounded-base text-[12px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSubmitPending()}
+                disabled={pendingSubmitting || !pendingName.trim()}
+                className="h-8 px-3 rounded-base text-[12px] font-medium text-white disabled:opacity-40 inline-flex items-center gap-1 hover:brightness-110 transition-[filter] duration-100"
+                style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+                aria-label="Add label"
+              >
+                {pendingSubmitting ? 'Adding…' : 'Add'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );
