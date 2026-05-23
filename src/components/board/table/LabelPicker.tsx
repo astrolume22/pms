@@ -22,7 +22,8 @@ import { Check, Plus, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { useCreateLabel } from '@/hooks/labels';
-import { chipColorFor, tokenColor } from '@/lib/chipColor';
+import { chipColorFor } from '@/lib/chipColor';
+import { defaultLabelHexFor, tokenHex, type ChipToken } from '@/lib/colorNormalize';
 
 interface LabelPickerProps {
   boardId: string;
@@ -36,8 +37,9 @@ interface LabelPickerProps {
   onDone?: () => void;
 }
 
-// Seed-color rotation for newly-created labels. Token-anchored.
-const NEW_LABEL_ROTATION: Array<Parameters<typeof tokenColor>[0]> = [
+// Fallback rotation when the label-name classifier doesn't match any
+// known keyword (used by defaultLabelHexFor for generic columns).
+const FALLBACK_ROTATION: ChipToken[] = [
   'mint', 'amber', 'coral', 'sky', 'purple', 'pink', 'teal', 'slate',
 ];
 
@@ -70,10 +72,24 @@ export function LabelPicker({
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      // Pick the next color in the rotation that isn't already in use.
-      const used = new Set(labels.map((l) => l.color));
-      const fallback = NEW_LABEL_ROTATION.find((t) => !used.has(tokenColor(t))) ?? 'sky';
-      await create.mutateAsync({ boardId, columnId, name: newName.trim(), color: tokenColor(fallback) });
+      // 1. Smart default: classify by label name + column type so a
+      //    new "Done" seeds mint, "Stuck" seeds teal, etc.
+      let color = defaultLabelHexFor({
+        columnType: column?.column_type,
+        columnName: column?.name,
+        labelName:  newName.trim(),
+        positionInColumn: labels.length,
+        totalInColumn:    labels.length + 1,
+      });
+      // 2. If the smart default collides with an existing label's
+      //    color, rotate through the fallback palette until we find an
+      //    unused one — keeps the chips visually distinct.
+      const used = new Set(labels.map((l) => l.color.toUpperCase()));
+      if (used.has(color.toUpperCase())) {
+        const free = FALLBACK_ROTATION.find((t) => !used.has(tokenHex(t).toUpperCase()));
+        if (free) color = tokenHex(free);
+      }
+      await create.mutateAsync({ boardId, columnId, name: newName.trim(), color });
       setNewName('');
       setAddOpen(false);
     } finally {

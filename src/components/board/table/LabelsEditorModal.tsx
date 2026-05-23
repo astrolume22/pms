@@ -27,19 +27,22 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
-// Premium polish chip palette — all 8 OKLCH tokens (chunk 1) so any
-// label created from the editor renders in the same family as the
-// chip mosaic. Stored as oklch() strings; browsers consume them in
-// inline style + DB values like any other CSS color.
-const COLOR_PALETTE = [
-  'oklch(0.72 0.15 70)',    // amber
-  'oklch(0.45 0.02 250)',   // slate
-  'oklch(0.55 0.10 200)',   // teal
-  'oklch(0.62 0.18 350)',   // pink
-  'oklch(0.62 0.15 295)',   // purple
-  'oklch(0.70 0.12 230)',   // sky
-  'oklch(0.72 0.14 160)',   // mint
-  'oklch(0.68 0.16 25)',    // coral
+// Premium polish chip palette — the 8 OKLCH tokens precomputed to hex
+// via colorNormalize so every label written from the editor lands in
+// the canonical #RRGGBB form that the renderer reads back verbatim.
+// (Earlier this file wrote oklch() strings; the renderer's name-based
+// override hid the disagreement, but it broke string-equality and the
+// "selected color" highlight on the swatch. Hex everywhere now.)
+import { TOKEN_HEX, colorsEqual, toCanonicalHex } from '@/lib/colorNormalize';
+const COLOR_PALETTE: string[] = [
+  TOKEN_HEX.amber,
+  TOKEN_HEX.slate,
+  TOKEN_HEX.teal,
+  TOKEN_HEX.pink,
+  TOKEN_HEX.purple,
+  TOKEN_HEX.sky,
+  TOKEN_HEX.mint,
+  TOKEN_HEX.coral,
 ];
 
 interface LabelsEditorModalProps {
@@ -67,8 +70,21 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
 
   const onAdd = async () => {
     try {
-      const used = new Set(labels.map((l) => l.color));
-      const color = COLOR_PALETTE.find((c) => !used.has(c)) ?? 'oklch(0.70 0.12 230)';
+      // Match the LabelPicker create flow: smart default by name +
+      // column type, fall back to first unused palette color.
+      const { defaultLabelHexFor } = await import('@/lib/colorNormalize');
+      let color = defaultLabelHexFor({
+        columnType: column.column_type,
+        columnName: column.name,
+        labelName:  'New label',
+        positionInColumn: labels.length,
+        totalInColumn:    labels.length + 1,
+      });
+      const used = new Set(labels.map((l) => toCanonicalHex(l.color).toUpperCase()));
+      if (used.has(color.toUpperCase())) {
+        const free = COLOR_PALETTE.find((c) => !used.has(c.toUpperCase()));
+        if (free) color = free;
+      }
       const created = await create.mutateAsync({
         boardId, columnId: column.id, name: 'New label', color,
       });
@@ -132,7 +148,10 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
               try {
                 await update.mutateAsync({
                   id: label.id, columnId: column.id, boardId,
-                  patch: { color },
+                  // Coerce to canonical hex so the DB stays uniform even
+                  // if a caller (or a future palette extension) sends a
+                  // non-hex value.
+                  patch: { color: toCanonicalHex(color) },
                 });
               } catch (err) {
                 toast.error(err instanceof Error ? err.message : 'Color change failed');
@@ -292,21 +311,27 @@ function ColorSwatch({ value, onChange }: { value: string; onChange: (c: string)
           className="absolute top-8 right-0 z-50 bg-surface border border-border-light rounded-md shadow-lg p-2 grid grid-cols-6 gap-1.5 w-[180px]"
           onMouseLeave={() => setOpen(false)}
         >
-          {COLOR_PALETTE.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => { onChange(c); setOpen(false); }}
-              className={cn(
-                'h-6 w-6 rounded-sm inline-flex items-center justify-center',
-                value === c && 'ring-2 ring-text-primary ring-offset-1 ring-offset-surface',
-              )}
-              style={{ background: c }}
-              aria-label={c}
-            >
-              {value === c && <Check className="h-3 w-3 text-white" />}
-            </button>
-          ))}
+          {COLOR_PALETTE.map((c) => {
+            // colorsEqual normalises both sides to canonical hex first —
+            // so a label stored as oklch(...) or as a different-case hex
+            // still gets the "currently selected" highlight.
+            const selected = colorsEqual(value, c);
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => { onChange(c); setOpen(false); }}
+                className={cn(
+                  'h-6 w-6 rounded-sm inline-flex items-center justify-center',
+                  selected && 'ring-2 ring-text-primary ring-offset-1 ring-offset-surface',
+                )}
+                style={{ background: c }}
+                aria-label={c}
+              >
+                {selected && <Check className="h-3 w-3 text-white" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

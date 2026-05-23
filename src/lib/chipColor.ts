@@ -1,117 +1,53 @@
 /**
- * Token-anchored chip colors for the premium polish pass.
+ * Token-anchored chip color HELPERS for the premium polish pass.
  *
- * Every categorical column on the board renders with a token color from
- * the OKLCH chip palette so the whole row reads as one color family.
- * Source of truth for "which token does this label get":
+ * BEHAVIOUR CHANGE (label-color bug fix):
+ *   Previously chipColorFor() OVERRODE label.color at render time for
+ *   Status / Priority / Task Type / Co-Work Time columns — it derived
+ *   the color from the label name (so "Done" always rendered mint
+ *   regardless of what the DB stored). That hid every user/MCP color
+ *   edit and made the heatmap visuals look impossible to customise.
  *
- *   • Status        — label-name keyword:
- *       in-progress / working    → amber
- *       not-started / pending    → slate
- *       blocked / stuck          → teal (deep)
- *       urgent / overdue         → pink
- *       review / on-hold         → purple
- *       done / complete          → mint
- *   • Priority      — label-name keyword:
- *       high / urgent / critical → purple
- *       medium / normal          → sky
- *       low                      → slate
- *   • Task Type     — by index (sort_order) into a 3-hue rotation:
- *       teal → purple → mint, repeating.
- *   • Co-Work Time  — ordinal gradient of --chip-sky, light→dark by
- *       label sort_order. ONE hue (the user spec).
- *   • Date          — handled inline in DateCell (today/tomorrow/
- *       overdue/future), not here.
+ *   New contract: chipColorFor() honours label.color as the SOURCE OF
+ *   TRUTH. The keyword classifier is still exported (defaultLabelHexFor
+ *   in src/lib/colorNormalize.ts) but it's invoked at CREATE time, not
+ *   at RENDER time, so brand-new "Done" labels still seed mint by
+ *   default while users / MCP can recolor anything afterwards.
  *
- * Falls back to label.color if no mapping matches — so columns that
- * aren't one of the named categories still render their stored color.
+ *   Date — DateCell still handles today/tomorrow/overdue tints inline.
+ *
+ * Falls back to label.color verbatim when set; falls back to the
+ * neutral chip-slate when not.
  */
 import type { ColumnRow, ColumnLabelRow } from './database.types';
+import { DEFAULT_LABEL_HEX } from './colorNormalize';
 
+// ChipToken kept here for any caller that still imports it; the
+// canonical token registry now lives in src/lib/colorNormalize.ts.
 export type ChipToken =
   | 'amber' | 'slate' | 'teal' | 'pink'
   | 'purple' | 'sky' | 'mint' | 'coral';
 
-const TOKEN_TO_VAR: Record<ChipToken, string> = {
-  amber:  'var(--chip-amber)',
-  slate:  'var(--chip-slate)',
-  teal:   'var(--chip-teal)',
-  pink:   'var(--chip-pink)',
-  purple: 'var(--chip-purple)',
-  sky:    'var(--chip-sky)',
-  mint:   'var(--chip-mint)',
-  coral:  'var(--chip-coral)',
-};
-
-export function tokenColor(t: ChipToken): string {
-  return TOKEN_TO_VAR[t];
-}
-
-// Lightness ramp for ordinal columns (Co-Work Time). Map a label's
-// sort_order or its position in the column → a single-hue rendering
-// at decreasing lightness so longer durations read as deeper chips.
-const ORDINAL_LIGHTNESS = [0.80, 0.72, 0.64, 0.56, 0.48, 0.40, 0.34, 0.28];
-
-function classifyStatus(name: string): ChipToken {
-  const n = name.toLowerCase();
-  // Order matters: "Not Started" must hit the slate branch before the
-  // amber /started/ branch, otherwise "started" inside "not started"
-  // captures it. Negative-state keywords are checked first.
-  if (/(not[\s_-]?started|pending|todo|to[\s_-]?do|new|backlog|unassigned)/.test(n)) return 'slate';
-  if (/(done|complete|complet|finished|shipped)/.test(n))                            return 'mint';
-  if (/(urgent|overdue|escalate)/.test(n))                                            return 'pink';
-  if (/(blocked|stuck|hold|wait)/.test(n))                                            return 'teal';
-  if (/(review|qa|test|on[\s_-]?hold)/.test(n))                                       return 'purple';
-  if (/(in[\s_-]?progress|progress|working|active|started)/.test(n))                  return 'amber';
-  return 'slate';
-}
-
-function classifyPriority(name: string): ChipToken {
-  const n = name.toLowerCase();
-  if (/(high|urgent|critical|p1|p0)/.test(n))   return 'purple';
-  if (/(medium|med|normal|p2)/.test(n))         return 'sky';
-  if (/(low|p3|p4|trivial|minor)/.test(n))      return 'slate';
-  return 'sky';
-}
-
-const TASK_TYPE_ROTATION: ChipToken[] = ['teal', 'purple', 'mint'];
-
-function isColumnNamed(column: ColumnRow, names: string[]): boolean {
-  const n = (column.name ?? '').trim().toLowerCase();
-  return names.some((m) => n === m || n.replace(/\s+/g, '') === m.replace(/\s+/g, ''));
-}
-
 export function chipColorFor(
-  column: ColumnRow,
+  _column: ColumnRow,
   label: ColumnLabelRow,
-  positionInColumn: number,
-  totalInColumn: number,
+  _positionInColumn: number,
+  _totalInColumn: number,
 ): string {
-  // --- Status -------------------------------------------------------
-  if (column.column_type === 'status') {
-    return tokenColor(classifyStatus(label.name));
-  }
-  // --- Priority -----------------------------------------------------
-  if (column.column_type === 'priority' || isColumnNamed(column, ['priority'])) {
-    return tokenColor(classifyPriority(label.name));
-  }
-  // --- Task Type (named column rendered as a dropdown/status) -------
-  if (isColumnNamed(column, ['task type', 'type'])) {
-    return tokenColor(TASK_TYPE_ROTATION[positionInColumn % TASK_TYPE_ROTATION.length]);
-  }
-  // --- Co-Work Time — ordinal gradient on a single hue (sky) --------
-  if (isColumnNamed(column, ['co-work time', 'cowork time', 'co work time', 'work time', 'duration'])) {
-    const idx = Math.min(ORDINAL_LIGHTNESS.length - 1, positionInColumn);
-    const total = Math.max(1, totalInColumn);
-    // Use a linear ramp between 0.80 and 0.40 so even a 2-label column
-    // still shows light→dark; chroma stays in the palette band.
-    const lightness = total > 1
-      ? 0.78 - (positionInColumn / (total - 1)) * 0.40
-      : ORDINAL_LIGHTNESS[idx];
-    return `oklch(${lightness.toFixed(3)} 0.12 230)`;
-  }
-  // --- Default: trust whatever was stored on the label --------------
-  return label.color;
+  // BEHAVIOUR CHANGE (label-color bug fix): RENDER honours label.color
+  // verbatim for every column type. The keyword/position classifiers
+  // (classifyStatus, classifyPriority, the Task Type rotation, the
+  // Co-Work Time lightness ramp) are gone from the render path — they
+  // live in colorNormalize.defaultLabelHexFor() and run ONLY at label-
+  // create time. This means a user (or MCP) can recolor "Done" pink
+  // and the chip will actually render pink. Brand-new "Done" labels
+  // still seed mint via the create-time default so the heatmap
+  // intuition is preserved without locking out customization.
+  //
+  // The arguments column/position/total are kept in the signature for
+  // backward compatibility with existing call sites (LabelCell,
+  // LabelPicker, SummaryStrip) — they're no longer consulted here.
+  return label.color || DEFAULT_LABEL_HEX;
 }
 
 /**

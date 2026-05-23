@@ -43,6 +43,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { runEngine, type EngineContext } from './_shared/gemini-engine.js';
 import { Action as ActionSchema, type Action } from './_shared/actions-schema.js';
 import { applyActions } from './_shared/applier.js';
+import { toCanonicalHex, defaultLabelHexFor } from './_shared/color-normalize.js';
 import {
   TenancyError,
   parseSensitiveWorkspaceIds,
@@ -383,7 +384,14 @@ const TOOLS = {
       'do NOT call create_column for this (that makes a whole new column). To find ' +
       'the column, call get_board first and look in columns[] for the column by ' +
       'name; capture its id and type. Refuses if the column is not a status/' +
-      'priority/dropdown. New labels append at the end (sort_order = max+1). ' +
+      'priority/dropdown. New labels append at the end (sort_order = max+1).\n' +
+      '\n' +
+      'Color is OPTIONAL — when omitted, a smart palette default is chosen by ' +
+      'label name + column type (so a new "Done" status seeds mint, a new "Stuck" ' +
+      'seeds teal, etc.). When provided, the value is normalised to canonical ' +
+      '#RRGGBB hex; accepts #RRGGBB, #RGB, oklch(L C H), var(--chip-X), or a ' +
+      'token / CSS color name (mint / amber / red / sky / …). To RECOLOR an ' +
+      'existing label use update_column_label, not this.\n' +
       'Tenancy + sensitive-workspace gated.',
     inputSchema: {
       type: 'object',
@@ -407,6 +415,31 @@ const TOOLS = {
         confirm_sensitive_workspace: { type: 'boolean', default: false },
       },
       required: ['labels'],
+      additionalProperties: false,
+    },
+  },
+
+  update_column_label: {
+    name: 'update_column_label',
+    description:
+      'Rename and/or recolor an EXISTING column_labels row. Use this when the agent ' +
+      'or a user wants to change a label\'s name or color without creating a duplicate ' +
+      'label. Resolves by label_id (preferred), or by (board_id + column_name + ' +
+      'current_label_name). At least one of new_name / color must be supplied. Color ' +
+      'is normalised to canonical #RRGGBB hex — accepts hex, oklch(...), var(--chip-*), ' +
+      'bare token names ("mint", "amber", "red", …), and common CSS color names.\n' +
+      'Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label_id:           { type: 'string', description: 'UUID of the label row.' },
+        board_id:           { type: 'string', description: 'Required only if you use column_name + current_label_name.' },
+        column_name:        { type: 'string' },
+        current_label_name: { type: 'string', description: 'Current name to find the row by.' },
+        new_name:           { type: 'string', minLength: 1, maxLength: 80 },
+        color:              { type: 'string', description: 'Any of: #RRGGBB, #RGB, oklch(L C H), var(--chip-X), or a token name.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
       additionalProperties: false,
     },
   },
@@ -889,6 +922,9 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
             break;
           case 'rename_column':
             payload = await toolRenameColumn(sb, args as unknown as ToolRenameColumnArgs, sensitiveWs);
+            break;
+          case 'update_column_label':
+            payload = await toolUpdateColumnLabel(sb, args as unknown as ToolUpdateColumnLabelArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -2210,12 +2246,25 @@ async function toolCreateColumn(
   if (wantsLabels && Array.isArray(args.labels) && args.labels.length > 0) {
     let labelSort = 0;
     for (const l of args.labels) {
+      const labelName = l.name.trim();
+      // Canonical-hex normalisation: caller-supplied colors go through
+      // the normaliser; missing colors get a smart default by label
+      // name + this column's type/name. Either way the DB lands hex.
+      const color = l.color
+        ? toCanonicalHex(l.color)
+        : defaultLabelHexFor({
+            columnType: canonical.type,
+            columnName: args.name,
+            labelName,
+            positionInColumn: labelSort,
+            totalInColumn:    (args.labels?.length ?? 0),
+          });
       const { data, error: lErr } = await sb
         .from('column_labels')
         .insert({
           column_id:  colId,
-          name:       l.name.trim(),
-          color:      (l.color && l.color.trim()) ? l.color.trim() : '#C4C4C4',
+          name:       labelName,
+          color,
           sort_order: labelSort,
         } as never)
         .select('id, name, color')
@@ -2740,8 +2789,20 @@ async function toolAddColumnLabel(
   const inserted: Array<{ id: string; name: string; color: string; sort_order: number }> = [];
   for (const l of args.labels) {
     const name  = l.name.trim();
-    const color = (l.color && l.color.trim()) ? l.color.trim() : '#C4C4C4';
     if (!name) continue;
+    // Caller-supplied color (any form) → canonical hex via the
+    // normaliser. If no color was given, fall back to the smart default
+    // based on label name + column type (matches the UI's create-time
+    // intent). Either way the DB lands a #RRGGBB string.
+    const color = l.color
+      ? toCanonicalHex(l.color)
+      : defaultLabelHexFor({
+          columnType: columnRow.column_type,
+          columnName: columnRow.name,
+          labelName:  name,
+          positionInColumn: nextSort,
+          totalInColumn:    nextSort + 1,
+        });
     const { data, error } = await sb
       .from('column_labels')
       .insert({ column_id: columnRow.id, name, color, sort_order: nextSort } as never)
@@ -2891,9 +2952,158 @@ async function toolRenameColumn(
   await logMcpRun(sb, {
     toolName: 'rename_column', status: 'success',
     workspaceId: board.workspaceId, boardId: board.boardId,
-    prompt: trimmed, responseSummary: `col=${colRow.id} renamed`,
+    prompt: trimmed,
+    responseSummary: `col=${colRow.id} renamed`,
   });
   return { column_id: colRow.id, board_id: board.boardId, workspace_id: board.workspaceId, new_name: trimmed };
+}
+
+// =====================================================================
+// Label color fix — update_column_label
+// =====================================================================
+//
+// Rename and/or recolor an existing column_labels row. Closes the gap
+// where the agent could ADD a label (add_column_label) but had no way
+// to fix one without re-creating it. Color is normalised to canonical
+// hex via toCanonicalHex so every write path converges on one format.
+//
+// Resolution order:
+//   1. label_id (preferred — direct match)
+//   2. board_id + column_name + current_label_name (for LLM agents
+//      that have names but not ids)
+
+interface ToolUpdateColumnLabelArgs {
+  label_id?: string;
+  board_id?: string;
+  column_name?: string;
+  current_label_name?: string;
+  new_name?: string;
+  color?: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolUpdateColumnLabel(
+  sb: SupabaseClient,
+  args: ToolUpdateColumnLabelArgs,
+  sensitive: Set<string>,
+): Promise<{
+  label_id: string;
+  column_id: string;
+  column_name: string;
+  board_id: string;
+  workspace_id: string;
+  before: { name: string; color: string };
+  after:  { name: string; color: string };
+}> {
+  if (!args.new_name && !args.color) {
+    throw new Error('one of new_name or color must be supplied');
+  }
+
+  // Resolve the label row.
+  let labelRow: { id: string; column_id: string; name: string; color: string } | null = null;
+  if (args.label_id) {
+    const { data, error } = await sb
+      .from('column_labels')
+      .select('id, column_id, name, color')
+      .eq('id', args.label_id)
+      .maybeSingle();
+    if (error) throw new Error(`column_labels select failed: ${error.message}`);
+    if (!data) throw new TenancyError(`Label ${args.label_id} not found`);
+    labelRow = data as { id: string; column_id: string; name: string; color: string };
+  } else {
+    if (!args.board_id || !args.column_name || !args.current_label_name) {
+      throw new Error('Pass either label_id, or (board_id + column_name + current_label_name)');
+    }
+    // (board, column_name) → column_id  →  (column_id, current_label_name) → label
+    const { data: col, error: cErr } = await sb
+      .from('columns')
+      .select('id, board_id, archived_at')
+      .eq('board_id', args.board_id)
+      .eq('name', args.column_name)
+      .is('archived_at', null)
+      .maybeSingle();
+    if (cErr) throw new Error(`columns select failed: ${cErr.message}`);
+    if (!col) throw new TenancyError(`Column "${args.column_name}" not found on board ${args.board_id}`);
+    const colId = (col as { id: string }).id;
+    const { data: lab, error: lErr } = await sb
+      .from('column_labels')
+      .select('id, column_id, name, color')
+      .eq('column_id', colId)
+      .eq('name', args.current_label_name)
+      .maybeSingle();
+    if (lErr) throw new Error(`column_labels select failed: ${lErr.message}`);
+    if (!lab) throw new TenancyError(`Label "${args.current_label_name}" not found on column "${args.column_name}"`);
+    labelRow = lab as { id: string; column_id: string; name: string; color: string };
+  }
+
+  // Resolve the column → board → workspace chain for tenancy.
+  const { data: colData, error: colErr } = await sb
+    .from('columns')
+    .select('id, board_id, name')
+    .eq('id', labelRow.column_id)
+    .maybeSingle();
+  if (colErr) throw new Error(`columns select failed: ${colErr.message}`);
+  if (!colData) throw new TenancyError(`Parent column ${labelRow.column_id} not found`);
+  const colMeta = colData as { id: string; board_id: string; name: string };
+  const board = await resolveWorkspaceForBoard(sb, colMeta.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const before = { name: labelRow.name, color: labelRow.color };
+  const patch: Record<string, unknown> = {};
+  if (args.new_name && args.new_name.trim() !== labelRow.name) {
+    patch.name = args.new_name.trim();
+  }
+  if (args.color) {
+    const hex = toCanonicalHex(args.color);
+    if (hex !== labelRow.color.toUpperCase() && hex !== labelRow.color) {
+      patch.color = hex;
+    }
+  }
+  if (Object.keys(patch).length === 0) {
+    // Nothing actually changed — surface a no-op success rather than throwing.
+    await logMcpRun(sb, {
+      toolName: 'update_column_label', status: 'success',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: `${colMeta.name}.${labelRow.name}`,
+      responseSummary: 'no-op (already at requested values)',
+    });
+    return {
+      label_id: labelRow.id, column_id: labelRow.column_id,
+      column_name: colMeta.name, board_id: board.boardId, workspace_id: board.workspaceId,
+      before, after: before,
+    };
+  }
+
+  const { error } = await sb
+    .from('column_labels').update(patch as never).eq('id', labelRow.id);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'update_column_label', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: `${colMeta.name}.${labelRow.name}`,
+      responseSummary: error.message, errorMessage: error.message,
+    });
+    throw new Error(`column_labels update failed: ${error.message}`);
+  }
+  const after = {
+    name:  (patch.name as string | undefined)  ?? labelRow.name,
+    color: (patch.color as string | undefined) ?? labelRow.color,
+  };
+  await logMcpRun(sb, {
+    toolName: 'update_column_label', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: `${colMeta.name}.${labelRow.name}`,
+    responseSummary: `name="${after.name}" color=${after.color}`,
+  });
+  return {
+    label_id:     labelRow.id,
+    column_id:    labelRow.column_id,
+    column_name:  colMeta.name,
+    board_id:     board.boardId,
+    workspace_id: board.workspaceId,
+    before,
+    after,
+  };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
