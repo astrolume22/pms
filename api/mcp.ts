@@ -352,6 +352,63 @@ const TOOLS = {
     },
   },
 
+  // ----- 3d chunk 3 — group ops ------------------------------------
+  create_group: {
+    name: 'create_group',
+    description:
+      'Add a new group to an existing board. Group color defaults to a soft sky ' +
+      'tone; pass color (#hex or oklch()) to override. Tenancy + sensitive-' +
+      'workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id: { type: 'string' },
+        name:     { type: 'string', minLength: 1, maxLength: 120 },
+        color:    { type: 'string', description: '#RRGGBB hex or oklch(...) — optional.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['board_id', 'name'],
+      additionalProperties: false,
+    },
+  },
+
+  rename_group: {
+    name: 'rename_group',
+    description: 'Rename a group. Tenancy-checked (group must belong to a non-deleted board).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        group_id: { type: 'string' },
+        new_name: { type: 'string', minLength: 1, maxLength: 120 },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['group_id', 'new_name'],
+      additionalProperties: false,
+    },
+  },
+
+  delete_group: {
+    name: 'delete_group',
+    description:
+      'SOFT-delete a group (sets groups.deleted_at). REFUSES without confirm_delete: ' +
+      'true. ALSO refuses if the group still has non-deleted tasks UNLESS ' +
+      'confirm_delete_with_tasks: true is ALSO passed (so a chatty Optimus can\'t ' +
+      'wipe a populated group by accident). Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        group_id: { type: 'string' },
+        confirm_delete:            { type: 'boolean', default: false,
+                                     description: 'Required — set to true to acknowledge soft-deletion.' },
+        confirm_delete_with_tasks: { type: 'boolean', default: false,
+                                     description: 'Required IF the group still has non-deleted tasks.' },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['group_id'],
+      additionalProperties: false,
+    },
+  },
+
   // ----- 3d chunk 2 — column ops -----------------------------------
   create_column: {
     name: 'create_column',
@@ -596,6 +653,16 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
           // ----- 3d chunk 2 (column ops) ------------------------------
           case 'create_column':
             payload = await toolCreateColumn(sb, args as unknown as ToolCreateColumnArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 3 (group ops) -------------------------------
+          case 'create_group':
+            payload = await toolCreateGroup(sb, args as unknown as ToolCreateGroupArgs, sensitiveWs);
+            break;
+          case 'rename_group':
+            payload = await toolRenameGroup(sb, args as unknown as ToolRenameGroupArgs, sensitiveWs);
+            break;
+          case 'delete_group':
+            payload = await toolDeleteGroup(sb, args as unknown as ToolDeleteGroupArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -1653,6 +1720,188 @@ async function toolCreateColumn(
     column_type:  canonical.type,
     ...(aliasApplied ? { alias_applied: aliasApplied } : {}),
     labels:       inserted,
+  };
+}
+
+// =====================================================================
+// 3d chunk 3 — group ops
+// =====================================================================
+
+interface ToolCreateGroupArgs {
+  board_id: string;
+  name: string;
+  color?: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolCreateGroup(
+  sb: SupabaseClient,
+  args: ToolCreateGroupArgs,
+  sensitive: Set<string>,
+): Promise<{ group_id: string; board_id: string; workspace_id: string }> {
+  if (!args.board_id) throw new Error('board_id is required');
+  if (!args.name || args.name.trim().length === 0) throw new Error('name is required');
+
+  const board = await resolveWorkspaceForBoard(sb, args.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const { data: existing } = await sb
+    .from('groups').select('sort_order').eq('board_id', board.boardId).is('deleted_at', null);
+  const nextSort = ((existing ?? []).reduce(
+    (m: number, g: { sort_order: number }) => Math.max(m, g.sort_order), -1,
+  )) + 1;
+
+  const { data, error } = await sb
+    .from('groups')
+    .insert({
+      board_id:   board.boardId,
+      name:       args.name.trim(),
+      color:      (args.color && args.color.trim()) ? args.color.trim() : '#579BFC',
+      sort_order: nextSort,
+    } as never)
+    .select('id')
+    .single();
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'create_group', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: args.name, responseSummary: `insert failed: ${error.message}`,
+      errorMessage: error.message,
+    });
+    throw new Error(`groups insert failed: ${error.message}`);
+  }
+  const gid = (data as { id: string }).id;
+  await logMcpRun(sb, {
+    toolName: 'create_group', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: args.name, responseSummary: `group_id=${gid}`,
+  });
+  return { group_id: gid, board_id: board.boardId, workspace_id: board.workspaceId };
+}
+
+interface ToolRenameGroupArgs {
+  group_id: string;
+  new_name: string;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolRenameGroup(
+  sb: SupabaseClient,
+  args: ToolRenameGroupArgs,
+  sensitive: Set<string>,
+): Promise<{ group_id: string; board_id: string; workspace_id: string; new_name: string }> {
+  if (!args.group_id) throw new Error('group_id is required');
+  if (!args.new_name || args.new_name.trim().length === 0) throw new Error('new_name is required');
+
+  // Resolve group → board → workspace inline (mcp-tenancy.ts has
+  // assertGroupInBoard for the "I claim board X" pattern, but here we
+  // only have group_id and need to discover the board ourselves).
+  const { data: g, error: gErr } = await sb
+    .from('groups')
+    .select('id, board_id, deleted_at')
+    .eq('id', args.group_id)
+    .maybeSingle();
+  if (gErr) throw new Error(`groups select failed: ${gErr.message}`);
+  if (!g) throw new TenancyError(`Group ${args.group_id} not found`);
+  const groupRow = g as { id: string; board_id: string; deleted_at: string | null };
+  if (groupRow.deleted_at) throw new TenancyError(`Group ${args.group_id} is deleted`);
+
+  const board = await resolveWorkspaceForBoard(sb, groupRow.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const trimmed = args.new_name.trim();
+  const { error } = await sb
+    .from('groups').update({ name: trimmed } as never).eq('id', groupRow.id);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'rename_group', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: trimmed, responseSummary: error.message,
+      errorMessage: error.message,
+    });
+    throw new Error(`groups update failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'rename_group', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: trimmed, responseSummary: `group=${groupRow.id} renamed`,
+  });
+  return { group_id: groupRow.id, board_id: board.boardId, workspace_id: board.workspaceId, new_name: trimmed };
+}
+
+interface ToolDeleteGroupArgs {
+  group_id: string;
+  confirm_delete?: boolean;
+  confirm_delete_with_tasks?: boolean;
+  confirm_sensitive_workspace?: boolean;
+}
+
+async function toolDeleteGroup(
+  sb: SupabaseClient,
+  args: ToolDeleteGroupArgs,
+  sensitive: Set<string>,
+): Promise<{
+  group_id: string; board_id: string; workspace_id: string;
+  deleted_at: string; tasks_in_group: number;
+}> {
+  if (!args.group_id) throw new Error('group_id is required');
+  if (args.confirm_delete !== true) {
+    throw new Error('delete_group refuses without confirm_delete: true (soft-delete is reversible — but still requires explicit consent)');
+  }
+
+  const { data: g, error: gErr } = await sb
+    .from('groups')
+    .select('id, board_id, deleted_at, name')
+    .eq('id', args.group_id)
+    .maybeSingle();
+  if (gErr) throw new Error(`groups select failed: ${gErr.message}`);
+  if (!g) throw new TenancyError(`Group ${args.group_id} not found`);
+  const groupRow = g as { id: string; board_id: string; deleted_at: string | null; name: string };
+  if (groupRow.deleted_at) throw new Error(`Group ${args.group_id} is already soft-deleted`);
+
+  const board = await resolveWorkspaceForBoard(sb, groupRow.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  // Count non-deleted tasks in this group; gate via confirm_delete_with_tasks.
+  const { count: liveTasks } = await sb
+    .from('items')
+    .select('id', { count: 'exact', head: true })
+    .eq('group_id', groupRow.id)
+    .is('deleted_at', null);
+  const taskCount = liveTasks ?? 0;
+  if (taskCount > 0 && args.confirm_delete_with_tasks !== true) {
+    throw new Error(
+      `Group "${groupRow.name}" still has ${taskCount} non-deleted task` +
+      `${taskCount === 1 ? '' : 's'}. To soft-delete it anyway, pass ` +
+      `confirm_delete_with_tasks: true. (Tasks stay rows in the DB; they ` +
+      `just become orphaned in a soft-deleted group.)`,
+    );
+  }
+
+  const stamp = new Date().toISOString();
+  const { error } = await sb
+    .from('groups').update({ deleted_at: stamp } as never).eq('id', groupRow.id);
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'delete_group', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: groupRow.name, responseSummary: error.message,
+      errorMessage: error.message,
+    });
+    throw new Error(`groups soft-delete failed: ${error.message}`);
+  }
+  await logMcpRun(sb, {
+    toolName: 'delete_group', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: groupRow.name,
+    responseSummary: `group=${groupRow.id} soft-deleted, tasks_in_group=${taskCount}`,
+  });
+  return {
+    group_id:       groupRow.id,
+    board_id:       board.boardId,
+    workspace_id:   board.workspaceId,
+    deleted_at:     stamp,
+    tasks_in_group: taskCount,
   };
 }
 
