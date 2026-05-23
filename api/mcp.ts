@@ -351,6 +351,50 @@ const TOOLS = {
       additionalProperties: false,
     },
   },
+
+  // ----- 3d chunk 2 — column ops -----------------------------------
+  create_column: {
+    name: 'create_column',
+    description:
+      'Add a new column to an existing board. Use this to add an "Instructions" / ' +
+      '"Notes" text column, a "Due date" date column, a custom status, etc. For ' +
+      'comments / discussion ON a task, use add_task_update instead.\n' +
+      'column_type accepts the 10 user-creatable types (task_name is auto-seeded ' +
+      'per-board and refused here):\n' +
+      '  text | long_text | numbers | number | date | checkbox | link |\n' +
+      '  status | priority | dropdown | people\n' +
+      'long_text → text and number → numbers are aliased silently (canonical type ' +
+      'returned in the response). Labels apply to status/priority/dropdown and are ' +
+      'seeded as column_labels rows. Tenancy + sensitive-workspace gated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id:    { type: 'string' },
+        name:        { type: 'string', minLength: 1, maxLength: 80 },
+        column_type: {
+          type: 'string',
+          enum: ['text', 'long_text', 'numbers', 'number', 'date', 'checkbox',
+                 'link', 'status', 'priority', 'dropdown', 'people'],
+        },
+        labels: {
+          type: 'array',
+          description: 'Only consumed for status/priority/dropdown. Other types ignore it.',
+          items: {
+            type: 'object',
+            properties: {
+              name:  { type: 'string', minLength: 1, maxLength: 80 },
+              color: { type: 'string', description: 'Optional. Hex like "#FF3D8B" or oklch(...); defaults to #C4C4C4.' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+          },
+        },
+        confirm_sensitive_workspace: { type: 'boolean', default: false },
+      },
+      required: ['board_id', 'name', 'column_type'],
+      additionalProperties: false,
+    },
+  },
 } as const;
 
 // ----- Vercel handler --------------------------------------------------
@@ -548,6 +592,10 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
             break;
           case 'update_task_name':
             payload = await toolUpdateTaskName(sb, args as unknown as ToolUpdateTaskNameArgs, sensitiveWs);
+            break;
+          // ----- 3d chunk 2 (column ops) ------------------------------
+          case 'create_column':
+            payload = await toolCreateColumn(sb, args as unknown as ToolCreateColumnArgs, sensitiveWs);
             break;
           default:
             return err(id, ERR_METHOD, `Unknown tool: ${toolName}`);
@@ -1454,6 +1502,158 @@ async function toolUpdateTaskName(
     prompt: trimmed, responseSummary: `task=${t.taskId} renamed`,
   });
   return { task_id: t.taskId, board_id: t.boardId, workspace_id: t.workspaceId, new_name: trimmed };
+}
+
+// =====================================================================
+// 3d chunk 2 — create_column
+// =====================================================================
+
+interface ToolCreateColumnArgs {
+  board_id: string;
+  name: string;
+  column_type: string;            // includes the long_text/number aliases
+  labels?: Array<{ name: string; color?: string }>;
+  confirm_sensitive_workspace?: boolean;
+}
+
+// Maps caller-supplied type names → the 11-value DB enum.
+//   long_text → text   (rendered with a "long" hint via settings)
+//   number    → numbers
+// task_name is refused (the per-board task_name column is auto-seeded
+// by the boards-after-insert trigger; multiple task_name columns are
+// blocked by the partial unique index).
+function canonicalColumnType(t: string): { type: string; settings: Record<string, unknown> } {
+  const lower = t.toLowerCase();
+  if (lower === 'task_name') {
+    throw new Error('task_name columns are auto-seeded per board; create_column refuses to add another');
+  }
+  if (lower === 'long_text') return { type: 'text',    settings: { render_hint: 'long' } };
+  if (lower === 'number')    return { type: 'numbers', settings: {} };
+  const allowed = new Set([
+    'text', 'numbers', 'date', 'checkbox', 'link',
+    'status', 'priority', 'dropdown', 'people', 'files',
+  ]);
+  if (!allowed.has(lower)) {
+    throw new Error(`unknown column_type "${t}". Allowed: text/long_text, numbers/number, date, checkbox, link, status, priority, dropdown, people`);
+  }
+  return { type: lower, settings: {} };
+}
+
+async function toolCreateColumn(
+  sb: SupabaseClient,
+  args: ToolCreateColumnArgs,
+  sensitive: Set<string>,
+): Promise<{
+  column_id: string;
+  board_id: string;
+  workspace_id: string;
+  column_type: string;            // canonical (mapped) value the DB stored
+  alias_applied?: string;         // present when the caller passed long_text/number
+  labels: { id: string; name: string; color: string }[];
+}> {
+  if (!args.board_id) throw new Error('board_id is required');
+  if (!args.name || args.name.trim().length === 0) throw new Error('name is required');
+  if (!args.column_type) throw new Error('column_type is required');
+
+  const board = await resolveWorkspaceForBoard(sb, args.board_id);
+  assertWorkspaceWriteAllowed(board.workspaceId, sensitive, args.confirm_sensitive_workspace === true);
+
+  const canonical = canonicalColumnType(args.column_type);
+  const aliasApplied =
+    args.column_type.toLowerCase() === 'long_text' ? 'long_text→text'
+    : args.column_type.toLowerCase() === 'number'  ? 'number→numbers'
+    : undefined;
+
+  // Next sort_order: 1 + max existing on this board.
+  const { data: existing } = await sb
+    .from('columns').select('sort_order').eq('board_id', board.boardId);
+  const nextSort = ((existing ?? []).reduce(
+    (m: number, c: { sort_order: number }) => Math.max(m, c.sort_order), -1,
+  )) + 1;
+
+  // Reasonable width defaults per type — mirrors the applier's logic.
+  const widthFor = (t: string): number => {
+    switch (t) {
+      case 'status':
+      case 'priority': return 180;
+      case 'dropdown': return 200;
+      case 'people':   return 160;
+      case 'date':
+      case 'numbers':  return 140;
+      case 'link':     return 220;
+      case 'checkbox': return 100;
+      case 'text':     return canonical.settings.render_hint === 'long' ? 360 : 220;
+      default:         return 180;
+    }
+  };
+
+  const { data: col, error } = await sb
+    .from('columns')
+    .insert({
+      board_id:    board.boardId,
+      name:        args.name.trim(),
+      column_type: canonical.type,
+      sort_order:  nextSort,
+      width:       widthFor(canonical.type),
+      settings:    canonical.settings,
+    } as never)
+    .select('id, column_type')
+    .single();
+  if (error) {
+    await logMcpRun(sb, {
+      toolName: 'create_column', status: 'error',
+      workspaceId: board.workspaceId, boardId: board.boardId,
+      prompt: args.name, responseSummary: `insert failed: ${error.message}`,
+      errorMessage: error.message,
+    });
+    throw new Error(`columns insert failed: ${error.message}`);
+  }
+  const colId = (col as { id: string }).id;
+
+  // Seed labels only when the type supports them.
+  const wantsLabels = ['status', 'priority', 'dropdown'].includes(canonical.type);
+  const inserted: { id: string; name: string; color: string }[] = [];
+  if (wantsLabels && Array.isArray(args.labels) && args.labels.length > 0) {
+    let labelSort = 0;
+    for (const l of args.labels) {
+      const { data, error: lErr } = await sb
+        .from('column_labels')
+        .insert({
+          column_id:  colId,
+          name:       l.name.trim(),
+          color:      (l.color && l.color.trim()) ? l.color.trim() : '#C4C4C4',
+          sort_order: labelSort,
+        } as never)
+        .select('id, name, color')
+        .single();
+      if (lErr) {
+        // Surface but don't roll back the column — partial seeding is
+        // explicit in the response.
+        console.error('[create_column] label insert failed:', lErr.message);
+        continue;
+      }
+      const row = data as { id: string; name: string; color: string };
+      inserted.push(row);
+      labelSort += 1;
+    }
+  }
+
+  await logMcpRun(sb, {
+    toolName: 'create_column', status: 'success',
+    workspaceId: board.workspaceId, boardId: board.boardId,
+    prompt: `${args.name} (${args.column_type})`,
+    responseSummary: `col=${colId} type=${canonical.type} labels=${inserted.length}` +
+      (aliasApplied ? ` alias=${aliasApplied}` : ''),
+  });
+
+  return {
+    column_id:    colId,
+    board_id:     board.boardId,
+    workspace_id: board.workspaceId,
+    column_type:  canonical.type,
+    ...(aliasApplied ? { alias_applied: aliasApplied } : {}),
+    labels:       inserted,
+  };
 }
 
 // Minimal HTML-escape for the plain-text path. Updates body_html is
