@@ -5,11 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Brand — primary action color.
+        // Brand — primary action color. Tessera spec: #0073EA (mid-blue),
+        // hover #0060B9, active a touch darker.
         brand: {
-          DEFAULT: '#2B7FFF',
-          hover: '#1E6FE8',
-          active: '#1A5DC9',
+          DEFAULT: '#0073EA',
+          hover:   '#0060B9',
+          active:  '#004F94',
         },
         // Semantic surfaces (driven by CSS vars so dark mode swaps automatically)
         app: 'var(--bg-app)',
@@ -23,9 +24,12 @@ export default {
         row: 'var(--bg-row)',
         'row-hover': 'var(--bg-row-hover)',
         'header-band': 'var(--bg-header-band)',
+        elevated: 'var(--bg-elevated)',
+        input: 'var(--bg-input)',
         'border-light': 'var(--border-light)',
         'border-medium': 'var(--border-medium)',
         'border-hair': 'var(--border-hair)',
+        'border-default': 'var(--border-default)',
         'text-primary': 'var(--text-primary)',
         'text-secondary': 'var(--text-secondary)',
         'text-disabled': 'var(--text-disabled)',
@@ -70,8 +74,10 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Geist', 'Figtree', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
-        mono: ['"Roboto Mono"', '"Fira Code"', 'monospace'],
+        // Tessera spec: Geist first, no Figtree. Matches --font-sans in
+        // tokens.css so there's no JS/CSS mismatch.
+        sans: ['Geist', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', '"SFMono-Regular"', 'Menlo', 'Monaco', '"Courier New"', 'monospace'],
       },
       fontSize: {
         xs: ['11px', '16px'],

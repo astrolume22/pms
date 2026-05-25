@@ -2,10 +2,10 @@
    utility classes use them. */
 @import url('./styles/tokens.css');
 
-/* Figtree (primary, Monday-style reference) + Geist (fallback for
-   dense data UIs) + Roboto Mono (code). All three loaded eagerly so
-   the layout never reflows after font swap. */
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+/* Geist (UI, all weights) + Geist Mono (task codes, code-ish). The
+   Tessera mockup uses these as a single-family pair; Figtree / Roboto
+   are gone. Loaded eagerly so the layout doesn't reflow on font swap. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -49,14 +49,31 @@
    surfaces stayed dark in light mode because components consume those
    tokens directly. */
 .dark {
-  /* Override the new polish-pass surface ramp with the dark hex palette. */
-  --bg-canvas:       #0F1117;
-  --bg-sidebar-new:  #181B22;
-  --bg-card:         #1A1D24;
-  --bg-row:          #2B2F36;     /* Monday-style slate cell fill */
-  --bg-row-hover:    #32363F;
-  --bg-header-band:  #3A4250;     /* filled column-header band */
-  --border-hair:     rgba(255, 255, 255, 0.06);
+  /* =========================================================
+     TESSERA dark-mode surface ramp.
+     Every surface token resolves to one of six hexes from the
+     Tessera mockup's :root spec:
+       #181B34  app / canvas / sidebar / row fill
+       #1F2440  surface (header band, hover, popovers underneath)
+       #292F4C  elevated (active board, popovers, raised cells)
+       #2A2F52  input bg AND the subtle row-divider hairline
+       #353B66  default border (pills, input outlines)
+       #0073EA  brand (links, active tab underline, primary button)
+     ========================================================= */
+
+  /* ---- Surfaces (Tessera-named) ---- */
+  --bg-canvas:       #181B34;     /* board canvas / outer shell      */
+  --bg-sidebar-new:  #181B34;     /* sidebar matches canvas          */
+  --bg-card:         #1F2440;     /* popovers / floating cards       */
+  --bg-row:          #181B34;     /* row sits on canvas (no fill)    */
+  --bg-row-hover:    #1F2440;     /* row hover lifts to surface tone */
+  --bg-header-band:  #1F2440;     /* filled column-header band       */
+  --bg-elevated:     #292F4C;     /* active board chip, raised cells */
+  --bg-input:        #2A2F52;     /* search / text input fills       */
+
+  /* ---- Borders ---- */
+  --border-hair:     #2A2F52;     /* subtle hairlines + row dividers */
+  --border-default:  #353B66;     /* pills, input outlines, stronger */
 
   /* Flip the overlay tokens to white tints — they live on dark surfaces here. */
   --overlay-3:   rgba(255, 255, 255, 0.03);
@@ -66,22 +83,26 @@
   --overlay-12:  rgba(255, 255, 255, 0.12);
   --overlay-18:  rgba(255, 255, 255, 0.18);
 
-  /* Legacy tokens remapped onto the (now-dark) polish-pass ramp.
-     --bg-app is pure black in dark mode (top bar surface per the
-     Monday-style visual brief). It sits behind the icon-rail and
-     reads as the deepest layer. */
-  --bg-dark:     #000000;                   /* top bar deep black     */
-  --bg-app:      #000000;                   /* outer shell deep black */
-  --bg-sidebar:  var(--bg-sidebar-new);     /* #181B22 */
-  --bg-surface:  var(--bg-row);             /* #2A2E36, where chips sit */
-  --bg-hover:    var(--bg-row-hover);       /* #32363F */
-  --bg-selected: #2F4055;                    /* dimmer than hover-blue */
-  --border-light:  var(--border-hair);      /* 6% white */
-  --border-medium: rgba(255, 255, 255, 0.12);
-  --text-primary:   var(--text-primary-new);
-  --text-secondary: var(--text-secondary-new);
-  --text-disabled:  var(--text-tertiary);
-  --text-on-dark:   #FFFFFF;
+  /* ---- Legacy aliases remapped onto the Tessera ramp ---- */
+  --bg-dark:     #181B34;                   /* top bar = canvas tone  */
+  --bg-app:      #181B34;                   /* outer shell = canvas   */
+  --bg-sidebar:  var(--bg-sidebar-new);     /* #181B34                */
+  --bg-surface:  var(--bg-card);            /* #1F2440                */
+  --bg-hover:    var(--bg-row-hover);       /* #1F2440                */
+  --bg-selected: var(--bg-elevated);        /* #292F4C                */
+  --border-light:  var(--border-hair);      /* #2A2F52                */
+  --border-medium: var(--border-default);   /* #353B66                */
+
+  /* ---- Text ramp (Tessera spec) ---- */
+  --text-primary:        #FFFFFF;
+  --text-secondary:      #D0D4E4;
+  --text-tertiary:       #9BA1C2;
+  --text-disabled:       #7B8198;
+  --text-on-dark:        #FFFFFF;
+  /* keep the "*-new" aliases in sync — a handful of components
+     (LabelPicker comment, .dark fallback) still reference them. */
+  --text-primary-new:    var(--text-primary);
+  --text-secondary-new:  var(--text-secondary);
 }
 
 * {

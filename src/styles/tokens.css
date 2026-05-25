@@ -37,10 +37,18 @@
                                      inverts: hover = a touch darker) */
 
   /* ---- Column-header band ----
-     Single filled slate band that wraps ALL column headers (chunk 2
-     of the Monday-style visual pass). Light = neutral gray that reads
-     as a divider against the white canvas. Dark = #3A4250 per spec. */
+     Single filled slate band that wraps ALL column headers. Light =
+     neutral gray that reads as a divider against the white canvas.
+     Dark = the Tessera --bg-surface (#1F2440). */
   --bg-header-band:  #E6E9EF;
+
+  /* ---- Tessera surfaces (new tokens, theme-aware) ----
+     Elevated   = active board chip / popovers / raised cells.
+     Input      = search inputs, text inputs, ghost form fields.
+     Border default = stronger borders (pills, input outlines). */
+  --bg-elevated:     #FFFFFF;
+  --bg-input:        #FFFFFF;
+  --border-default:  #C3C6D4;
 
   /* ---- Borders ----
      6%-black hairline in light mode so it stays subtle on the white
@@ -105,9 +113,11 @@
   --radius-button: 8px;
 
   /* ---- Typography ----
-     Figtree primary (Monday-style reference). Geist fallback for
-     dense data UIs, then system. */
-  --font-sans:    'Figtree', 'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+     Geist primary (Tessera mockup spec). Geist Mono for task codes /
+     code-ish content. No fallback to Figtree any more — single family
+     across the app. */
+  --font-sans:    'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:    'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Monaco, 'Courier New', monospace;
   --fs-title:     22px;
   --fs-header:    13px;
   --fs-body:      13px;
