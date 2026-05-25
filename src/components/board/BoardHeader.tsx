@@ -134,7 +134,10 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <h1
               onClick={() => canEdit && setEditingName(true)}
               title={titleTooltip}
-              className={cn('text-title truncate', canEdit && 'cursor-text hover:bg-[var(--overlay-6)] px-1 -mx-1 rounded-button')}
+              // Tessera spec: 22px / 700 plain white. Bump from the
+              // shared .text-title (600) to font-bold for the topbar
+              // title only, then truncate as before.
+              className={cn('text-title font-bold truncate', canEdit && 'cursor-text hover:bg-[var(--overlay-6)] px-1 -mx-1 rounded-button')}
             >
               {board.name}
             </h1>

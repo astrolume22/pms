@@ -108,7 +108,7 @@ function Tab({ active, icon, label, onClick }: { active?: boolean; icon: React.R
         <span
           aria-hidden="true"
           className="absolute left-1 right-1 -bottom-px h-0.5 rounded-pill"
-          style={{ background: 'var(--chip-sky)' }}
+          style={{ background: '#0073EA' }}
         />
       )}
     </button>
@@ -183,7 +183,7 @@ function ViewTab({ view, active, canEdit, onClick }: {
             <span
               aria-hidden="true"
               className="absolute left-1 right-1 -bottom-px h-0.5 rounded-pill"
-              style={{ background: 'var(--chip-sky)' }}
+              style={{ background: '#0073EA' }}
             />
           )}
         </button>

@@ -150,8 +150,14 @@ export function WorkspacePanel() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center px-2 mb-1">
-      <span className="text-xs uppercase tracking-wide text-text-secondary font-medium">{children}</span>
+    <div className="flex items-center px-2 mb-1 mt-1">
+      {/* Tessera "BOARDS" heading — dim, small, wider tracking. */}
+      <span
+        className="text-[11px] uppercase font-semibold text-text-disabled"
+        style={{ letterSpacing: '0.08em' }}
+      >
+        {children}
+      </span>
     </div>
   );
 }
@@ -202,9 +208,15 @@ function BoardRow({
     <li className="group/board">
       <div
         className={cn(
-          'flex items-center gap-2 px-2 py-1.5 rounded-base text-sm transition-colors duration-100',
+          // Tessera-style row: 32px tall, 13/500. Active row sits on
+          // the elevated surface (#292F4C) with a 3px brand-blue left
+          // accent — `pl-[5px]` keeps the inner gap honest after the
+          // border eats 3px from the left.
+          'flex items-center gap-2 h-8 pl-2 pr-2 rounded-base text-[13px] font-medium transition-colors duration-100',
           'hover:bg-hover',
-          isActive && 'bg-selected text-brand font-medium',
+          isActive
+            ? 'bg-elevated text-text-primary border-l-[3px] border-brand pl-[5px]'
+            : 'text-text-secondary',
         )}
       >
         <Link

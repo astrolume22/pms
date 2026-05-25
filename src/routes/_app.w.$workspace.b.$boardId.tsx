@@ -145,7 +145,7 @@ function BoardPage() {
           (title + actions) and this combined sub-bar that puts view tabs
           on the left and the table toolbar (New task / Search / Sort /
           Hide / Group by / Density) on the right. */}
-      <div className="px-8 pt-1 pb-2 bg-canvas flex items-center gap-2">
+      <div className="px-8 pt-1 pb-2 bg-canvas flex items-center gap-2 border-b border-border-hair">
         <BoardTabs
           boardId={board.id}
           activeViewId={activeViewId}

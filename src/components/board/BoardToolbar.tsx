@@ -51,15 +51,16 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
         </>
       )}
 
-      {/* Search — ghost-style. Transparent until focus / hover; matches
-          the rest of the secondary controls visually. */}
+      {/* Search — Tessera-styled: input bg (#2A2F52) with the default
+          border (#353B66), 240px min, 32px tall. Matches the mockup's
+          search input look on the board chrome row. */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-secondary" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"
-          className="h-8 pl-8 pr-7 rounded-button bg-[var(--overlay-3)] hover:bg-[var(--overlay-8)] focus:bg-[var(--overlay-10)] text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[200px] transition-colors duration-100"
+          className="h-8 pl-8 pr-7 rounded-button bg-input border border-border-default focus:border-brand text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[240px] transition-colors duration-100"
           style={{ letterSpacing: '0.02em' }}
         />
         {search && (
