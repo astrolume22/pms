@@ -165,17 +165,20 @@ export function ItemRow({
         </div>
       </div>
 
-      {/* Task-name cell (sticky-left after the gutter). Transparent — NOT a
-          chip. Plain 13px white text left-aligned. Brief A.4: flex with
-          min 240 / max 360 — DB-stored width is clamped to this band so
-          the column never feels cramped or sprawling. */}
+      {/* Task-name cell (sticky-left after the gutter). Slate-filled
+          (--bg-row) — Monday-style. Was bg-canvas which read as a
+          black void next to the colored chips. Plain 13px white text
+          left-aligned; the TaskNameCell inside is transparent so this
+          fill shows through. Brief A.4: flex with min 240 / max 360 —
+          DB-stored width is clamped to this band so the column never
+          feels cramped or sprawling. */}
       {taskNameCol && (
         <div
           style={{
             width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
           }}
           className={cn(
-            'shrink-0 sticky z-[2] bg-canvas',
+            'shrink-0 sticky z-[2] bg-row',
             // 1px horizontal gap to the next cell — canvas shows through
             // because we leave a margin instead of a border.
             'mr-px',
