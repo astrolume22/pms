@@ -1,10 +1,17 @@
 /**
- * Chunk 5C — additive label seed for the EXISTING "Team Projects"
- * board.
+ * Chunk 5C — additive label seed for the "Team Projects (Tessera)"
+ * DEMO board.
  *
- * Adds the labels listed in the spec to its existing Status / Task
- * Type / Co-Work Time / Priority columns. Add-to-existing only —
- * NEVER deletes existing labels, NEVER creates new columns. If any
+ * NOTE: Originally pointed at the real "Team Projects" board but
+ * that board has no Co-Work Time column. User redirected this seed
+ * to the Tessera demo board, which already has all four required
+ * columns from chunk 2's seed. The real "Team Projects" board is
+ * INTENTIONALLY untouched.
+ *
+ * Adds the labels listed in the spec to the Tessera board's existing
+ * Status / Task Type / Co-Work Time / Priority columns.
+ * Add-to-existing only — NEVER deletes existing labels, NEVER
+ * creates new columns, NEVER assigns labels to tasks. If any
  * required column is missing, the script ABORTS and reports.
  *
  * Idempotent:
@@ -26,7 +33,10 @@ if (!url || !serviceKey) {
 }
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
-const BOARD_NAME = 'Team Projects';
+// Targets the Tessera demo board specifically (the real "Team
+// Projects" board is intentionally NOT modified by this seed —
+// it lacks a Co-Work Time column and that's by design).
+const BOARD_NAME = 'Team Projects (Tessera)';
 
 interface LabelSpec { name: string; color: string }
 const SPEC: Record<string, LabelSpec[]> = {
