@@ -22,6 +22,7 @@ export default {
         card: 'var(--bg-card)',
         row: 'var(--bg-row)',
         'row-hover': 'var(--bg-row-hover)',
+        'header-band': 'var(--bg-header-band)',
         'border-light': 'var(--border-light)',
         'border-medium': 'var(--border-medium)',
         'border-hair': 'var(--border-hair)',

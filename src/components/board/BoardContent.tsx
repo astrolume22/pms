@@ -312,14 +312,17 @@ export function BoardContent({ board }: BoardContentProps) {
             table — the table reads as a continuous color mosaic on
             canvas, with group spines as the only structural seams. */}
         <div className="overflow-x-auto scroll-x-slim bg-canvas">
-          {/* Column-header row — 36px tall, canvas bg, 1px chip-hair
-              hairline below. (Chunk 6 finalizes the typography.) */}
+          {/* Column-header row — Monday-style FILLED BAND.
+              Wraps all column headers in a single continuous slate band
+              (--bg-header-band). 36px tall, white 13/500 text inside.
+              No 1px canvas gaps inside the band — the cells run together.
+              Faint 1px chip-hair hairline below separates band from rows. */}
           <div
-            className="flex items-stretch bg-canvas h-9 border-b border-border-hair"
+            className="flex items-stretch bg-header-band h-9 border-b border-border-hair"
             style={{ minWidth: tableMinWidth }}
           >
             <div
-              className="shrink-0 sticky left-0 z-[5] bg-canvas"
+              className="shrink-0 sticky left-0 z-[5] bg-header-band"
               style={{ width: GUTTER_WIDTH }}
             />
 
@@ -340,7 +343,9 @@ export function BoardContent({ board }: BoardContentProps) {
 
               {/* Synthetic header cells — empty title for the comment column
                   (the icon is per-row), "Code" for the task-code column.
-                  Same typography tier as the rest of the headers. */}
+                  Same typography tier as the rest of the headers. Cells
+                  are transparent so the band shows through (continuous
+                  slate fill). */}
               <div
                 style={{ width: COMMENT_COL_WIDTH }}
                 className="shrink-0 flex items-center justify-center"

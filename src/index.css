@@ -172,7 +172,13 @@ input, textarea, select {
 
   /* Legacy aliases (kept so non-board pages don't break). They map onto
      the three tiers above. */
-  .col-header-text { @apply text-header; text-transform: none; }
+  .col-header-text {
+    @apply text-header;
+    text-transform: none;
+    /* Monday-style filled header band: text reads as
+       white-on-slate in dark mode, dark-on-light-band in light mode. */
+    color: var(--text-primary);
+  }
   .cell-text       { @apply text-body; }
   .group-title-text {
     font-size: 16px;

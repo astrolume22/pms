@@ -106,12 +106,13 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(
-        // Premium polish: canvas-colored header cell, NO per-cell right
-        // border (the 1px gap between header cells comes from the parent
-        // row's gap-x; chunk 6 finalizes the 36px row + hairline bottom).
-        'group/col relative shrink-0 flex items-center px-3 bg-canvas col-header-text',
+        // Monday-style FILLED BAND: header cell sits inside a single
+        // continuous slate band painted by the parent row. We give the
+        // cell `bg-header-band` so the sticky task-name cell also keeps
+        // the band fill when it slides over the scroll area.
+        'group/col relative shrink-0 flex items-center px-3 bg-header-band col-header-text',
         sortable.isDragging && 'z-10',
-        isTaskName && 'sticky left-[88px] z-[5] bg-canvas',
+        isTaskName && 'sticky left-[88px] z-[5] bg-header-band',
       )}
     >
       {/* Per the polish spec: 13/500 ls .02em title-case text in the
@@ -144,7 +145,9 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
           <button
             type="button"
             onDoubleClick={() => canEdit && setRenaming(true)}
-            className="truncate text-left text-[13px] font-medium text-text-secondary"
+            // Bright primary text reads cleanly on the filled header band
+            // (white in dark mode, near-black in light mode).
+            className="truncate text-left text-[13px] font-medium text-text-primary"
             style={{ letterSpacing: '0.02em' }}
             title={column.name}
           >
