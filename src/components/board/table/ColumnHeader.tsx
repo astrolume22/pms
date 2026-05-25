@@ -65,44 +65,74 @@ export function ColumnHeader({ column, boardId, canEdit, onOpenLabelsEditor }: C
     }
   };
 
-  // Resize
+  // ----- Resize -----
+  // The in-progress draft width lives in the boardViewStore so the
+  // header, every data row, and the summary strip all subscribe to
+  // the same value and resize together during the drag. The header's
+  // local state used to hold this — but data rows didn't read it, so
+  // only the header moved while the body stayed put.
+  const liveWidth        = useBoardViewStore((s) => s.liveColumnWidths[column.id]);
+  const setLiveColWidth  = useBoardViewStore((s) => s.setLiveColumnWidth);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [draftWidth, setDraftWidth] = useState<number | null>(null);
+
   const onResizeDown = (e: React.PointerEvent) => {
     if (!canEdit) return;
     e.preventDefault();
     e.stopPropagation();
     resizingRef.current = { startX: e.clientX, startWidth: column.width };
-    setDraftWidth(column.width);
+
     const onMove = (ev: PointerEvent) => {
       if (!resizingRef.current) return;
-      const next = Math.max(MIN_WIDTH, resizingRef.current.startWidth + (ev.clientX - resizingRef.current.startX));
-      setDraftWidth(next);
+      let next = Math.max(MIN_WIDTH, resizingRef.current.startWidth + (ev.clientX - resizingRef.current.startX));
+      // task_name has its own band per Brief A.4 — clamp here so the
+      // sticky-left cell never escapes the 240-360 window.
+      if (isTaskName) {
+        next = Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, next));
+      }
+      setLiveColWidth(column.id, next);
     };
+
     const onUp = async () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      const final = draftWidthRef.current ?? column.width;
+      // Read the final value from the store (single source of truth)
+      // so a closure over a stale React state can't drop the last
+      // pointer-move tick.
+      const final = useBoardViewStore.getState().liveColumnWidths[column.id] ?? column.width;
       resizingRef.current = null;
-      setDraftWidth(null);
       if (final !== column.width) {
-        try { await update.mutateAsync({ id: column.id, boardId, patch: { width: final } }); }
-        catch (err) { toast.error(err instanceof Error ? err.message : 'Resize failed'); }
+        try {
+          // mutateAsync runs onMutate FIRST — that's our optimistic
+          // cache patch that bumps column.width in the query cache
+          // BEFORE we clear the live override below. The order matters:
+          // clear too early and the cell falls back to the old cached
+          // width for one tick → snap-back flicker.
+          await update.mutateAsync({ id: column.id, boardId, patch: { width: final } });
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Resize failed');
+        }
       }
+      // Drop the live override regardless of success — if the mutation
+      // rolled back via onError, column.width is the original anyway
+      // and the cell snaps to that (with a toast).
+      setLiveColWidth(column.id, null);
     };
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
-  // Mirror draftWidth into a ref so onUp sees the latest.
-  const draftWidthRef = useRef<number | null>(null);
-  useEffect(() => { draftWidthRef.current = draftWidth; }, [draftWidth]);
 
   return (
     <div
       ref={sortable.setNodeRef}
       style={{
         ...style,
-        width: draftWidth ?? effectiveWidth,
+        // liveWidth (from boardViewStore) is set during a drag-resize
+        // and read by EVERY consumer of this column's width — header,
+        // ItemRow cells, SummaryStrip cells — so the whole column
+        // moves together. Falls back to the persisted width when no
+        // drag is in flight.
+        width: liveWidth ?? effectiveWidth,
         opacity: sortable.isDragging ? 0.5 : 1,
       }}
       className={cn(

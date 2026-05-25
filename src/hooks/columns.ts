@@ -123,6 +123,27 @@ export function useUpdateColumn() {
       const { error } = await supabase.from('columns').update(patch as never).eq('id', id);
       if (error) throw error;
     },
+    // Optimistic patch. Prevents the "resize snaps back" flicker that
+    // happens when the columns query takes its sweet time to refetch
+    // after onSettled — the cell layout reads `column.width` straight
+    // from the cache, so without this the UI briefly reverts to the
+    // pre-mutation width between pointerup and the server response.
+    onMutate: async (vars) => {
+      const qk = columnKeys.board(vars.boardId);
+      await qc.cancelQueries({ queryKey: qk });
+      const prev = qc.getQueryData<ColumnRow[]>(qk);
+      if (prev) {
+        qc.setQueryData<ColumnRow[]>(qk, prev.map((c) =>
+          c.id === vars.id ? ({ ...c, ...vars.patch } as ColumnRow) : c,
+        ));
+      }
+      return { prev };
+    },
+    onError: (_e, vars, ctx) => {
+      // Roll back if the server rejected.
+      const prev = (ctx as { prev?: ColumnRow[] } | undefined)?.prev;
+      if (prev) qc.setQueryData(columnKeys.board(vars.boardId), prev);
+    },
     onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
   });
 }

@@ -16,6 +16,7 @@
  * Hover a segment → tooltip "Label · N of M (P%)".
  */
 import { useActiveUsers } from '@/hooks/users';
+import { useBoardViewStore } from '@/state/boardViewStore';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
 import {
   GUTTER_WIDTH,
@@ -43,6 +44,10 @@ export function SummaryStrip({
   // Mirror ItemRow's ordering: gutter → task_name → comment → task_code → others.
   const taskNameCol = visibleColumns.find((c) => c.column_type === 'task_name');
   const otherCols   = visibleColumns.filter((c) => c.column_type !== 'task_name');
+  // Live drag-resize widths — same source ColumnHeader writes to, so
+  // the summary cell tracks the header pixel-for-pixel during a drag.
+  const liveColumnWidths = useBoardViewStore((s) => s.liveColumnWidths);
+  const colWidth = (col: ColumnRow): number => liveColumnWidths[col.id] ?? col.width;
 
   return (
     <div
@@ -56,12 +61,14 @@ export function SummaryStrip({
       <div className="shrink-0 mr-px bg-row" style={{ width: GUTTER_WIDTH }} />
 
       {/* Task name — slate fill, NO bar. Width clamped to the brief's
-          240–360 band to stay aligned with the row above. */}
+          240–360 band to stay aligned with the row above. Drag-resize
+          live width resolved via colWidth() so the summary cell tracks
+          the header pixel-for-pixel. */}
       {taskNameCol && (
         <div
           className="shrink-0 mr-px bg-row"
           style={{
-            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
+            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, colWidth(taskNameCol))),
           }}
         />
       )}
@@ -80,7 +87,7 @@ export function SummaryStrip({
         return (
           <div
             key={col.id}
-            style={{ width: col.width }}
+            style={{ width: colWidth(col) }}
             className={`shrink-0 bg-row overflow-hidden flex items-center px-2 ${isLast ? '' : 'mr-px'}`}
           >
             <div className="w-full h-2.5 overflow-hidden flex" style={{ borderRadius: 2 }}>

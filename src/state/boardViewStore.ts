@@ -66,6 +66,12 @@ interface BoardViewState {
   filters: ColumnFilter[];
   selectedItemIds: Set<string>;
   expandedItemIds: Set<string>;
+  // Per-column LIVE width override during a drag-resize. Keyed by
+  // column.id, value = the in-progress pixel width. Cleared once the
+  // resize commits (the column row in the query cache holds the
+  // persisted width after the optimistic patch in useUpdateColumn).
+  // Session-only — never persisted to localStorage / DB.
+  liveColumnWidths: Record<string, number>;
 
   hydrate: (boardId: string, userId: string) => void;
   reset: () => void;
@@ -78,6 +84,8 @@ interface BoardViewState {
   setGroupCollapsed: (groupId: string, collapsed: boolean) => void;
   toggleGroupCollapsed: (groupId: string) => void;
   setFilters: (f: ColumnFilter[]) => void;
+  // Drag-time resize plumbing. Pass null to clear after commit.
+  setLiveColumnWidth: (columnId: string, width: number | null) => void;
   clearFilters: () => void;
 
   toggleSelected: (itemId: string) => void;
@@ -101,6 +109,7 @@ const useStore = create<BoardViewState>((set, get) => {
     filters: [],
     selectedItemIds: new Set(),
     expandedItemIds: new Set(),
+    liveColumnWidths: {},
 
     hydrate: (boardId, userId) => {
       const key = `${userId}::${boardId}`;
@@ -112,6 +121,7 @@ const useStore = create<BoardViewState>((set, get) => {
         filters: [],
         selectedItemIds: new Set(),
         expandedItemIds: new Set(),
+        liveColumnWidths: {},
       });
     },
     reset: () => {
@@ -122,6 +132,7 @@ const useStore = create<BoardViewState>((set, get) => {
         filters: [],
         selectedItemIds: new Set(),
         expandedItemIds: new Set(),
+        liveColumnWidths: {},
       });
     },
 
@@ -154,6 +165,22 @@ const useStore = create<BoardViewState>((set, get) => {
 
     setFilters: (filters) => set({ filters }),
     clearFilters: () => set({ filters: [] }),
+
+    setLiveColumnWidth: (columnId, width) => {
+      const cur = get().liveColumnWidths;
+      if (width == null) {
+        // Clear — only fire a state change if the key was present.
+        if (!(columnId in cur)) return;
+        const next = { ...cur };
+        delete next[columnId];
+        set({ liveColumnWidths: next });
+      } else {
+        // Set — early-return if the value is unchanged so 60Hz pointer
+        // moves at a stable pixel don't trigger noop renders.
+        if (cur[columnId] === width) return;
+        set({ liveColumnWidths: { ...cur, [columnId]: width } });
+      }
+    },
 
     toggleSelected: (itemId) => {
       const next = new Set(get().selectedItemIds);

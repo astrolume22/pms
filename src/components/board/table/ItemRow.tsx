@@ -76,6 +76,12 @@ export function ItemRow({
   const toggleSel = useBoardViewStore((s) => s.toggleSelected);
   const itemHeight = useBoardViewStore((s) => s.persisted.itemHeight);
   const rowHeight = ITEM_HEIGHT_PX[itemHeight];
+  // Live width overrides during a drag-resize. Subscribing here means
+  // every ItemRow re-renders on each pointer-move tick so the data
+  // cells follow the header in lock-step. Falls back to col.width
+  // when no drag is in flight.
+  const liveColumnWidths = useBoardViewStore((s) => s.liveColumnWidths);
+  const colWidth = (col: ColumnRow): number => liveColumnWidths[col.id] ?? col.width;
 
   const updateCell = useUpdateCellValue();
   const profile = useAuthStore((s) => s.profile);
@@ -175,7 +181,9 @@ export function ItemRow({
       {taskNameCol && (
         <div
           style={{
-            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
+            // Resolve via colWidth() so a live drag-resize on the task-
+            // name column moves the cell in step with the header.
+            width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, colWidth(taskNameCol))),
           }}
           className={cn(
             'shrink-0 sticky z-[2] bg-row',
@@ -228,7 +236,7 @@ export function ItemRow({
         return (
           <div
             key={col.id}
-            style={{ width: col.width }}
+            style={{ width: colWidth(col) }}
             className={cn(
               'shrink-0',
               // 1px gap on the right unless this is the last cell in the
