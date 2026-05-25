@@ -92,7 +92,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
   ].join(' · ');
 
   return (
-    <div className="px-8 pt-4 pb-2 bg-canvas">
+    <div className="px-8 pt-3 pb-2 bg-canvas">
       {/* Row 1 — title row. Emoji + title + badge + actions on a single
           line. Description + dates collapsed by default. */}
       <div className="flex items-center gap-3">
@@ -174,7 +174,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
                   toast.error(err instanceof Error ? err.message : 'Could not update favorite');
                 }
               }}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
               title={board.is_favorite ? 'Unfavorite' : 'Add to favorites'}
             >
               <Star
@@ -191,7 +191,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <button
               type="button"
               onClick={() => setBuildOpen(true)}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
               style={{
                 background: 'linear-gradient(135deg, var(--chip-sky) 0%, var(--chip-purple) 100%)',
                 letterSpacing: '0.02em',
@@ -210,7 +210,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
             <button
               type="button"
               onClick={() => setInviteOpen(true)}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
               style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
               title="Invite teammates with a shareable link"
             >
@@ -224,7 +224,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               type="button"
               aria-label="More"
               onClick={() => setMenuOpen((v) => !v)}
-              className="h-9 w-9 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-button text-text-secondary hover:bg-[var(--overlay-8)] hover:text-text-primary transition-colors duration-100"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
