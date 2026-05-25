@@ -1,17 +1,19 @@
 /**
- * Per-group SUMMARY STRIP — 6px tall, aligned to the table columns.
+ * Per-group SUMMARY ROW — Monday-style full-height row.
  *
- * Replaces the old ColumnFooter (numeric Σ + people-stack). For each
- * categorical column it renders a STACKED horizontal bar of segments —
- * one segment per chip color, width proportional to the color's count
- * in the group. Segments inside a cell have 0 gap; cells are separated
- * by the 1px canvas gap (same mr-px rule as ItemRow).
+ * Was a 6px gradient strip below the data rows. NOW: a real 36px row
+ * (--row-h, same as a data row) that mirrors the column structure
+ * EXACTLY. Each cell:
+ *   • Slate-fills with --bg-row (so the row reads as a continuous
+ *     mosaic with the rows above).
+ *   • Categorical columns (status/priority/dropdown) → stacked color
+ *     segments touching with no gap inside the cell. 1px canvas gap
+ *     between cells via mr-px (same rule as ItemRow).
+ *   • Date / numbers / people / checkbox → similar tone/coverage bar
+ *     inside the slate cell.
+ *   • Task / Code / Comment cells → slate fill, no bar.
  *
- * Hover a segment → tooltip "Working on it · 3 tasks (42%)".
- *
- * Task name + Comment-indicator + Task Code columns get NO segment
- * (per criterion 14). Numbers gets a "coverage" bar (filled vs blank).
- * Date gets tone bars (today/tomorrow/overdue/future).
+ * Hover a segment → tooltip "Label · N of M (P%)".
  */
 import { useActiveUsers } from '@/hooks/users';
 import type { ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/database.types';
@@ -31,7 +33,9 @@ interface SummaryStripProps {
   labelsByColumnId: Map<string, ColumnLabelRow[]>;
 }
 
-const STRIP_HEIGHT = 6;       // px
+// Match the table's row token so the summary row never desyncs from
+// the data rows above it.
+const SUMMARY_ROW_HEIGHT = 36;  // px — same as --row-h
 
 export function SummaryStrip({
   visibleColumns, items, valuesByItemColumn, labelsByColumnId,
@@ -42,47 +46,51 @@ export function SummaryStrip({
 
   return (
     <div
-      // Strip lives on canvas with mb-px above (already provided by the
-      // last row) so the 1px gap above is in place. No row borders.
+      // Full-height row on canvas. Each cell below gets bg-row so the
+      // canvas only ever shows through as the 1px gaps between cells.
       className="flex items-stretch bg-canvas"
-      style={{ height: STRIP_HEIGHT }}
+      style={{ height: SUMMARY_ROW_HEIGHT }}
       aria-label="Group summary"
     >
-      {/* Gutter — empty, no bar. */}
-      <div className="shrink-0 mr-px" style={{ width: GUTTER_WIDTH }} />
+      {/* Gutter — slate fill, empty. */}
+      <div className="shrink-0 mr-px bg-row" style={{ width: GUTTER_WIDTH }} />
 
-      {/* Task name — NO bar (criterion 14). Width clamped to the brief's
+      {/* Task name — slate fill, NO bar. Width clamped to the brief's
           240–360 band to stay aligned with the row above. */}
       {taskNameCol && (
         <div
-          className="shrink-0 mr-px"
+          className="shrink-0 mr-px bg-row"
           style={{
             width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, taskNameCol.width)),
           }}
         />
       )}
 
-      {/* Comment indicator — NO bar. */}
-      <div className="shrink-0 mr-px" style={{ width: COMMENT_COL_WIDTH }} />
+      {/* Comment indicator — slate fill, NO bar. */}
+      <div className="shrink-0 mr-px bg-row" style={{ width: COMMENT_COL_WIDTH }} />
 
-      {/* Task Code — NO bar. */}
-      <div className="shrink-0 mr-px" style={{ width: TASK_CODE_COL_WIDTH }} />
+      {/* Task Code — slate fill, NO bar. */}
+      <div className="shrink-0 mr-px bg-row" style={{ width: TASK_CODE_COL_WIDTH }} />
 
-      {/* User-defined columns — stacked color bars. */}
+      {/* User-defined columns — slate-filled cell with the stacked color
+          bar floating in the middle (16px-tall bar, vertically centered
+          inside the 36px slate cell). */}
       {otherCols.map((col, idx) => {
         const isLast = idx === otherCols.length - 1;
         return (
           <div
             key={col.id}
             style={{ width: col.width }}
-            className={`shrink-0 ${isLast ? '' : 'mr-px'} overflow-hidden`}
+            className={`shrink-0 bg-row overflow-hidden flex items-center px-2 ${isLast ? '' : 'mr-px'}`}
           >
-            <ColumnSummary
-              column={col}
-              items={items}
-              valuesByItemColumn={valuesByItemColumn}
-              labels={labelsByColumnId.get(col.id) ?? []}
-            />
+            <div className="w-full h-2.5 overflow-hidden flex" style={{ borderRadius: 2 }}>
+              <ColumnSummary
+                column={col}
+                items={items}
+                valuesByItemColumn={valuesByItemColumn}
+                labels={labelsByColumnId.get(col.id) ?? []}
+              />
+            </div>
           </div>
         );
       })}
