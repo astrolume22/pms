@@ -226,8 +226,10 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
           <div
             className="rounded-base p-2.5 space-y-2"
             style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.10)',
+              // Theme-aware overlays — `rgba(255,255,255,0.X)` would
+              // vanish on the white card surface in light mode.
+              background: 'var(--overlay-3)',
+              border: '1px solid var(--overlay-10)',
             }}
           >
             <input
@@ -243,8 +245,8 @@ export function LabelsEditorModal({ open, onClose, boardId, column }: LabelsEdit
               spellCheck={false}
               className="w-full h-9 px-2.5 rounded-sm text-[13px] text-text-primary placeholder:text-text-secondary outline-none"
               style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'var(--overlay-6)',
+                border: '1px solid var(--overlay-10)',
                 letterSpacing: '0.02em',
               }}
             />
