@@ -304,7 +304,7 @@ function NewTaskButton({
           await onCreate(firstGroup.id);
         }}
         className={cn(
-          'inline-flex items-center h-9 pl-3.5 pr-2.5 rounded-l-button text-[13px] font-medium text-white',
+          'inline-flex items-center h-8 pl-3.5 pr-2.5 rounded-l-button text-[13px] font-medium text-white',
           'hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-[filter] duration-100',
         )}
         style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
@@ -319,7 +319,7 @@ function NewTaskButton({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Choose group for new task"
-        className="inline-flex items-center justify-center h-9 w-7 rounded-r-button text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-[filter] duration-100"
+        className="inline-flex items-center justify-center h-8 w-7 rounded-r-button text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-[filter] duration-100"
         style={{ background: 'var(--chip-sky)', boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.18)' }}
       >
         <ChevronDown className="h-3.5 w-3.5" />
