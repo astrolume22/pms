@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
+import { readNumberValue } from './cellValue';
 
 interface NumbersSettings {
   unit?: string;
@@ -10,7 +11,9 @@ interface NumbersSettings {
 
 export function NumbersCell({ column, value, readonly, isEditing, onStartEdit, onEndEdit, onCommit }: CellProps) {
   const settings = (column.settings ?? {}) as NumbersSettings;
-  const raw = (value as { value?: number | null } | undefined)?.value ?? null;
+  // Defensive normalize: same envelope bug that hit date/text could
+  // wrap a number cell. See cellValue.ts.
+  const raw = readNumberValue(value);
   const [draft, setDraft] = useState(raw == null ? '' : String(raw));
   const inputRef = useRef<HTMLInputElement>(null);
 

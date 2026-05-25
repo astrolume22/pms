@@ -3,10 +3,12 @@ import { ExternalLink } from 'lucide-react';
 import { Popover } from '../Popover';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
+import { readLinkValue } from './cellValue';
 
 export function LinkCell({ value, readonly, isEditing, onStartEdit, onEndEdit, onCommit }: CellProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
-  const cur = (value as { url?: string; text?: string } | undefined) ?? { url: '', text: '' };
+  // Defensive normalize — see cellValue.ts.
+  const cur = readLinkValue(value);
   const [url, setUrl] = useState(cur.url ?? '');
   const [text, setText] = useState(cur.text ?? '');
 

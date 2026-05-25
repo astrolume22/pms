@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
+import { readTextValue } from './cellValue';
 
 export function TextCell({ value, readonly, isEditing, onStartEdit, onEndEdit, onCommit }: CellProps) {
-  const raw = (value as { text?: string } | undefined)?.text ?? '';
+  // Normalize across all stored shapes: canonical {text}, MCP-wrapped
+  // {value:'{"text":"…"}'}, or plain string. See cellValue.ts.
+  const raw = readTextValue(value);
   const [draft, setDraft] = useState(raw);
   const inputRef = useRef<HTMLInputElement>(null);
 

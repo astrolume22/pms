@@ -4,6 +4,7 @@ import { DatePopover } from '../DatePopover';
 import { dateToneFor, dateChipColor } from '@/lib/chipColor';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
+import { readDateValue } from './cellValue';
 
 /**
  * Premium polish Date cell — relative-time tinted chip.
@@ -25,7 +26,9 @@ function fmt(iso: string): string {
 
 export function DateCell({ value, readonly, isEditing, onStartEdit, onEndEdit, onCommit }: CellProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
-  const iso = (value as { date?: string | null } | undefined)?.date ?? null;
+  // Normalize across all stored shapes: canonical {date}, MCP-wrapped
+  // {value:'{"date":"…"}'}, or plain ISO string. See cellValue.ts.
+  const iso = readDateValue(value);
   const tone = dateToneFor(iso);
   const bg = dateChipColor(tone);   // null for future / empty
 

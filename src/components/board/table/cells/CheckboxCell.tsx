@@ -1,9 +1,11 @@
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { CellProps } from './cellTypes';
+import { readCheckboxValue } from './cellValue';
 
 export function CheckboxCell({ value, readonly, onCommit }: CellProps) {
-  const checked = (value as { checked?: boolean } | undefined)?.checked ?? false;
+  // Defensive normalize — see cellValue.ts.
+  const checked = readCheckboxValue(value);
   return (
     <div className="w-full h-full flex items-center justify-center">
       <button
