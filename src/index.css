@@ -2,10 +2,10 @@
    utility classes use them. */
 @import url('./styles/tokens.css');
 
-/* Geist (primary) + Figtree (fallback) + Roboto Mono. Geist has uniform
-   metrics tuned for dense data UIs; Figtree stays as the backup so the
-   layout still renders if Google Fonts is unreachable. */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+/* Figtree (primary, Monday-style reference) + Geist (fallback for
+   dense data UIs) + Roboto Mono (code). All three loaded eagerly so
+   the layout never reflows after font swap. */
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -50,12 +50,13 @@
    tokens directly. */
 .dark {
   /* Override the new polish-pass surface ramp with the dark hex palette. */
-  --bg-canvas:      #0F1117;
-  --bg-sidebar-new: #181B22;
-  --bg-card:        #1A1D24;
-  --bg-row:         #2A2E36;
-  --bg-row-hover:   #32363F;
-  --border-hair:    rgba(255, 255, 255, 0.06);
+  --bg-canvas:       #0F1117;
+  --bg-sidebar-new:  #181B22;
+  --bg-card:         #1A1D24;
+  --bg-row:          #2B2F36;     /* Monday-style slate cell fill */
+  --bg-row-hover:    #32363F;
+  --bg-header-band:  #3A4250;     /* filled column-header band */
+  --border-hair:     rgba(255, 255, 255, 0.06);
 
   /* Flip the overlay tokens to white tints — they live on dark surfaces here. */
   --overlay-3:   rgba(255, 255, 255, 0.03);
@@ -65,9 +66,12 @@
   --overlay-12:  rgba(255, 255, 255, 0.12);
   --overlay-18:  rgba(255, 255, 255, 0.18);
 
-  /* Legacy tokens remapped onto the (now-dark) polish-pass ramp. */
-  --bg-dark:     var(--bg-canvas);          /* #0F1117 */
-  --bg-app:      var(--bg-canvas);          /* canvas behind table */
+  /* Legacy tokens remapped onto the (now-dark) polish-pass ramp.
+     --bg-app is pure black in dark mode (top bar surface per the
+     Monday-style visual brief). It sits behind the icon-rail and
+     reads as the deepest layer. */
+  --bg-dark:     #000000;                   /* top bar deep black     */
+  --bg-app:      #000000;                   /* outer shell deep black */
   --bg-sidebar:  var(--bg-sidebar-new);     /* #181B22 */
   --bg-surface:  var(--bg-row);             /* #2A2E36, where chips sit */
   --bg-hover:    var(--bg-row-hover);       /* #32363F */

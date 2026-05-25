@@ -182,15 +182,12 @@ export const useBoardViewStore = useStore;
 // Row heights tuned to Monday's reference: comfortable rows are ~44px,
 // not the snug 40px we had before. Compact and spacious bumped in
 // proportion.
-// Monday-style density: confident 14px body text in compact rows so
-// the colored chips sit close together and reinforce each other.
-// 48px is the default — short enough to keep the data dense, tall
-// enough for the chip text + an 8px vertical padding budget on cells.
-// Premium polish: default (comfortable) is exactly 40px with 10px y / 16px x
-// cell padding — short enough to keep the heatmap-dense look, tall enough
-// for the chip text + a 10px vertical padding budget on cells.
+// Monday-style density (visual pass): 36px default row matches the
+// reference exactly — chips read as a tight mosaic with 8px vertical /
+// 12px horizontal cell padding. Compact + spacious shift by one step
+// from there. Keep this matched with --row-h in tokens.css.
 export const ITEM_HEIGHT_PX: Record<ItemHeight, number> = {
-  compact: 32,
-  comfortable: 40,
-  spacious: 52,
+  compact: 30,
+  comfortable: 36,
+  spacious: 48,
 };

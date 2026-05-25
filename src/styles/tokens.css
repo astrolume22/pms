@@ -36,6 +36,12 @@
                                      (in light mode the contrast move
                                      inverts: hover = a touch darker) */
 
+  /* ---- Column-header band ----
+     Single filled slate band that wraps ALL column headers (chunk 2
+     of the Monday-style visual pass). Light = neutral gray that reads
+     as a divider against the white canvas. Dark = #3A4250 per spec. */
+  --bg-header-band:  #E6E9EF;
+
   /* ---- Borders ----
      6%-black hairline in light mode so it stays subtle on the white
      surface ramp. Flipped to 6%-white inside `.dark`. */
@@ -73,23 +79,35 @@
   --chip-sky:    oklch(0.70 0.12 230);    /* primary action, focus, tomorrow */
   --chip-mint:   oklch(0.72 0.14 160);    /* done, success */
   --chip-coral:  oklch(0.68 0.16 25);     /* alternative warm accent */
+  --chip-teal-dark: oklch(0.45 0.08 200); /* deeper teal — paired w/ teal */
 
   /* ---- Focus ring ---- */
   --focus-ring:  oklch(0.70 0.12 230);
 
-  /* ---- Density ---- */
-  --row-height:  40px;
-  --cell-pad-y:  10px;
-  --cell-pad-x:  16px;
-  --cell-gap:    1px;
+  /* ---- Density / sizing ----
+     Monday-style 36px row + 8/12 cell padding so the chips read as a
+     tight mosaic. --row-height kept as an alias of --row-h for any
+     legacy css that still references the old name. */
+  --row-h:        36px;
+  --header-h:     36px;
+  --row-height:   var(--row-h);   /* legacy alias */
+  --cell-pad-y:    8px;
+  --cell-pad-x:   12px;
+  --cell-gap:      1px;
+  --sidebar-w:   240px;
+  --top-bar-h:    50px;
+  --toolbar-h:    44px;
+  --tabs-h:       44px;
 
   /* ---- Radius ---- */
   --radius-cell:   0;       /* cells are sharp */
   --radius-card:   12px;    /* popovers / cards */
   --radius-button: 8px;
 
-  /* ---- Typography ---- */
-  --font-sans:    'Geist', 'Figtree', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* ---- Typography ----
+     Figtree primary (Monday-style reference). Geist fallback for
+     dense data UIs, then system. */
+  --font-sans:    'Figtree', 'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --fs-title:     22px;
   --fs-header:    13px;
   --fs-body:      13px;
