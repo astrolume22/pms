@@ -41,7 +41,9 @@ export function AddItemRow({
       // canvas background so the whole row reads as an empty "shadow"
       // row at the bottom of the group.
       className={cn(
-        'flex items-center h-10 bg-canvas',
+        // Full-width top hairline so the +Add task row clearly reads as
+        // separated from the last task row above (Monday-style).
+        'flex items-center h-10 bg-canvas border-t border-border-hair',
         disabled && 'opacity-50',
       )}
       style={{ minWidth: totalWidth }}

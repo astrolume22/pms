@@ -27,23 +27,14 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
-// Premium polish chip palette — the 8 OKLCH tokens precomputed to hex
-// via colorNormalize so every label written from the editor lands in
-// the canonical #RRGGBB form that the renderer reads back verbatim.
-// (Earlier this file wrote oklch() strings; the renderer's name-based
-// override hid the disagreement, but it broke string-equality and the
-// "selected color" highlight on the swatch. Hex everywhere now.)
-import { TOKEN_HEX, colorsEqual, toCanonicalHex, defaultLabelHexFor } from '@/lib/colorNormalize';
-const COLOR_PALETTE: string[] = [
-  TOKEN_HEX.amber,
-  TOKEN_HEX.slate,
-  TOKEN_HEX.teal,
-  TOKEN_HEX.pink,
-  TOKEN_HEX.purple,
-  TOKEN_HEX.sky,
-  TOKEN_HEX.mint,
-  TOKEN_HEX.coral,
-];
+// Monday-style label palette (~26 hexes including light + dark shades
+// per hue). Shared with LabelPicker so both pickers offer the same
+// choices. Stored as #RRGGBB via colorNormalize; selected-swatch
+// highlight uses colorsEqual (case-insensitive) so the previous fix
+// still works on the bigger list.
+import { colorsEqual, toCanonicalHex, defaultLabelHexFor } from '@/lib/colorNormalize';
+import { LABEL_PALETTE } from '@/lib/labelPalette';
+const COLOR_PALETTE: readonly string[] = LABEL_PALETTE;
 
 interface LabelsEditorModalProps {
   open: boolean;

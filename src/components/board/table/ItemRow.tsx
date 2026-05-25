@@ -104,9 +104,11 @@ export function ItemRow({
       ref={sortable.setNodeRef}
       style={{ ...style, height: rowHeight, opacity: sortable.isDragging ? 0.4 : 1 }}
       className={cn(
-        // Canvas-colored row container: shows through as the 1px gap
-        // between cells. No row borders.
-        'group/row flex items-stretch bg-canvas text-[13px]',
+        // Canvas-colored row container with a subtle 1px hairline
+        // bottom — Monday-style visible grid line between every task
+        // row. Cells below carry border-r for the column-cell
+        // separators so the whole grid reads as one ruled table.
+        'group/row flex items-stretch bg-canvas text-[13px] border-b border-border-hair',
         isSubitem && 'opacity-95',
       )}
     >
@@ -187,9 +189,10 @@ export function ItemRow({
           }}
           className={cn(
             'shrink-0 sticky z-[2] bg-row',
-            // 1px horizontal gap to the next cell — canvas shows through
-            // because we leave a margin instead of a border.
-            'mr-px',
+            // 1px column separator — was mr-px (canvas gap, invisible
+            // because bg-row matches canvas). Switched to a border-r
+            // hairline for the visible Monday-style grid.
+            'border-r border-border-hair',
           )}
         >
           <CellRenderer
@@ -208,10 +211,10 @@ export function ItemRow({
         </div>
       )}
 
-      {/* Synthetic comment-indicator column — transparent. */}
+      {/* Synthetic comment-indicator column — transparent + hairline. */}
       <div
         style={{ width: COMMENT_COL_WIDTH }}
-        className="shrink-0 mr-px flex items-center justify-center"
+        className="shrink-0 border-r border-border-hair flex items-center justify-center"
       >
         <CommentIndicator
           item={item}
@@ -222,7 +225,7 @@ export function ItemRow({
       {/* Synthetic task-code column — SLATE-FILL chip (chunk 3 styling). */}
       <div
         style={{ width: TASK_CODE_COL_WIDTH }}
-        className="shrink-0 mr-px"
+        className="shrink-0 border-r border-border-hair"
       >
         <TaskCodeChip code={item.task_code} onClick={openTaskPanel} />
       </div>
@@ -239,10 +242,10 @@ export function ItemRow({
             style={{ width: colWidth(col) }}
             className={cn(
               'shrink-0',
-              // 1px gap on the right unless this is the last cell in the
-              // user-defined column run (the row's "+ Add column" cell
-              // already sits on canvas).
-              !isLast && 'mr-px',
+              // 1px column-separator hairline — was an mr-px canvas gap
+              // (invisible because bg-row matches canvas). Now a
+              // border-r so the column grid actually reads.
+              !isLast && 'border-r border-border-hair',
             )}
           >
             <CellRenderer

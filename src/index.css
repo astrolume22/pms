@@ -71,8 +71,13 @@
   --bg-elevated:     #292F4C;     /* active board chip, raised cells */
   --bg-input:        #2A2F52;     /* search / text input fills       */
 
-  /* ---- Borders ---- */
-  --border-hair:     #2A2F52;     /* subtle hairlines + row dividers */
+  /* ---- Borders ----
+     hairline bumped from #2A2F52 → #2E3358 so row + column gridlines
+     are CLEARLY visible against the canvas (Monday-style subtle gray
+     grid) without becoming harsh. Used by ItemRow / SummaryStrip /
+     AddItemRow / ColumnHeader for all of: row dividers, column-cell
+     separators, and the +Add task top border. */
+  --border-hair:     #2E3358;     /* subtle hairlines + row dividers */
   --border-default:  #353B66;     /* pills, input outlines, stronger */
 
   /* Flip the overlay tokens to white tints — they live on dark surfaces here. */

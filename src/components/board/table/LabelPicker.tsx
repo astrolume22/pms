@@ -24,8 +24,9 @@ import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { useCreateLabel } from '@/hooks/labels';
 import { chipColorFor } from '@/lib/chipColor';
 import {
-  defaultLabelHexFor, tokenHex, TOKEN_HEX, colorsEqual, type ChipToken,
+  defaultLabelHexFor, tokenHex, colorsEqual, type ChipToken,
 } from '@/lib/colorNormalize';
+import { LABEL_PALETTE } from '@/lib/labelPalette';
 
 interface LabelPickerProps {
   boardId: string;
@@ -45,12 +46,9 @@ const FALLBACK_ROTATION: ChipToken[] = [
   'mint', 'amber', 'coral', 'sky', 'purple', 'pink', 'teal', 'slate',
 ];
 
-// The 8 OKLCH chip-token hexes, surfaced as a stable array for the
-// add-label color picker (same palette LabelsEditorModal uses).
-const PICKER_PALETTE: string[] = [
-  TOKEN_HEX.amber, TOKEN_HEX.slate, TOKEN_HEX.teal,  TOKEN_HEX.pink,
-  TOKEN_HEX.purple, TOKEN_HEX.sky,  TOKEN_HEX.mint,  TOKEN_HEX.coral,
-];
+// Monday-style label palette shared with LabelsEditorModal (light +
+// dark shades of each hue). See src/lib/labelPalette.ts.
+const PICKER_PALETTE: readonly string[] = LABEL_PALETTE;
 
 export function LabelPicker({
   boardId, columnId, column, labels, selectedIds, multi, onChange, onOpenLabelsEditor, onDone,

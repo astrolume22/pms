@@ -322,7 +322,7 @@ export function BoardContent({ board }: BoardContentProps) {
             style={{ minWidth: tableMinWidth }}
           >
             <div
-              className="shrink-0 sticky left-0 z-[5] bg-header-band"
+              className="shrink-0 sticky left-0 z-[5] bg-header-band border-r border-border-hair"
               style={{ width: GUTTER_WIDTH }}
             />
 
@@ -348,12 +348,12 @@ export function BoardContent({ board }: BoardContentProps) {
                   slate fill). */}
               <div
                 style={{ width: COMMENT_COL_WIDTH }}
-                className="shrink-0 flex items-center justify-center"
+                className="shrink-0 flex items-center justify-center border-r border-border-hair"
                 aria-hidden="true"
               />
               <div
                 style={{ width: TASK_CODE_COL_WIDTH }}
-                className="shrink-0 flex items-center justify-center col-header-text"
+                className="shrink-0 flex items-center justify-center col-header-text border-r border-border-hair"
               >
                 Code
               </div>

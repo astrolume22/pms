@@ -53,12 +53,12 @@ export function SummaryStrip({
     <div
       // Full-height row on canvas. Each cell below gets bg-row so the
       // canvas only ever shows through as the 1px gaps between cells.
-      className="flex items-stretch bg-canvas"
+      className="flex items-stretch bg-canvas border-t border-border-hair"
       style={{ height: SUMMARY_ROW_HEIGHT }}
       aria-label="Group summary"
     >
       {/* Gutter — slate fill, empty. */}
-      <div className="shrink-0 mr-px bg-row" style={{ width: GUTTER_WIDTH }} />
+      <div className="shrink-0 border-r border-border-hair bg-row" style={{ width: GUTTER_WIDTH }} />
 
       {/* Task name — slate fill, NO bar. Width clamped to the brief's
           240–360 band to stay aligned with the row above. Drag-resize
@@ -66,7 +66,7 @@ export function SummaryStrip({
           the header pixel-for-pixel. */}
       {taskNameCol && (
         <div
-          className="shrink-0 mr-px bg-row"
+          className="shrink-0 border-r border-border-hair bg-row"
           style={{
             width: Math.min(TASK_NAME_MAX_WIDTH, Math.max(TASK_NAME_MIN_WIDTH, colWidth(taskNameCol))),
           }}
@@ -74,10 +74,10 @@ export function SummaryStrip({
       )}
 
       {/* Comment indicator — slate fill, NO bar. */}
-      <div className="shrink-0 mr-px bg-row" style={{ width: COMMENT_COL_WIDTH }} />
+      <div className="shrink-0 border-r border-border-hair bg-row" style={{ width: COMMENT_COL_WIDTH }} />
 
       {/* Task Code — slate fill, NO bar. */}
-      <div className="shrink-0 mr-px bg-row" style={{ width: TASK_CODE_COL_WIDTH }} />
+      <div className="shrink-0 border-r border-border-hair bg-row" style={{ width: TASK_CODE_COL_WIDTH }} />
 
       {/* User-defined columns — slate-filled cell with the stacked color
           bar floating in the middle (16px-tall bar, vertically centered
@@ -88,7 +88,7 @@ export function SummaryStrip({
           <div
             key={col.id}
             style={{ width: colWidth(col) }}
-            className={`shrink-0 bg-row overflow-hidden flex items-center px-2 ${isLast ? '' : 'mr-px'}`}
+            className={`shrink-0 bg-row overflow-hidden flex items-center px-2 ${isLast ? '' : 'border-r border-border-hair'}`}
           >
             <div className="w-full h-2.5 overflow-hidden flex" style={{ borderRadius: 2 }}>
               <ColumnSummary
