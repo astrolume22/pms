@@ -14,11 +14,9 @@
  *     • "+ New label" ghost cell — dashed 1px white-12% border, opens
  *       an inline text input below.
  *     • "Edit Labels" — text button.
- *     • "✨ Auto-assign labels" — teal→purple gradient CTA (the ONLY
- *       gradient chip allowed by the polish spec).
  */
 import { useEffect, useState } from 'react';
-import { Check, Plus, Settings, Sparkles } from 'lucide-react';
+import { Check, Plus, Settings } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { ColumnLabelRow, ColumnRow } from '@/lib/database.types';
 import { useCreateLabel } from '@/hooks/labels';
@@ -284,7 +282,7 @@ export function LabelPicker({
         </div>
       )}
 
-      {/* Footer — Edit Labels + Auto-assign + (optional) Done */}
+      {/* Footer — Edit Labels + (optional) Done */}
       <div
         className="mt-3 pt-2"
         style={{ borderTop: '1px solid var(--overlay-6)' }}
@@ -297,22 +295,6 @@ export function LabelPicker({
         >
           <Settings className="h-4 w-4" />
           Edit Labels
-        </button>
-        {/* Auto-assign — visual stub. The only gradient allowed in the
-            picker per the polish spec: teal → purple. */}
-        <button
-          type="button"
-          disabled
-          title="Coming soon — AI suggests a label based on task context"
-          className="w-full mt-1 h-9 inline-flex items-center justify-center gap-1.5 rounded-button text-[13px] font-medium text-white opacity-90 cursor-not-allowed"
-          style={{
-            background: 'linear-gradient(135deg, var(--chip-teal) 0%, var(--chip-purple) 100%)',
-            letterSpacing: '0.02em',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)',
-          }}
-        >
-          <Sparkles className="h-4 w-4" />
-          Auto-assign labels
         </button>
         {multi && onDone && (
           <button
