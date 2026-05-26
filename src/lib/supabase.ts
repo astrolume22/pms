@@ -79,8 +79,14 @@ async function passThroughLock<R>(
 // from react-query / the route still works.  Once the dead socket
 // fails a request, Chrome opens a fresh connection for the next call —
 // so a single user-visible failure self-heals every subsequent call.
+//
+// HARD_TIMEOUT_MS was 15s; lowered to 6s so the worst-case dead-socket
+// wait after a tab-return drops from "feels frozen" to "noticeable but
+// brief". Node-side measurements show normal PostgREST + auth round-
+// trips complete in 300-800 ms here, so 6s is still comfortably above
+// p99 for any legitimate request.
 // =====================================================================
-const HARD_TIMEOUT_MS = 15_000;
+const HARD_TIMEOUT_MS = 6_000;
 
 function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
@@ -120,3 +126,61 @@ export const supabase = createClient(url, anonKey, {
     fetch: timeoutFetch,
   },
 });
+
+// =====================================================================
+// Tab-return socket warm-up.
+// ---------------------------------------------------------------------
+// When a backgrounded tab regains visibility, Chrome may have parked
+// the HTTP/2 socket to Supabase. The user's first action then queues
+// on that dead socket and sits pending until our timeoutFetch aborts
+// it — felt as a "hang" on the click immediately after tab-return.
+//
+// This handler fires a tiny HEAD ping to /rest/v1/ within 200ms of
+// visibility=visible with its OWN 2s AbortController. Three cases:
+//   (1) Socket alive → HEAD returns quickly (~200-500ms). No-op.
+//   (2) Socket parked/dead → HEAD aborts at 2s. Chrome notices the
+//       connection is gone and opens a fresh one for the next request.
+//       The user's subsequent click goes on the new socket → fast.
+//   (3) User clicks BEFORE the ping completes → their request piggybacks
+//       on whatever connection Chrome picks. Either way the ping itself
+//       can't make things worse — its only effect is "kill dead socket
+//       sooner".
+//
+// We bail out cheaply when the doc is already visible (initial load),
+// when there's no localStorage session (unauthenticated user — nothing
+// useful to warm), and ignore any error from the ping itself (it's a
+// best-effort warm-up, not user-visible).
+// =====================================================================
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  const VISIBILITY_WARMUP_TIMEOUT_MS = 2_000;
+  let warming = false;
+
+  const warmSocket = () => {
+    if (warming) return; // already in flight, don't double-fire
+    // Skip if not authenticated — anon users have nothing useful to warm.
+    try {
+      if (!localStorage.getItem('pms.auth')) return;
+    } catch {
+      // localStorage may be unavailable in some contexts; skip silently.
+      return;
+    }
+    warming = true;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      try { ctrl.abort(new DOMException('warm-up timeout', 'TimeoutError')); }
+      catch { ctrl.abort(); }
+    }, VISIBILITY_WARMUP_TIMEOUT_MS);
+    // Direct window.fetch (not timeoutFetch) so this stays a 2s window
+    // and doesn't double-wrap. Hit a non-existent rest path so PostgREST
+    // 404s fast — we only care that the socket round-trips at all.
+    fetch(`${url}/rest/v1/`, { method: 'HEAD', signal: ctrl.signal, headers: { apikey: anonKey } })
+      .catch(() => { /* dead socket; Chrome will reconnect on next req */ })
+      .finally(() => { clearTimeout(timer); warming = false; });
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') warmSocket();
+  });
+  // window.focus also covers the "alt-tab back" case on some platforms.
+  window.addEventListener('focus', warmSocket);
+}
