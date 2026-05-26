@@ -28,9 +28,9 @@ export const Route = createFileRoute('/_bare/login')({
 function LoginPage() {
   const navigate = useNavigate();
   const { redirect: redirectTarget } = Route.useSearch();
-  const signIn = useAuthStore((s) => s.signInWithUsername);
+  const signIn = useAuthStore((s) => s.signInWithIdentifier);
 
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [showPw, setShowPw] = useState(false);
@@ -38,16 +38,16 @@ function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password) {
-      toast.error('Enter username and password');
+    if (!identifier.trim() || !password) {
+      toast.error('Enter your username or email and password');
       return;
     }
     setSubmitting(true);
     try {
-      await signIn(username, password, remember);
+      await signIn(identifier, password, remember);
       navigate({ to: redirectTarget || '/' });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Username or password incorrect');
+      toast.error(err instanceof Error ? err.message : 'Invalid username/email or password');
     } finally {
       setSubmitting(false);
     }
@@ -66,15 +66,15 @@ function LoginPage() {
           className="bg-surface border border-border-light rounded-md shadow-md p-8"
         >
           <h2 className="text-xl font-semibold mb-1">Sign in</h2>
-          <p className="text-sm text-text-secondary mb-6">Enter your username and password to continue.</p>
+          <p className="text-sm text-text-secondary mb-6">Enter your username or email and password to continue.</p>
 
           <label className="block mb-4">
-            <span className="block text-xs uppercase tracking-wide text-text-secondary font-medium mb-1">Username</span>
+            <span className="block text-xs uppercase tracking-wide text-text-secondary font-medium mb-1">Username or email</span>
             <input
               type="text"
               className="input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               autoFocus
               autoComplete="username"
               spellCheck={false}

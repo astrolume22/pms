@@ -23,7 +23,7 @@ export const Route = createFileRoute('/_bare/invite/$token')({
 function InvitePage() {
   const { token } = Route.useParams();
   const navigate = useNavigate();
-  const signIn = useAuthStore((s) => s.signInWithUsername);
+  const signIn = useAuthStore((s) => s.signInWithIdentifier);
 
   const { data: check, isLoading } = useInviteByToken(token);
   const accept = useAcceptInvite();

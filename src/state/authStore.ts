@@ -11,14 +11,26 @@ interface AuthState {
   profile: UserRow | null;
   // Actions
   initialize: () => Promise<void>;
-  signInWithUsername: (username: string, password: string, remember: boolean) => Promise<void>;
+  // Identifier can be either a username OR a real email — the server-side
+  // resolve_login_email RPC (migration 0041) translates it to the auth
+  // email Supabase expects.
+  signInWithIdentifier: (identifier: string, password: string, remember: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   setProfile: (profile: UserRow) => void;
 }
 
 const INTERNAL_DOMAIN = 'pms.internal';
-const usernameToEmail = (username: string) => `${username.trim().toLowerCase()}@${INTERNAL_DOMAIN}`;
+
+// Last-resort fallback used only when the resolve RPC errors out (network /
+// transient). Mirrors the legacy username→email mapping so a synthetic user
+// can still authenticate. Email-shaped identifiers fall through as-is so
+// Supabase fails with the same generic error.
+function fallbackIdentifierToEmail(id: string): string {
+  const trimmed = id.trim().toLowerCase();
+  if (trimmed.includes('@')) return trimmed;
+  return `${trimmed}@${INTERNAL_DOMAIN}`;
+}
 
 async function loadProfile(userId: string): Promise<UserRow | null> {
   const { data, error } = await supabase
@@ -103,19 +115,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // ---------------------------------------------------------------
   },
 
-  signInWithUsername: async (username, password, _remember) => {
+  signInWithIdentifier: async (identifier, password, _remember) => {
     // _remember is reserved for future "long session" tweak; supabase already
     // uses long-lived refresh tokens by default, so we accept and ignore.
-    const email = usernameToEmail(username);
+    //
+    // Resolve the typed identifier (username OR email) to the auth.users
+    // email Supabase expects. The RPC (migration 0041, SECURITY DEFINER,
+    // anon-grantable) returns ONLY the email column for active users and
+    // NULL otherwise — never raises. NULL ⇒ feed the original identifier
+    // into signInWithPassword anyway so the failure path is identical to
+    // a wrong-password attempt (no enumeration via timing or error text).
+    let resolvedEmail: string | null = null;
+    try {
+      const { data, error } = await supabase.rpc('resolve_login_email', {
+        p_identifier: identifier,
+      });
+      if (!error && typeof data === 'string') resolvedEmail = data;
+    } catch {
+      // Swallow network / transient errors and fall back to the legacy
+      // username→email mapping. Authentication still goes through Supabase
+      // normally — we just don't get the email lookup.
+    }
+    const email = resolvedEmail ?? fallbackIdentifierToEmail(identifier);
+
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.session) {
-      // Throw a generic message — never leak whether the username was the issue.
-      throw new Error('Username or password incorrect');
+      // Generic message — never leak whether the identifier was the issue.
+      throw new Error('Invalid username/email or password');
     }
     const profile = await loadProfile(data.session.user.id);
     if (!profile) {
       await supabase.auth.signOut();
-      throw new Error('Username or password incorrect');
+      throw new Error('Invalid username/email or password');
     }
     if (profile.status !== 'active') {
       await supabase.auth.signOut();
