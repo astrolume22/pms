@@ -622,14 +622,12 @@ function RenameUsernameModal({ user, onClose }: { user: AdminUserRow; onClose: (
 
 function DeletePermanentlyModal({ user, onClose }: { user: AdminUserRow; onClose: () => void }) {
   const del = useAdminDeleteUser();
-  // Type-to-confirm gate — the admin must type the EXACT username
-  // before the destructive button enables. Saves accidental clicks.
-  const [typed, setTyped] = useState('');
-  const matches = typed.trim() === user.username;
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!matches) return;
+  // One click on the red button is the confirm — no typing gate. The
+  // server-side admin_delete_user RPC still enforces the real safety
+  // (admin-only, self-delete, super-admin, last-admin); any blocked
+  // case surfaces here as a toast.
+  const onConfirm = async () => {
     try {
       await del.mutateAsync({ userId: user.id });
       toast.success(`@${user.username} deleted permanently`);
@@ -640,52 +638,34 @@ function DeletePermanentlyModal({ user, onClose }: { user: AdminUserRow; onClose
   };
 
   return (
-    <Modal open onClose={onClose} title={`Delete permanently — @${user.username}`} size="sm">
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-        <div className="bg-error/10 border border-error/30 rounded-base p-3 text-xs flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-error shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-error">This cannot be undone.</p>
-            <p className="mt-1">
-              This permanently deletes <strong>@{user.username}</strong>'s account
-              and login. Their boards, tasks, and comments will remain but show no
-              author. They will no longer be able to sign in.
-            </p>
-          </div>
-        </div>
-        <FormField
-          label={`Type "${user.username}" to confirm`}
-          hint="The button below stays disabled until the username matches exactly."
+    <Modal open onClose={onClose} title="Delete user" size="sm">
+      <p className="text-sm text-text-primary">
+        Delete <strong>@{user.username}</strong> permanently? This can't be undone.
+      </p>
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={del.isPending}
+          className="btn-secondary"
         >
-          <input
-            type="text"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            className="input font-mono"
-            placeholder={user.username}
-          />
-        </FormField>
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-          <button
-            type="submit"
-            disabled={!matches || del.isPending}
-            className={cn(
-              'h-9 px-3 rounded-base text-sm font-medium inline-flex items-center gap-2 text-white',
-              !matches || del.isPending
-                ? 'bg-error/50 cursor-not-allowed'
-                : 'bg-error hover:bg-error/90',
-            )}
-          >
-            {del.isPending && <Spinner className="h-3 w-3" />}
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete permanently
-          </button>
-        </div>
-      </form>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void onConfirm()}
+          disabled={del.isPending}
+          autoFocus
+          className={cn(
+            'h-9 px-3 rounded-base text-sm font-semibold inline-flex items-center gap-2 text-white transition-colors',
+            del.isPending ? 'bg-error/60 cursor-wait' : 'bg-error hover:bg-error/90',
+          )}
+        >
+          {del.isPending && <Spinner className="h-3 w-3" />}
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </button>
+      </div>
     </Modal>
   );
 }
