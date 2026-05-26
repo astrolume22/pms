@@ -55,13 +55,8 @@ function ProfilePage() {
     }
     setChangingPw(true);
     try {
-      // Verify the CURRENT password without rotating the session.
-      // Migration 0044's RPC compares against auth.users.encrypted_password
-      // via pgcrypto. We deliberately do NOT call supabase.auth.signInWithPassword
-      // here — that rotates the session on a same-user re-login, fires
-      // SIGNED_IN on the authStore listener, and the await wedges
-      // intermittently (sometimes silently rotating the password before
-      // the wedge, leaving the spinner stuck forever). See migration 0044.
+      // Step 1 — verify the CURRENT password via 0044's RPC. Session-free
+      // (compares against auth.users.encrypted_password using pgcrypto).
       const { data: ok, error: verifyErr } = await supabase.rpc(
         'verify_current_password', { p_password: currentPw },
       );
@@ -71,56 +66,33 @@ function ProfilePage() {
         return;
       }
 
-      // Belt-and-braces hard timeout on updateUser. The auth client's
-      // promise is known to wedge intermittently even when the server-side
-      // PUT has already applied the password change — that's the very bug
-      // that left the spinner stuck forever. We race the await against an
-      // 8s timeout so we never wait longer than that, then fall through
-      // to an authoritative server-side check below.
-      const updatePromise = supabase.auth.updateUser({ password: newPw })
-        .then((r) => ({ kind: 'ok' as const, result: r }))
-        .catch((e) => ({ kind: 'threw' as const, err: e }));
-      const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) =>
-        setTimeout(() => resolve({ kind: 'timeout' }), 8_000),
-      );
-      const race = await Promise.race([updatePromise, timeoutPromise]);
-
-      // If updateUser returned a definitive error, surface that directly.
-      if (race.kind === 'ok' && race.result.error) {
-        toast.error(race.result.error.message || 'Could not change password');
+      // Step 2 — write the new password via 0045's RPC. We deliberately
+      // do NOT call supabase.auth.updateUser({ password }) here:
+      //   * It internally calls GoTrueClient._useSession() which can
+      //     return null even when the page is authenticated and
+      //     localStorage holds a valid session — throwing
+      //     "Auth session missing!" intermittently in the browser.
+      //   * It rotates the session on success, which races the
+      //     authStore's onAuthStateChange listener.
+      // set_my_password reads auth.uid() from the JWT in the
+      // Authorization header (NOT from GoTrueClient state), bypasses
+      // both problems, and leaves the session/login untouched so the
+      // admin stays signed in immediately after a successful change.
+      const { error: setErr } = await supabase.rpc('set_my_password', {
+        p_new_password: newPw,
+      });
+      if (setErr) {
+        toast.error(setErr.message || 'Could not change password');
         return;
       }
 
-      // Either updateUser resolved successfully, OR it timed out, OR it
-      // threw. In all three cases we authoritatively confirm the password
-      // change by asking the server. verify_current_password will return
-      // true iff the new password is the one stored now — which is the
-      // only thing the user actually cares about.
-      const { data: changed, error: verify2Err } = await supabase.rpc(
-        'verify_current_password', { p_password: newPw },
-      );
-      if (verify2Err) {
-        toast.error(verify2Err.message || 'Could not confirm password change');
-        return;
-      }
-      if (changed === true) {
-        setCurrentPw(''); setNewPw(''); setConfirmPw('');
-        toast.success('Password changed');
-        return;
-      }
-      // verify says the new password isn't stored — and updateUser didn't
-      // explicitly succeed. Treat as failure.
-      toast.error(
-        race.kind === 'timeout'
-          ? 'Password change is taking too long. Please try again.'
-          : 'Could not change password',
-      );
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      toast.success('Password changed');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not change password');
     } finally {
-      // ALWAYS clears the spinner — on success, on error, on timeout, on
-      // anything thrown above. This is the primary fix for the "stuck
-      // loading" bug.
+      // ALWAYS clears the spinner — on success, on error, on anything
+      // thrown above. Preserved from the prior fix.
       setChangingPw(false);
     }
   };
