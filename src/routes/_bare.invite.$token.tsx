@@ -127,7 +127,7 @@ function InvitePage() {
   return (
     <CenteredCard>
       <div className="text-center mb-5">
-        <h1 className="text-2xl font-bold">You're invited to PMS</h1>
+        <h1 className="text-2xl font-bold">You're invited to EIA Projects</h1>
         <div className="mt-2 flex items-center justify-center gap-2 text-sm text-text-secondary">
           <span>You'll join as</span>
           {check.role && <RoleBadge role={check.role} />}
@@ -223,7 +223,7 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
         <div className="text-center mb-6">
           <h1 className="text-3xl font-bold tracking-wide inline-flex items-center gap-2">
             <KeyRound className="h-7 w-7 text-brand" />
-            PMS
+            EIA Projects
           </h1>
         </div>
         <div className="bg-surface border border-border-light rounded-md shadow-md p-8">

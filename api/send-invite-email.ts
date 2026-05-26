@@ -109,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         from:    resendFrom,
         to:      [invitee_email],
-        subject: `You're invited to PMS`,
+        subject: `You've been invited to EIA Projects`,
         html,
         text,
       }),
@@ -139,7 +139,17 @@ function escapeHtml(s: string): string {
 interface EmailParams { url: string; role: string; boardName: string; inviterName: string }
 
 function buildEmailHtml({ url, role, boardName, inviterName }: EmailParams): string {
-  const sysFont = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+  // Email clients won't load remote fonts (no @import / @font-face).
+  // Fall back to a serif stack that ships on every major OS so the
+  // EIA wordmark still reads as serif even where Cormorant isn't
+  // available. Body text is system-sans, mirroring the login page.
+  const SERIF    = "'Cormorant Garamond', Georgia, 'Times New Roman', 'Times', serif";
+  const SYS_SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+  const NAVY   = '#1a2547';
+  const CREAM  = '#FAF8F3';
+  const GOLD   = '#b08d57';
+  const MUTED  = '#6B7280';
+  const BORDER = '#ECE7DA';
   const year = new Date().getFullYear();
   const article = role === 'admin' ? 'an' : 'a';
   const r = escapeHtml(role);
@@ -152,44 +162,58 @@ function buildEmailHtml({ url, role, boardName, inviterName }: EmailParams): str
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="x-apple-disable-message-reformatting" />
-  <title>You're invited to PMS</title>
+  <title>You've been invited to EIA Projects</title>
 </head>
-<body style="margin:0; padding:0; background:#F2F4F8; font-family:${sysFont}; color:#1F2440;">
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F2F4F8; padding:40px 16px;">
+<body style="margin:0; padding:0; background:${CREAM}; font-family:${SYS_SANS}; color:${NAVY};">
+  <!-- Mobile-friendly outer table: cream background, generous padding, center -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${CREAM}; padding:48px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="max-width:520px; width:100%; background:#FFFFFF; border-radius:14px; box-shadow:0 4px 24px rgba(24,27,52,0.08);">
+        <!-- White card. Max-width 520px so it reads cleanly on phone + desktop. -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="max-width:520px; width:100%; background:#FFFFFF; border:1px solid ${BORDER}; border-radius:12px; box-shadow:0 10px 40px -16px rgba(26,37,71,0.18), 0 2px 6px -2px rgba(26,37,71,0.06);">
+          <!-- EIA brand block (centered): serif wordmark + company name + italic tagline + gold divider -->
           <tr>
-            <td style="padding:32px 40px 8px 40px; text-align:left;">
-              <span style="display:inline-block; font-size:20px; font-weight:700; letter-spacing:0.04em; color:#0073EA;">PMS</span>
+            <td style="padding:40px 40px 0 40px; text-align:center;">
+              <div style="font-family:${SERIF}; font-weight:500; color:${NAVY}; font-size:56px; line-height:1; letter-spacing:0.08em;">EIA</div>
+              <div style="font-family:${SERIF}; font-weight:500; color:${NAVY}; font-size:17px; letter-spacing:0.02em; margin-top:10px;">Expert Intuitive Advisor</div>
+              <div style="font-style:italic; color:${MUTED}; font-size:11px; letter-spacing:0.2em; text-transform:uppercase; margin-top:14px;">The intelligence layer between humans and AI.</div>
+              <div style="width:60px; height:2px; background:${GOLD}; margin:20px auto 0; border-radius:1px; line-height:2px; font-size:0;">&nbsp;</div>
             </td>
           </tr>
+
+          <!-- Heading + copy -->
           <tr>
-            <td style="padding:8px 40px 0 40px;">
-              <h1 style="margin:0 0 12px 0; font-size:22px; line-height:28px; font-weight:700; color:#1F2440;">You've been invited</h1>
-              <p style="margin:0 0 24px 0; font-size:15px; line-height:22px; color:#4A5074;">
-                ${inviter} invited you to join <strong style="color:#1F2440;">${board}</strong> on PMS as ${article} <strong style="color:#1F2440;">${r}</strong>.
+            <td style="padding:32px 40px 0 40px; text-align:center;">
+              <h1 style="margin:0 0 12px 0; font-family:${SYS_SANS}; font-size:20px; line-height:28px; font-weight:700; color:${NAVY};">You've been invited to EIA Projects</h1>
+              <p style="margin:0; font-family:${SYS_SANS}; font-size:15px; line-height:23px; color:${NAVY};">
+                ${inviter} has invited you to join <strong style="color:${NAVY};">${board}</strong> as ${article} <strong style="color:${NAVY};">${r}</strong>.
               </p>
             </td>
           </tr>
+
+          <!-- Primary CTA — deep navy, full attention -->
           <tr>
-            <td style="padding:0 40px 8px 40px;">
-              <a href="${u}" style="display:inline-block; background:#0073EA; color:#FFFFFF; font-size:15px; font-weight:600; text-decoration:none; padding:12px 22px; border-radius:8px;">Accept invite</a>
+            <td style="padding:28px 40px 8px 40px; text-align:center;">
+              <a href="${u}" style="display:inline-block; background:${NAVY}; color:#FFFFFF; font-family:${SYS_SANS}; font-size:15px; font-weight:700; letter-spacing:0.02em; text-decoration:none; padding:14px 28px; border-radius:8px;">Accept Invitation</a>
             </td>
           </tr>
+
+          <!-- Plain-text fallback link -->
           <tr>
-            <td style="padding:20px 40px 0 40px;">
-              <p style="margin:0; font-size:12px; line-height:18px; color:#7B8198;">
+            <td style="padding:18px 40px 0 40px; text-align:center;">
+              <p style="margin:0; font-family:${SYS_SANS}; font-size:12px; line-height:18px; color:${MUTED};">
                 Or paste this link into your browser:<br />
-                <a href="${u}" style="color:#0073EA; word-break:break-all;">${u}</a>
+                <a href="${u}" style="color:${NAVY}; word-break:break-all; text-decoration:underline;">${u}</a>
               </p>
             </td>
           </tr>
+
+          <!-- Footer note -->
           <tr>
-            <td style="padding:28px 40px 32px 40px;">
-              <p style="margin:24px 0 0 0; font-size:11px; line-height:16px; color:#9BA1C2; text-align:center; border-top:1px solid #E6E9EF; padding-top:18px;">
+            <td style="padding:32px 40px 40px 40px;">
+              <p style="margin:24px 0 0 0; font-family:${SYS_SANS}; font-size:11px; line-height:17px; color:${MUTED}; text-align:center; border-top:1px solid ${BORDER}; padding-top:20px;">
                 If you weren't expecting this, you can safely ignore this email.<br />
-                &copy; ${year} PMS
+                &copy; ${year} Expert Intuitive Advisor Inc.
               </p>
             </td>
           </tr>
@@ -203,13 +227,14 @@ function buildEmailHtml({ url, role, boardName, inviterName }: EmailParams): str
 
 function buildEmailText({ url, role, boardName, inviterName }: EmailParams): string {
   const article = role === 'admin' ? 'an' : 'a';
-  return `You've been invited
+  return `EIA Projects — You've been invited
 
-${inviterName} invited you to join ${boardName} on PMS as ${article} ${role}.
+${inviterName} has invited you to join ${boardName} on EIA Projects as ${article} ${role}.
 
-Accept invite: ${url}
+Accept your invitation: ${url}
 
 If you weren't expecting this, you can safely ignore this email.
 
-(c) ${new Date().getFullYear()} PMS`;
+The intelligence layer between humans and AI.
+(c) ${new Date().getFullYear()} Expert Intuitive Advisor Inc.`;
 }

@@ -124,7 +124,7 @@ function LoginPage() {
                 marginBottom: 0,
               }}
             >
-              Internal Project Management System
+              Internal Team Workspace
             </p>
             <div
               aria-hidden

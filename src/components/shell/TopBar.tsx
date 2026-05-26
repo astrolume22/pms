@@ -55,9 +55,9 @@ export function TopBar() {
       <Link
         to="/"
         className="flex items-center pr-4 mr-2 border-r border-white/10 h-full"
-        aria-label="PMS home"
+        aria-label="EIA Projects home"
       >
-        <span className="text-[20px] font-bold tracking-wide">PMS</span>
+        <span className="text-[20px] font-bold tracking-wide">EIA Projects</span>
       </Link>
 
       {/* Search (stub) */}

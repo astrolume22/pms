@@ -810,7 +810,7 @@ async function dispatch(rpc: JsonRpcRequest, sb: SupabaseClient): Promise<JsonRp
           tools: { listChanged: false },
         },
         instructions:
-          'PMS MCP server. Use list_boards to discover boards (returns workspace_id ' +
+          'EIA Projects MCP server. Use list_boards to discover boards (returns workspace_id ' +
           'for tenancy scoping), then get_board for a board\'s structural snapshot. ' +
           'Write tools land in phase 3b.',
         // Spec-suggested informational field — what version of OUR

@@ -7,16 +7,19 @@ type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'pms.theme';
 
 function readInitialTheme(): Theme {
+  // Explicit user preference always wins. Persisted via setTheme() and
+  // (after login) re-synced from the user's profile.theme via
+  // hydrateFromProfile().
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === 'light' || saved === 'dark') return saved;
   } catch {
     /* ignore */
   }
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  return 'light';
+  // Default for new / first-paint users with no stored preference is DARK
+  // (the app is designed dark-first). The OS prefers-color-scheme is no
+  // longer consulted — a deliberate brand decision, not an oversight.
+  return 'dark';
 }
 
 function applyThemeToDocument(theme: Theme) {
