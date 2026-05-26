@@ -71,26 +71,50 @@ function ProfilePage() {
         return;
       }
 
-      // Belt-and-braces hard timeout on updateUser so even if the auth
-      // client's internal promise wedges, the UI clears within 12s
-      // with a clear error rather than spinning forever.
+      // Belt-and-braces hard timeout on updateUser. The auth client's
+      // promise is known to wedge intermittently even when the server-side
+      // PUT has already applied the password change — that's the very bug
+      // that left the spinner stuck forever. We race the await against an
+      // 8s timeout so we never wait longer than that, then fall through
+      // to an authoritative server-side check below.
       const updatePromise = supabase.auth.updateUser({ password: newPw })
-        .then((r) => ({ kind: 'ok' as const, result: r }));
+        .then((r) => ({ kind: 'ok' as const, result: r }))
+        .catch((e) => ({ kind: 'threw' as const, err: e }));
       const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) =>
-        setTimeout(() => resolve({ kind: 'timeout' }), 12_000),
+        setTimeout(() => resolve({ kind: 'timeout' }), 8_000),
       );
       const race = await Promise.race([updatePromise, timeoutPromise]);
-      if (race.kind === 'timeout') {
-        toast.error('Password change is taking too long. Please refresh and try again.');
-        return;
-      }
-      if (race.result.error) {
+
+      // If updateUser returned a definitive error, surface that directly.
+      if (race.kind === 'ok' && race.result.error) {
         toast.error(race.result.error.message || 'Could not change password');
         return;
       }
 
-      setCurrentPw(''); setNewPw(''); setConfirmPw('');
-      toast.success('Password changed');
+      // Either updateUser resolved successfully, OR it timed out, OR it
+      // threw. In all three cases we authoritatively confirm the password
+      // change by asking the server. verify_current_password will return
+      // true iff the new password is the one stored now — which is the
+      // only thing the user actually cares about.
+      const { data: changed, error: verify2Err } = await supabase.rpc(
+        'verify_current_password', { p_password: newPw },
+      );
+      if (verify2Err) {
+        toast.error(verify2Err.message || 'Could not confirm password change');
+        return;
+      }
+      if (changed === true) {
+        setCurrentPw(''); setNewPw(''); setConfirmPw('');
+        toast.success('Password changed');
+        return;
+      }
+      // verify says the new password isn't stored — and updateUser didn't
+      // explicitly succeed. Treat as failure.
+      toast.error(
+        race.kind === 'timeout'
+          ? 'Password change is taking too long. Please try again.'
+          : 'Could not change password',
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not change password');
     } finally {
