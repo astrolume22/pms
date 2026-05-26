@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import {
   UserPlus, KeyRound, ShieldCheck, ShieldOff, MoreHorizontal,
-  Eye, EyeOff, Crown, AlertTriangle, RefreshCw,
+  Eye, EyeOff, Crown, AlertTriangle, RefreshCw, AtSign,
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { Avatar } from '@/components/Avatar';
@@ -21,7 +21,7 @@ import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import {
   useAdminUsers, useAdminCreateUser, useAdminResetPassword,
-  useAdminSetRole, useAdminSetStatus,
+  useAdminSetRole, useAdminSetStatus, useAdminSetUsername,
   type AdminUserRow,
 } from '@/hooks/admin';
 import { useAuthStore } from '@/state/authStore';
@@ -35,6 +35,8 @@ export function UsersSection() {
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
   const [resetForUser, setResetForUser] = useState<AdminUserRow | null>(null);
   const [roleForUser, setRoleForUser] = useState<AdminUserRow | null>(null);
+  // 0042: admin-only rename of a user's display username.
+  const [renameForUser, setRenameForUser] = useState<AdminUserRow | null>(null);
 
   return (
     <section className="bg-surface border border-border-light rounded-md p-6">
@@ -94,6 +96,7 @@ export function UsersSection() {
                   onToggleMenu={() => setMenuOpenFor((prev) => (prev === u.id ? null : u.id))}
                   onResetPassword={() => { setMenuOpenFor(null); setResetForUser(u); }}
                   onChangeRole={() => { setMenuOpenFor(null); setRoleForUser(u); }}
+                  onRenameUsername={() => { setMenuOpenFor(null); setRenameForUser(u); }}
                 />
               ))}
             </tbody>
@@ -108,6 +111,9 @@ export function UsersSection() {
       {roleForUser && (
         <ChangeRoleModal user={roleForUser} onClose={() => setRoleForUser(null)} />
       )}
+      {renameForUser && (
+        <RenameUsernameModal user={renameForUser} onClose={() => setRenameForUser(null)} />
+      )}
     </section>
   );
 }
@@ -121,10 +127,11 @@ interface UserRowProps {
   onToggleMenu: () => void;
   onResetPassword: () => void;
   onChangeRole: () => void;
+  onRenameUsername: () => void;
 }
 
 function UserRowItem({
-  user, isCurrent, menuOpen, onToggleMenu, onResetPassword, onChangeRole,
+  user, isCurrent, menuOpen, onToggleMenu, onResetPassword, onChangeRole, onRenameUsername,
 }: UserRowProps) {
   const setStatus = useAdminSetStatus();
 
@@ -196,6 +203,7 @@ function UserRowItem({
             className="absolute right-0 top-10 w-48 z-30 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden text-left"
             onMouseLeave={onToggleMenu}
           >
+            <RowMenuItem icon={<AtSign className="h-4 w-4" />} label="Change username" onClick={onRenameUsername} />
             <RowMenuItem icon={<KeyRound className="h-4 w-4" />} label="Reset password" onClick={onResetPassword} />
             <RowMenuItem icon={<ShieldCheck className="h-4 w-4" />} label="Change role"
               onClick={onChangeRole}
@@ -520,6 +528,63 @@ function ChangeRoleModal({ user, onClose }: { user: AdminUserRow; onClose: () =>
           <button type="submit" disabled={setRole.isPending || role === user.role} className="btn-primary inline-flex items-center gap-2">
             {setRole.isPending && <Spinner className="h-3 w-3" />}
             Save role
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ----------------------- Rename username modal -------------------------
+
+function RenameUsernameModal({ user, onClose }: { user: AdminUserRow; onClose: () => void }) {
+  const rename = useAdminSetUsername();
+  const [next, setNext] = useState(user.username);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = next.trim().toLowerCase();
+    if (!/^[a-z0-9_]{2,32}$/.test(n)) {
+      toast.error('Username must be 2-32 lowercase letters / digits / underscore');
+      return;
+    }
+    if (n === user.username) { onClose(); return; }
+    try {
+      await rename.mutateAsync({ userId: user.id, newUsername: n });
+      toast.success(`Renamed @${user.username} to @${n}`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Rename failed');
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Change username — @${user.username}`} size="sm">
+      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+        <div className="bg-brand/10 border border-brand/30 rounded-base p-3 text-xs flex items-start gap-2">
+          <AtSign className="h-4 w-4 text-brand shrink-0 mt-0.5" />
+          <p>
+            The user's login (email + password) is unaffected. They'll still be
+            able to sign in by their email <em>and</em> by the new username.
+          </p>
+        </div>
+        <FormField label="New username" hint="2-32 lowercase letters / digits / underscore">
+          <input
+            type="text"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            className="input"
+            required
+          />
+        </FormField>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+          <button type="submit" disabled={rename.isPending} className="btn-primary inline-flex items-center gap-2">
+            {rename.isPending && <Spinner className="h-3 w-3" />}
+            Save username
           </button>
         </div>
       </form>

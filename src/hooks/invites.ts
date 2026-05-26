@@ -137,13 +137,14 @@ export function useAcceptInvite() {
   return useMutation({
     mutationFn: async (args: {
       token: string;
-      username: string;
+      // Migration 0042 dropped p_username — the server auto-generates a
+      // unique username from invitee_email local-part / full_name / a
+      // "user####" fallback. The invitee only types a full name + password.
       fullName: string;
       password: string;
     }): Promise<{ user_id: string; username: string; email: string; board_id: string | null }> => {
       const { data, error } = await supabase.rpc('accept_invite', {
         p_token: args.token,
-        p_username: args.username,
         p_full_name: args.fullName,
         p_password: args.password,
       });

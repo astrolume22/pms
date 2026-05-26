@@ -114,6 +114,24 @@ export function useAdminSetRole() {
   });
 }
 
+// Migration 0042 — admin renames a user's username. Validates the
+// regex + uniqueness server-side. Does NOT touch the user's email or
+// auth identity — they can still log in by email AND by the new
+// username (resolve_login_email matches either branch).
+export function useAdminSetUsername() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { userId: string; newUsername: string }) => {
+      const { error } = await supabase.rpc('admin_set_username', {
+        p_user_id: args.userId,
+        p_new_username: args.newUsername,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: adminKeys.users }),
+  });
+}
+
 export function useAdminSetStatus() {
   const qc = useQueryClient();
   return useMutation({

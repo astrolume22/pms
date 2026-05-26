@@ -99,6 +99,18 @@ function ProfilePage() {
       <form onSubmit={onSaveProfile} className="bg-surface border border-border-light rounded-md p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">Profile details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* 0042: username is now system-managed (auto-generated on
+              invite accept, renamable only by an admin). Shown here
+              read-only so the user always knows what theirs is. */}
+          <Field label="Username">
+            <input
+              className="input"
+              value={`@${profile.username}`}
+              disabled
+              readOnly
+              title="Username can be changed by an admin"
+            />
+          </Field>
           <Field label="Full name">
             <input
               className="input"

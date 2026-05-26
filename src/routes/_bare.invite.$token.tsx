@@ -28,7 +28,9 @@ function InvitePage() {
   const { data: check, isLoading } = useInviteByToken(token);
   const accept = useAcceptInvite();
 
-  const [username, setUsername] = useState('');
+  // 0042: the username is auto-generated server-side from the invite's
+  // invitee_email / full_name / a "user####" fallback. The invitee only
+  // types full name + password.
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -54,11 +56,6 @@ function InvitePage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const u = username.trim().toLowerCase();
-    if (!/^[a-z0-9_]{2,32}$/.test(u)) {
-      toast.error('Username must be 2-32 lowercase letters / digits / underscore');
-      return;
-    }
     if (password.length < 8) {
       toast.error('Password must be at least 8 characters');
       return;
@@ -66,10 +63,13 @@ function InvitePage() {
     setSubmitting(true);
     try {
       const result = await accept.mutateAsync({
-        token, username: u, fullName: fullName.trim() || u, password,
+        token, fullName: fullName.trim(), password,
       });
-      // The accept_invite RPC ran as anon — now sign in with the new credentials.
-      await signIn(u, password, true);
+      // ISSUE B fix — sign in by the authoritative email that accept_invite
+      // just returned. This skips the resolve_login_email round-trip and
+      // any dependence on the just-committed row being visible to that
+      // lookup, which was making the auto-login fragile.
+      await signIn(result.email, password, true);
       toast.success(`Welcome, @${result.username}!`);
       if (result.board_id) {
         navigate({
@@ -141,25 +141,14 @@ function InvitePage() {
       </div>
 
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-        <Field label="Username" hint="2-32 lowercase letters / digits / underscore — internal only">
-          <input
-            type="text"
-            className="input"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            required
-          />
-        </Field>
         <Field label="Full name">
           <input
             type="text"
             className="input"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            placeholder="Optional — defaults to username"
+            autoFocus
+            placeholder="Your full name"
           />
         </Field>
         <Field label="Password" hint="At least 8 characters">
@@ -198,8 +187,9 @@ function InvitePage() {
       <div className="mt-5 pt-5 border-t border-border-light text-[11px] text-text-secondary flex items-start gap-2">
         <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
         <span>
-          PMS is invitation-only. Your account is internal — only your username
-          is shared on the platform; no emails are stored or shown.
+          A username is generated for you automatically. You'll sign in with
+          your email going forward — an admin can change your display
+          username later if needed.
         </span>
       </div>
     </CenteredCard>
