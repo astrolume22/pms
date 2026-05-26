@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -73,14 +74,63 @@ export function GroupBlock({
   const [draftName, setDraftName] = useState(group.name);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // The trigger button so we can compute the portaled dropdown's fixed
+  // position from its bounding rect. The wrapper menuRef wraps both the
+  // trigger and the (now-portaled) dropdown; trigger needs its own ref
+  // so getBoundingClientRect() is on the button, not the wrapper.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Portaled dropdown / color-picker need a separate ref so the outside-
+  // click handler doesn't treat clicks INSIDE the portaled menu as
+  // "outside" (the portal lives in document.body, not inside menuRef).
+  const portalRef = useRef<HTMLDivElement>(null);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
+  // 0046+ clipping fix: the ⋯ dropdown was rendered inline at
+  // absolute/z-30 inside the group title row's sticky z-[4] stacking
+  // context. When the group is COLLAPSED, the dropdown extends into the
+  // NEXT group's sibling stacking context (also z-4, later in DOM
+  // order) which paints over it — so only the top sliver shows. Fix:
+  // render the dropdown in a portal at position:fixed anchored to the
+  // trigger's rect, escaping every parent stacking context.
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const updateMenuPos = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setMenuPos({
+      // 4px gap below the trigger.
+      top:   r.bottom + 4,
+      // align the dropdown's right edge with the trigger's right edge.
+      right: window.innerWidth - r.right,
+    });
+  };
+
   useEffect(() => setDraftName(group.name), [group.name]);
+
+  // Recompute on open + on scroll/resize while open so a parent scroll
+  // doesn't leave the menu floating where the button no longer is.
+  useLayoutEffect(() => {
+    if (!menuOpen && !colorPickerOpen) { setMenuPos(null); return; }
+    updateMenuPos();
+    const reflow = () => updateMenuPos();
+    window.addEventListener('resize', reflow);
+    // Capture-phase so we catch the horizontal scroll on BoardContent
+    // and any other scrollable ancestor.
+    window.addEventListener('scroll', reflow, true);
+    return () => {
+      window.removeEventListener('resize', reflow);
+      window.removeEventListener('scroll', reflow, true);
+    };
+  }, [menuOpen, colorPickerOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
     const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      // Click on the trigger button itself toggles via its own onClick.
+      if (menuRef.current?.contains(target)) return;
+      // Click inside the portaled menu shouldn't close it.
+      if (portalRef.current?.contains(target)) return;
+      setMenuOpen(false);
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
@@ -210,8 +260,9 @@ export function GroupBlock({
         </span>
 
         {canEdit && (
-          <div ref={menuRef} className="relative ml-auto">
+          <div ref={menuRef} className="ml-auto">
             <button
+              ref={triggerRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="Group menu"
@@ -219,8 +270,18 @@ export function GroupBlock({
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-7 z-30 w-44 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden">
+            {/* Dropdown — PORTALED to document.body with position:fixed
+                so it escapes the group title row's sticky z-[4] stacking
+                context (without the portal, when the group is collapsed
+                the menu extends into the next group's sibling stacking
+                context and gets clipped to a sliver). z-50 keeps it
+                above every other floating UI. */}
+            {menuOpen && menuPos && createPortal(
+              <div
+                ref={portalRef}
+                className="fixed z-50 w-44 bg-surface border border-border-light rounded-md shadow-lg overflow-hidden"
+                style={{ top: menuPos.top, right: menuPos.right }}
+              >
                 <button
                   onClick={() => { setMenuOpen(false); setRenaming(true); }}
                   className="w-full text-left px-3 py-1.5 text-[13px] flex items-center gap-2 hover:bg-hover"
@@ -264,12 +325,20 @@ export function GroupBlock({
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete group
                 </button>
-              </div>
+              </div>,
+              document.body,
             )}
-            {colorPickerOpen && (
+            {/* Color picker — same portal treatment for the same reason.
+                Opens via Change color and closes on outside click. */}
+            {colorPickerOpen && menuPos && createPortal(
               <div
-                className="absolute right-0 top-7 z-30 bg-card rounded-card p-3 grid grid-cols-4 gap-2 w-[180px]"
-                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--overlay-6)' }}
+                ref={portalRef}
+                className="fixed z-50 bg-card rounded-card p-3 grid grid-cols-4 gap-2 w-[180px]"
+                style={{
+                  top: menuPos.top,
+                  right: menuPos.right,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--overlay-6)',
+                }}
                 onMouseLeave={() => setColorPickerOpen(false)}
               >
                 {COLORS.map((c) => (
@@ -292,7 +361,8 @@ export function GroupBlock({
                     aria-label={c}
                   />
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )}
