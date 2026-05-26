@@ -9,6 +9,7 @@ import type { GroupRow, ColumnRow, ColumnLabelRow, ItemRow } from '@/lib/databas
 import { ItemRow as ItemRowComp } from './ItemRow';
 import { AddItemRow } from './AddItemRow';
 import { SummaryStrip } from './SummaryStrip';
+import { ColumnHeaderRow } from './ColumnHeaderRow';
 import { useUpdateGroup, useDeleteGroup } from '@/hooks/groups';
 import { useBoardViewStore } from '@/state/boardViewStore';
 import { cn } from '@/lib/cn';
@@ -28,6 +29,10 @@ interface GroupBlockProps {
   // Pixel width that every row in the table needs to occupy so the rows line up
   // with the column-header row inside the single horizontal scroll container.
   rowMinWidth: number;
+  // Sortable-context column-id list, passed through to the per-group
+  // ColumnHeaderRow. Owned by BoardContent (the source of truth) so all
+  // groups stay locked in step.
+  columnIds: string[];
 }
 
 // Group-spine + title colors — 8 curated hues anchored on the OKLCH
@@ -47,7 +52,7 @@ const COLORS = [
 
 export function GroupBlock({
   group, items, columns, visibleColumns, labelsByColumnId, valuesByItemColumn,
-  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth,
+  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth, columnIds,
 }: GroupBlockProps) {
   const sortable = useSortable({ id: `group:${group.id}`, disabled: !canEdit });
   const style = {
@@ -307,6 +312,20 @@ export function GroupBlock({
             borderBottomRightRadius: 8,
           }}
         >
+          {/* Per-group column-header row — Monday-style. Sits at the top
+              of the spine container so it aligns with the rows below it
+              and inherits the same 4px colored left edge. Width / sticky
+              behavior / live-resize all match ItemRow via the shared
+              boardViewStore.liveColumnWidths source. */}
+          <ColumnHeaderRow
+            boardId={boardId}
+            canEdit={canEdit}
+            visibleColumns={visibleColumns}
+            columnIds={columnIds}
+            rowMinWidth={rowMinWidth}
+            onOpenLabelsEditor={onOpenLabelsEditor}
+            groupId={group.id}
+          />
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
             {items.map((it) => {
               const kids = subitemsByParent.get(it.id) ?? [];

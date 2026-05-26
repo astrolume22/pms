@@ -4,7 +4,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordinates, arrayMove,
+  SortableContext, sortableKeyboardCoordinates, arrayMove,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Plus } from 'lucide-react';
@@ -16,8 +16,6 @@ import { useBoardViewStore } from '@/state/boardViewStore';
 import { useAuthStore } from '@/state/authStore';
 import { useActiveUsers } from '@/hooks/users';
 import { Spinner } from '@/components/Spinner';
-import { ColumnHeader } from './table/ColumnHeader';
-import { AddColumnMenu } from './table/AddColumnMenu';
 import { GroupBlock } from './table/GroupBlock';
 import { AddGroupRow } from './table/AddGroupRow';
 import { BulkActionBar } from './table/BulkActionBar';
@@ -298,11 +296,6 @@ export function BoardContent({ board }: BoardContentProps) {
     + TASK_CODE_COL_WIDTH;
   const tableMinWidth = dataWidth + (canEdit ? ADD_COL_WIDTH : 0);
 
-  // Split visible columns the same way ItemRow does so the header row
-  // renders Task name first, then the synthetic columns, then the rest.
-  const taskNameCol = visibleColumns.find((c) => c.column_type === 'task_name');
-  const otherCols   = visibleColumns.filter((c) => c.column_type !== 'task_name');
-
   return (
     <div className="px-8 py-4 bg-canvas">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -312,64 +305,12 @@ export function BoardContent({ board }: BoardContentProps) {
             table — the table reads as a continuous color mosaic on
             canvas, with group spines as the only structural seams. */}
         <div className="overflow-x-auto scroll-x-slim bg-canvas">
-          {/* Column-header row — Monday-style FILLED BAND.
-              Wraps all column headers in a single continuous slate band
-              (--bg-header-band). 36px tall, white 13/500 text inside.
-              No 1px canvas gaps inside the band — the cells run together.
-              Faint 1px chip-hair hairline below separates band from rows. */}
-          <div
-            className="flex items-stretch bg-header-band h-9 border-b border-border-hair"
-            style={{ minWidth: tableMinWidth }}
-          >
-            <div
-              className="shrink-0 sticky left-0 z-[5] bg-header-band border-r border-border-hair"
-              style={{ width: GUTTER_WIDTH }}
-            />
-
-            {/* Task-name header is rendered first and stays sticky-left after
-                the gutter — its layout/sticky positioning lives inside
-                ColumnHeader. The synthetic comment + task-code headers come
-                after, then the remaining user-defined columns. */}
-            <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-              {taskNameCol && (
-                <ColumnHeader
-                  key={taskNameCol.id}
-                  column={taskNameCol}
-                  boardId={board.id}
-                  canEdit={canEdit}
-                  onOpenLabelsEditor={setLabelsForColumn}
-                />
-              )}
-
-              {/* Synthetic header cells — empty title for the comment column
-                  (the icon is per-row), "Code" for the task-code column.
-                  Same typography tier as the rest of the headers. Cells
-                  are transparent so the band shows through (continuous
-                  slate fill). */}
-              <div
-                style={{ width: COMMENT_COL_WIDTH }}
-                className="shrink-0 flex items-center justify-center border-r border-border-hair"
-                aria-hidden="true"
-              />
-              <div
-                style={{ width: TASK_CODE_COL_WIDTH }}
-                className="shrink-0 flex items-center justify-center col-header-text border-r border-border-hair"
-              >
-                Code
-              </div>
-
-              {otherCols.map((col) => (
-                <ColumnHeader
-                  key={col.id}
-                  column={col}
-                  boardId={board.id}
-                  canEdit={canEdit}
-                  onOpenLabelsEditor={setLabelsForColumn}
-                />
-              ))}
-            </SortableContext>
-            {canEdit && <AddColumnMenu boardId={board.id} disabled={!canEdit} />}
-          </div>
+          {/* The board no longer carries a single column-header row.
+              Per Monday's design, each GroupBlock renders its own
+              ColumnHeaderRow between its title and its data rows so
+              every group shows its header in-place. Column-resize +
+              the live-width store keep every per-group header
+              aligned with every group's rows. */}
 
           {/* Buckets (real groups or virtual) */}
           {groupByColumnId ? (
@@ -386,6 +327,7 @@ export function BoardContent({ board }: BoardContentProps) {
                 subitemsByParent={subitemsByParent}
                 onOpenLabelsEditor={setLabelsForColumn}
                 rowMinWidth={tableMinWidth}
+                columnIds={columnIds}
               />
             ))
           ) : (
@@ -407,6 +349,7 @@ export function BoardContent({ board }: BoardContentProps) {
                     subitemsByParent={subitemsByParent}
                     onOpenLabelsEditor={setLabelsForColumn}
                     rowMinWidth={tableMinWidth}
+                    columnIds={columnIds}
                   />
                 );
               })}
@@ -452,7 +395,7 @@ export function BoardContent({ board }: BoardContentProps) {
 // ---------------------------------------------------------------------
 function VirtualBucket({
   bucket, columns, visibleColumns, labelsByColumnId, valuesByItemColumn,
-  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth,
+  boardId, canEdit, subitemsByParent, onOpenLabelsEditor, rowMinWidth, columnIds,
 }: {
   bucket: { id: string; name: string; color: string; items: ItemRow[] };
   columns: ColumnRow[];
@@ -464,6 +407,7 @@ function VirtualBucket({
   subitemsByParent: Map<string, ItemRow[]>;
   onOpenLabelsEditor: (col: ColumnRow) => void;
   rowMinWidth: number;
+  columnIds: string[];
 }) {
   // Reuse GroupBlock with a synthesised group row.
   const fakeGroup: GroupRow = {
@@ -491,6 +435,7 @@ function VirtualBucket({
       subitemsByParent={subitemsByParent}
       onOpenLabelsEditor={onOpenLabelsEditor}
       rowMinWidth={rowMinWidth}
+      columnIds={columnIds}
     />
   );
 }
