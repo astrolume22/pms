@@ -1,16 +1,20 @@
 /**
  * Public route — recipient of an invite link lands here without an
  * account. We validate the token via the anon-safe RPC
- * `get_invite_by_token`, then let them claim it by picking a username
- * + password. On success we sign them in and bounce to the app (or
- * directly into the inviting board, if board-specific).
+ * `get_invite_by_token`, then let them claim it by entering a full
+ * name + password (the username is auto-generated server-side per
+ * migration 0042). On success we sign them in and bounce to the app
+ * (or directly into the inviting board, if board-specific).
+ *
+ * Visual design mirrors src/routes/_bare.login.tsx (premium EIA look)
+ * so the sign-in + invite-accept pages feel like one branded system.
+ * All inline-styled and scoped to this route so the rest of the app's
+ * dark theme stays intact.
  */
 import { useEffect, useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import {
-  CheckCircle2, AlertTriangle, Eye, EyeOff, ShieldCheck, KeyRound,
-} from 'lucide-react';
+import { Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { useInviteByToken, useAcceptInvite } from '@/hooks/invites';
 import { useAuthStore } from '@/state/authStore';
 import { RoleBadge } from '@/components/RoleBadge';
@@ -19,6 +23,20 @@ import { Spinner } from '@/components/Spinner';
 export const Route = createFileRoute('/_bare/invite/$token')({
   component: InvitePage,
 });
+
+// ---------------------------------------------------------------------
+// EIA brand palette — copied verbatim from _bare.login.tsx so the two
+// pages match pixel-by-pixel. Scoped via inline styles to this route
+// only; the in-app dark theme stays untouched.
+// ---------------------------------------------------------------------
+const NAVY       = '#1a2547';
+const NAVY_DARK  = '#11182f';
+const CREAM      = '#FAF8F3';
+const FIELD_BG   = '#EEF1F8';
+const FIELD_BORD = '#D7DCEA';
+const GOLD       = '#b08d57';
+const MUTED      = '#6B7280';
+const SERIF = "'Cormorant Garamond', 'EB Garamond', Georgia, 'Times New Roman', serif";
 
 function InvitePage() {
   const { token } = Route.useParams();
@@ -89,35 +107,54 @@ function InvitePage() {
   // ---------- Loading ----------
   if (isLoading) {
     return (
-      <CenteredCard>
-        <div className="flex flex-col items-center gap-3 py-6">
-          <Spinner className="h-7 w-7 text-brand" />
-          <p className="text-sm text-text-secondary">Checking invite link…</p>
+      <BrandCard>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '24px 0' }}>
+          {/* Spinner inherits `currentColor` for its ring → wrap in a span
+              that sets text color to navy so the spinner matches the
+              brand without changing Spinner's API. */}
+          <span style={{ color: NAVY, display: 'inline-flex' }}>
+            <Spinner className="h-7 w-7" />
+          </span>
+          <p style={{ color: MUTED, fontSize: '13px', margin: 0 }}>Checking invite link…</p>
         </div>
-      </CenteredCard>
+      </BrandCard>
     );
   }
 
   // ---------- Invalid ----------
   if (!check?.valid) {
     return (
-      <CenteredCard>
-        <div className="flex flex-col items-center text-center gap-3 py-2">
-          <AlertTriangle className="h-10 w-10 text-warning" />
-          <h2 className="text-xl font-semibold">{reasonTitle(check?.reason)}</h2>
-          <p className="text-sm text-text-secondary max-w-[320px]">
-            {reasonDescription(check?.reason)} Ask the admin who shared the link
-            to generate a fresh one.
+      <BrandCard>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', padding: '8px 0' }}>
+          <AlertTriangle style={{ width: '40px', height: '40px', color: GOLD }} aria-hidden />
+          <h2 style={{ color: NAVY, fontSize: '18px', fontWeight: 700, margin: 0 }}>
+            {reasonTitle(check?.reason)}
+          </h2>
+          <p style={{ color: MUTED, fontSize: '13px', lineHeight: '20px', margin: 0, maxWidth: '320px' }}>
+            {reasonDescription(check?.reason)} Ask the admin who shared the link to generate a fresh one.
           </p>
           <button
             type="button"
             onClick={() => navigate({ to: '/login' })}
-            className="btn-ghost mt-2"
+            style={{
+              marginTop: '8px',
+              height: '40px',
+              padding: '0 18px',
+              background: 'transparent',
+              color: NAVY,
+              fontSize: '14px',
+              fontWeight: 600,
+              border: `1px solid ${NAVY}`,
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = NAVY; e.currentTarget.style.color = '#FFFFFF'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = NAVY; }}
           >
             Go to sign in
           </button>
         </div>
-      </CenteredCard>
+      </BrandCard>
     );
   }
 
@@ -125,74 +162,146 @@ function InvitePage() {
 
   // ---------- Valid: accept form ----------
   return (
-    <CenteredCard>
-      <div className="text-center mb-5">
-        <h1 className="text-2xl font-bold">You're invited to EIA Projects</h1>
-        <div className="mt-2 flex items-center justify-center gap-2 text-sm text-text-secondary">
+    <BrandCard>
+      {/* Heading + role/board chip row */}
+      <h2 style={{ textAlign: 'center', color: NAVY, fontSize: '18px', fontWeight: 700, margin: '0 0 8px 0' }}>
+        Complete your account
+      </h2>
+      <p style={{ textAlign: 'center', color: MUTED, fontSize: '13px', margin: '0 0 20px 0' }}>
+        You've been invited to EIA Projects.
+      </p>
+
+      {(check.role || check.board_name) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: '8px', marginBottom: '24px',
+          fontSize: '13px', color: MUTED,
+        }}>
           <span>You'll join as</span>
           {check.role && <RoleBadge role={check.role} />}
           {check.board_name && (
             <>
-              <span>·</span>
-              <span className="font-medium text-text-primary truncate max-w-[180px]">{check.board_name}</span>
+              <span style={{ color: MUTED }}>·</span>
+              <span style={{ color: NAVY, fontWeight: 600, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {check.board_name}
+              </span>
             </>
           )}
         </div>
-      </div>
+      )}
 
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-        <Field label="Full name">
+      <form onSubmit={(e) => void onSubmit(e)}>
+        {/* Full name */}
+        <label className="block" style={{ marginBottom: '16px' }}>
+          <span style={{
+            display: 'block', color: NAVY, fontSize: '12px', fontWeight: 600,
+            marginBottom: '6px', letterSpacing: '0.01em',
+          }}>
+            Full name
+          </span>
           <input
             type="text"
-            className="input"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             autoFocus
+            autoComplete="name"
             placeholder="Your full name"
+            style={{
+              width: '100%', height: '48px',
+              background: FIELD_BG, border: `1px solid ${FIELD_BORD}`,
+              borderRadius: '8px', padding: '0 14px',
+              color: NAVY, fontSize: '14px', outline: 'none',
+            }}
+            onFocus={(e) => { e.currentTarget.style.borderColor = NAVY; e.currentTarget.style.boxShadow = `0 0 0 3px ${NAVY}1a`; }}
+            onBlur={(e)  => { e.currentTarget.style.borderColor = FIELD_BORD; e.currentTarget.style.boxShadow = 'none'; }}
           />
-        </Field>
-        <Field label="Password" hint="At least 8 characters">
-          <div className="relative">
+        </label>
+
+        {/* Password (with eye toggle, behavior unchanged) */}
+        <label className="block" style={{ marginBottom: '6px' }}>
+          <span style={{
+            display: 'block', color: NAVY, fontSize: '12px', fontWeight: 600,
+            marginBottom: '6px', letterSpacing: '0.01em',
+          }}>
+            Password
+          </span>
+          <div style={{ position: 'relative' }}>
             <input
               type={showPw ? 'text' : 'password'}
-              className="input pr-10 font-mono"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               required
+              style={{
+                width: '100%', height: '48px',
+                background: FIELD_BG, border: `1px solid ${FIELD_BORD}`,
+                borderRadius: '8px', padding: '0 44px 0 14px',
+                color: NAVY, fontSize: '14px', outline: 'none',
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = NAVY; e.currentTarget.style.boxShadow = `0 0 0 3px ${NAVY}1a`; }}
+              onBlur={(e)  => { e.currentTarget.style.borderColor = FIELD_BORD; e.currentTarget.style.boxShadow = 'none'; }}
             />
             <button
               type="button"
-              tabIndex={-1}
               onClick={() => setShowPw((v) => !v)}
               aria-label={showPw ? 'Hide password' : 'Show password'}
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-base text-text-secondary hover:bg-hover"
+              tabIndex={-1}
+              style={{
+                position: 'absolute', right: '8px', top: '50%',
+                transform: 'translateY(-50%)',
+                height: '32px', width: '32px',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '6px', color: MUTED, background: 'transparent',
+                border: 'none', cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#E1E7F2'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-        </Field>
+        </label>
+        <p style={{ color: MUTED, fontSize: '11px', margin: '0 0 22px 0' }}>
+          At least 8 characters.
+        </p>
 
+        {/* Primary CTA — matches login button styling exactly */}
         <button
           type="submit"
           disabled={submitting}
-          className="btn-primary w-full inline-flex items-center justify-center gap-2"
+          style={{
+            width: '100%', height: '50px',
+            background: submitting ? NAVY_DARK : NAVY,
+            color: '#FFFFFF',
+            fontSize: '15px', fontWeight: 700, letterSpacing: '0.02em',
+            border: 'none', borderRadius: '8px',
+            cursor: submitting ? 'not-allowed' : 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            transition: 'background 0.15s ease',
+          }}
+          onMouseEnter={(e) => { if (!submitting) e.currentTarget.style.background = NAVY_DARK; }}
+          onMouseLeave={(e) => { if (!submitting) e.currentTarget.style.background = NAVY; }}
         >
           {submitting && <Spinner className="h-3 w-3" />}
-          <CheckCircle2 className="h-4 w-4" />
-          Claim invite and sign in
+          Accept Invitation
         </button>
       </form>
 
-      <div className="mt-5 pt-5 border-t border-border-light text-[11px] text-text-secondary flex items-start gap-2">
-        <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />
-        <span>
-          A username is generated for you automatically. You'll sign in with
-          your email going forward — an admin can change your display
-          username later if needed.
-        </span>
-      </div>
-    </CenteredCard>
+      {/* Small reassurance note about the auto-generated username */}
+      <p style={{
+        marginTop: '20px',
+        paddingTop: '18px',
+        borderTop: `1px solid ${FIELD_BORD}`,
+        color: MUTED,
+        fontSize: '11px',
+        lineHeight: '17px',
+        textAlign: 'center',
+      }}>
+        A username is generated for you automatically. You'll sign in with your
+        email going forward — an admin can change your display username later
+        if needed.
+      </p>
+    </BrandCard>
   );
 }
 
@@ -216,30 +325,73 @@ function reasonDescription(r?: string) {
   }
 }
 
-function CenteredCard({ children }: { children: React.ReactNode }) {
+/**
+ * BrandCard — the EIA-branded shell shared by all three states
+ * (loading / invalid / valid). Cream page background, white card with
+ * the EIA wordmark + company name + italic tagline + gold divider at
+ * the top, and the same italic footer line as the login page. Inner
+ * children render below the gold divider, above the footer line.
+ */
+function BrandCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex-1 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-[440px]">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold tracking-wide inline-flex items-center gap-2">
-            <KeyRound className="h-7 w-7 text-brand" />
-            EIA Projects
-          </h1>
-        </div>
-        <div className="bg-surface border border-border-light rounded-md shadow-md p-8">
+    <div
+      // Override the dark _bare layout's bg-app on this route only —
+      // keeps the in-app dark theme intact.
+      className="flex-1 flex items-center justify-center px-4 py-12 -m-px"
+      style={{ background: CREAM, color: NAVY, minHeight: '100vh' }}
+    >
+      <div className="w-full" style={{ maxWidth: '440px' }}>
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #ECE7DA',
+            borderRadius: '12px',
+            boxShadow: '0 10px 40px -16px rgba(26,37,71,0.18), 0 2px 6px -2px rgba(26,37,71,0.06)',
+            padding: '40px',
+          }}
+        >
+          {/* ----- EIA wordmark + company name + tagline + gold divider ----- */}
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <h1 style={{
+              fontFamily: SERIF, fontWeight: 500, color: NAVY,
+              fontSize: '56px', lineHeight: 1, letterSpacing: '0.08em', margin: 0,
+            }}>
+              EIA
+            </h1>
+            <p style={{
+              fontFamily: SERIF, fontWeight: 500, color: NAVY,
+              fontSize: '17px', letterSpacing: '0.02em',
+              marginTop: '10px', marginBottom: 0,
+            }}>
+              Expert Intuitive Advisor Inc.
+            </p>
+            <p style={{
+              fontStyle: 'italic', color: MUTED,
+              fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase',
+              marginTop: '14px', marginBottom: 0,
+            }}>
+              Internal Team Workspace
+            </p>
+            <div
+              aria-hidden
+              style={{
+                width: '60px', height: '2px', background: GOLD,
+                margin: '20px auto 0', borderRadius: '1px',
+              }}
+            />
+          </div>
+
           {children}
         </div>
+
+        {/* ----- Footer tagline ----- */}
+        <p style={{
+          textAlign: 'center', fontStyle: 'italic', color: MUTED,
+          fontSize: '12px', marginTop: '28px', letterSpacing: '0.01em',
+        }}>
+          The intelligence layer between humans and AI.
+        </p>
       </div>
     </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-xs uppercase tracking-wide text-text-secondary font-medium mb-1">{label}</span>
-      {children}
-      {hint && <span className="block text-[11px] text-text-secondary mt-1">{hint}</span>}
-    </label>
   );
 }
