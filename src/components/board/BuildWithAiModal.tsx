@@ -125,7 +125,7 @@ export function BuildWithAiModal({ open, onClose, boardId, boardName }: BuildWit
     <Modal
       open={open}
       onClose={onClose}
-      title={`Build with AI — ${boardName}`}
+      title={`Magic with AI — ${boardName}`}
       size="lg"
       footer={renderFooter()}
     >

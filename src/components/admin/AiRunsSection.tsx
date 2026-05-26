@@ -61,7 +61,7 @@ export function AiRunsSection() {
       ) : !data || data.length === 0 ? (
         <EmptyMessage
           title="No AI runs yet"
-          description="They appear here after any admin clicks Build with AI."
+          description="They appear here after any admin clicks Magic with AI."
         />
       ) : (
         <div className="overflow-x-auto -mx-2">

@@ -203,7 +203,7 @@ export function BoardHeader({ board }: BoardHeaderProps) {
               title="Build groups + columns + tasks from a prompt"
             >
               <Sparkles className="h-4 w-4" />
-              Build with AI
+              Magic with AI
             </button>
           )}
           {/* Invite — admin only (RLS will also block managers if they
