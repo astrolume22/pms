@@ -29,6 +29,9 @@ export interface InviteRow {
   used_at: string | null;
   used_by: string | null;
   revoked_at: string | null;
+  // Migration 0040 — optional real email the admin emailed the invite
+  // to (null when admin used "Generate invite link" without an email).
+  invitee_email: string | null;
 }
 
 // ---------------------------------------------------------------------
@@ -62,7 +65,13 @@ export function useCreateInvite() {
       // undef ⇒ default of 7 days
       // number ⇒ explicit hours (1..720)
       expiresInHours?: number | null;
-    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null }> => {
+      // Optional. Stored on the invite row via migration 0040's
+      // p_invitee_email arg. When present, accept_invite() uses this
+      // as the new account's real email instead of the synthetic
+      // username@pms.internal. Pass undefined/null to keep the
+      // legacy synthetic-email behaviour (e.g. "Generate link" flow).
+      inviteeEmail?: string | null;
+    }): Promise<{ id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null; invitee_email: string | null }> => {
       const { data, error } = await supabase.rpc('create_invite', {
         p_role: args.role,
         p_board_id: args.boardId,
@@ -70,9 +79,10 @@ export function useCreateInvite() {
         // "never expires". Only fall back to 168 when undefined.
         p_expires_in_hours: args.expiresInHours === undefined ? 168 : args.expiresInHours,
         p_group_id: args.groupId ?? null,
+        p_invitee_email: args.inviteeEmail ?? null,
       });
       if (error) throw error;
-      return data as { id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null };
+      return data as { id: string; token: string; role: UserRole; board_id: string | null; group_id: string | null; expires_at: string | null; invitee_email: string | null };
     },
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({

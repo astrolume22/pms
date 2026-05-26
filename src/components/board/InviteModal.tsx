@@ -14,7 +14,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Link2, Copy, Check, Trash2, Globe, Lock, ChevronDown,
+  Link2, Copy, Check, Trash2, Globe, Lock, ChevronDown, Mail,
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { RoleBadge } from '@/components/RoleBadge';
@@ -25,8 +25,15 @@ import {
   type InviteRow,
 } from '@/hooks/invites';
 import { useGroups } from '@/hooks/groups';
+import { useAuthStore } from '@/state/authStore';
+import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
+
+// Loose-but-useful email shape check. Matches the server's regex in
+// api/send-invite-email.ts so what passes here also passes there —
+// no point in pre-validating stricter than the route does.
+const EMAIL_RE = /^.+@.+\..+$/;
 
 interface InviteModalProps {
   open: boolean;
@@ -48,13 +55,22 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
   // `null` ⇒ never expires (sent as null to RPC; migration 0037 treats
   // null expires_at as no-expiry). Default flipped to Never per spec.
   const [expires, setExpires] = useState<24 | 168 | 720 | null>(null);
+  // Optional invitee email — when set, the "Send Invite" button mints
+  // the invite with this email AND fires the branded email via
+  // /api/send-invite-email. Leaving it blank keeps the legacy
+  // "Generate invite link" flow working unchanged.
+  const [inviteeEmail, setInviteeEmail] = useState('');
   const [newLink, setNewLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Independent loading flag for the Send-Invite path so the Generate
+  // button's spinner (create.isPending) doesn't bleed onto it.
+  const [sending, setSending] = useState(false);
 
   const { data: groups } = useGroups(boardId);
   const list = useInvitesForBoard(scope === 'workspace' ? null : boardId);
   const create = useCreateInvite();
   const revoke = useRevokeInvite();
+  const profile = useAuthStore((s) => s.profile);
 
   const onGenerate = async () => {
     if (scope === 'group' && !groupId) {
@@ -82,6 +98,91 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
     }
   };
 
+  const onSendInvite = async () => {
+    const email = inviteeEmail.trim();
+    if (!email || !EMAIL_RE.test(email)) {
+      toast.error('Enter a valid email to send an invite');
+      return;
+    }
+    if (scope === 'group' && !groupId) {
+      toast.error('Pick a group to scope this invite to');
+      return;
+    }
+
+    setSending(true);
+    try {
+      // 1) Mint the invite — same RPC + same args as Generate, plus
+      //    the new invitee_email param wired through 0040.
+      const data = await create.mutateAsync({
+        role,
+        boardId: scope === 'workspace' ? null : boardId,
+        groupId: scope === 'group' ? groupId : null,
+        expiresInHours: expires,
+        inviteeEmail: email,
+      });
+      const link = `${window.location.origin}/invite/${data.token}`;
+
+      // 2) Grab the current session JWT — /api/send-invite-email
+      //    re-validates it server-side via is_admin().
+      const { data: sessionData } = await supabase.auth.getSession();
+      const jwt = sessionData.session?.access_token;
+      if (!jwt) {
+        // Show the link anyway so the admin can copy/share it manually.
+        setNewLink(link);
+        setCopied(false);
+        toast.error('Not signed in — link generated but email not sent');
+        return;
+      }
+
+      // 3) POST to the same-origin email route. Relative path is
+      //    deliberate: hitting `/api/...` keeps us on the current
+      //    origin (the canonical Vercel URL strips the Authorization
+      //    header on cross-origin redirects).
+      const inviterName =
+        (profile?.full_name && profile.full_name.trim()) ||
+        (profile?.username && profile.username.trim()) ||
+        'An admin';
+      const resp = await fetch('/api/send-invite-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          token: data.token,
+          invitee_email: email,
+          board_name: scope === 'workspace' ? '' : boardName,
+          role,
+          inviter_name: inviterName,
+        }),
+      });
+      const payload = await resp.json().catch(() => null) as
+        | { sent?: boolean; id?: string | null; error?: string; resend?: { message?: string } }
+        | null;
+
+      if (!resp.ok || !payload?.sent) {
+        // Surface server's error verbatim. Still show the generated
+        // link so the admin can fall back to manual sharing.
+        setNewLink(link);
+        setCopied(false);
+        const errMsg =
+          payload?.resend?.message
+          || payload?.error
+          || `Send failed (HTTP ${resp.status})`;
+        toast.error(errMsg);
+        return;
+      }
+
+      setNewLink(link);
+      setCopied(false);
+      toast.success(`Invite emailed to ${email}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send invite');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const onCopy = async () => {
     if (!newLink) return;
     try {
@@ -98,6 +199,7 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
   const handleClose = () => {
     setNewLink(null);
     setCopied(false);
+    setInviteeEmail('');
     onClose();
   };
 
@@ -188,19 +290,53 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
           )}
         </Section>
 
-        {/* Generate / copy row */}
+        {/* Invitee email — optional. When filled, "Send Invite" emails
+            the branded invite via /api/send-invite-email (admin-only,
+            JWT-gated). Leaving it blank keeps "Generate invite link"
+            working exactly as before — the email is a pure add-on. */}
+        <Section label="Invitee email (optional)">
+          <div className="relative">
+            <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary pointer-events-none" />
+            <input
+              type="email"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="person@example.com"
+              value={inviteeEmail}
+              onChange={(e) => setInviteeEmail(e.target.value)}
+              className="input pl-8 w-full"
+            />
+          </div>
+          <p className="text-[11px] text-text-secondary mt-1">
+            Leave blank to just generate a link you'll share manually.
+          </p>
+        </Section>
+
+        {/* Generate / Send / copy row */}
         <div>
           {!newLink ? (
-            <button
-              type="button"
-              onClick={() => void onGenerate()}
-              disabled={create.isPending}
-              className="btn-primary w-full inline-flex items-center justify-center gap-2"
-            >
-              {create.isPending && <Spinner className="h-3 w-3" />}
-              <Link2 className="h-4 w-4" />
-              Generate invite link
-            </button>
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={() => void onGenerate()}
+                disabled={create.isPending || sending}
+                className="btn-ghost flex-1 inline-flex items-center justify-center gap-2 border border-border-light"
+              >
+                {create.isPending && !sending && <Spinner className="h-3 w-3" />}
+                <Link2 className="h-4 w-4" />
+                Generate invite link
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSendInvite()}
+                disabled={sending || create.isPending}
+                className="btn-primary flex-1 inline-flex items-center justify-center gap-2"
+              >
+                {sending && <Spinner className="h-3 w-3" />}
+                <Mail className="h-4 w-4" />
+                Send Invite
+              </button>
+            </div>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
