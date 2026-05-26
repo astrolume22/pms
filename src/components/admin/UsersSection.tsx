@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import {
   UserPlus, KeyRound, ShieldCheck, ShieldOff, MoreHorizontal,
-  Eye, EyeOff, Crown, AlertTriangle, RefreshCw, AtSign,
+  Eye, EyeOff, Crown, AlertTriangle, RefreshCw, AtSign, Trash2,
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { Avatar } from '@/components/Avatar';
@@ -22,6 +22,7 @@ import { EmptyMessage } from '@/components/EmptyMessage';
 import {
   useAdminUsers, useAdminCreateUser, useAdminResetPassword,
   useAdminSetRole, useAdminSetStatus, useAdminSetUsername,
+  useAdminDeleteUser,
   type AdminUserRow,
 } from '@/hooks/admin';
 import { useAuthStore } from '@/state/authStore';
@@ -37,6 +38,8 @@ export function UsersSection() {
   const [roleForUser, setRoleForUser] = useState<AdminUserRow | null>(null);
   // 0042: admin-only rename of a user's display username.
   const [renameForUser, setRenameForUser] = useState<AdminUserRow | null>(null);
+  // 0043: admin-only permanent delete (with type-to-confirm gate).
+  const [deleteForUser, setDeleteForUser] = useState<AdminUserRow | null>(null);
 
   return (
     <section className="bg-surface border border-border-light rounded-md p-6">
@@ -97,6 +100,7 @@ export function UsersSection() {
                   onResetPassword={() => { setMenuOpenFor(null); setResetForUser(u); }}
                   onChangeRole={() => { setMenuOpenFor(null); setRoleForUser(u); }}
                   onRenameUsername={() => { setMenuOpenFor(null); setRenameForUser(u); }}
+                  onDeletePermanently={() => { setMenuOpenFor(null); setDeleteForUser(u); }}
                 />
               ))}
             </tbody>
@@ -114,6 +118,9 @@ export function UsersSection() {
       {renameForUser && (
         <RenameUsernameModal user={renameForUser} onClose={() => setRenameForUser(null)} />
       )}
+      {deleteForUser && (
+        <DeletePermanentlyModal user={deleteForUser} onClose={() => setDeleteForUser(null)} />
+      )}
     </section>
   );
 }
@@ -128,14 +135,19 @@ interface UserRowProps {
   onResetPassword: () => void;
   onChangeRole: () => void;
   onRenameUsername: () => void;
+  onDeletePermanently: () => void;
 }
 
 function UserRowItem({
-  user, isCurrent, menuOpen, onToggleMenu, onResetPassword, onChangeRole, onRenameUsername,
+  user, isCurrent, menuOpen, onToggleMenu, onResetPassword, onChangeRole, onRenameUsername, onDeletePermanently,
 }: UserRowProps) {
   const setStatus = useAdminSetStatus();
 
   const canDeactivate = !user.is_super_admin && !isCurrent;
+  // 0043: same guards the server enforces — disable the menu item
+  // upfront for a friendlier error path. Server is still the source of
+  // truth (last-admin guard runs there).
+  const canDelete = !user.is_super_admin && !isCurrent;
 
   const onToggleStatus = async () => {
     onToggleMenu(); // close menu
@@ -223,6 +235,20 @@ function UserRowItem({
                   : undefined
               }
               destructive={user.status === 'active'}
+            />
+            <RowMenuItem
+              icon={<Trash2 className="h-4 w-4" />}
+              label="Delete permanently"
+              onClick={onDeletePermanently}
+              disabled={!canDelete}
+              disabledTitle={
+                user.is_super_admin
+                  ? 'Cannot delete super-admin'
+                  : isCurrent
+                  ? 'Cannot delete yourself'
+                  : undefined
+              }
+              destructive
             />
           </div>
         )}
@@ -585,6 +611,78 @@ function RenameUsernameModal({ user, onClose }: { user: AdminUserRow; onClose: (
           <button type="submit" disabled={rename.isPending} className="btn-primary inline-flex items-center gap-2">
             {rename.isPending && <Spinner className="h-3 w-3" />}
             Save username
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ----------------------- Delete permanently modal ----------------------
+
+function DeletePermanentlyModal({ user, onClose }: { user: AdminUserRow; onClose: () => void }) {
+  const del = useAdminDeleteUser();
+  // Type-to-confirm gate — the admin must type the EXACT username
+  // before the destructive button enables. Saves accidental clicks.
+  const [typed, setTyped] = useState('');
+  const matches = typed.trim() === user.username;
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!matches) return;
+    try {
+      await del.mutateAsync({ userId: user.id });
+      toast.success(`@${user.username} deleted permanently`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Delete permanently — @${user.username}`} size="sm">
+      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+        <div className="bg-error/10 border border-error/30 rounded-base p-3 text-xs flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-error shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-error">This cannot be undone.</p>
+            <p className="mt-1">
+              This permanently deletes <strong>@{user.username}</strong>'s account
+              and login. Their boards, tasks, and comments will remain but show no
+              author. They will no longer be able to sign in.
+            </p>
+          </div>
+        </div>
+        <FormField
+          label={`Type "${user.username}" to confirm`}
+          hint="The button below stays disabled until the username matches exactly."
+        >
+          <input
+            type="text"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            className="input font-mono"
+            placeholder={user.username}
+          />
+        </FormField>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+          <button
+            type="submit"
+            disabled={!matches || del.isPending}
+            className={cn(
+              'h-9 px-3 rounded-base text-sm font-medium inline-flex items-center gap-2 text-white',
+              !matches || del.isPending
+                ? 'bg-error/50 cursor-not-allowed'
+                : 'bg-error hover:bg-error/90',
+            )}
+          >
+            {del.isPending && <Spinner className="h-3 w-3" />}
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete permanently
           </button>
         </div>
       </form>

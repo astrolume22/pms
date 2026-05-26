@@ -132,6 +132,25 @@ export function useAdminSetUsername() {
   });
 }
 
+// Migration 0043 — permanent delete. Admin-only via is_admin(). The RPC
+// also refuses self-delete, the last active admin, and any super admin.
+// The user's CONTENT (boards, items, updates, views, files, invites
+// they minted, AI runs, audit-log rows) survives with the author column
+// set to NULL — per the DATA OWNERSHIP RULE (SET NULL never CASCADE on
+// authorship FKs).
+export function useAdminDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { userId: string }) => {
+      const { error } = await supabase.rpc('admin_delete_user', {
+        p_user_id: args.userId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: adminKeys.users }),
+  });
+}
+
 export function useAdminSetStatus() {
   const qc = useQueryClient();
   return useMutation({
