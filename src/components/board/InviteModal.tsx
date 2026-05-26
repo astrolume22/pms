@@ -25,6 +25,7 @@ import {
   type InviteRow,
 } from '@/hooks/invites';
 import { useGroups } from '@/hooks/groups';
+import type { UserRole } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 
 interface InviteModalProps {
@@ -40,9 +41,13 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
   // single group on this board.
   const [scope, setScope] = useState<'board' | 'workspace' | 'group'>('board');
   const [groupId, setGroupId] = useState<string | null>(null);
+  // Role the invitee gets when they accept. Backend (migration 0020 +
+  // 0023) already supports admin/manager/viewer in create_invite +
+  // accept_invite. Default = Manager (the most common case).
+  const [role, setRole] = useState<UserRole>('manager');
   // `null` ⇒ never expires (sent as null to RPC; migration 0037 treats
-  // null expires_at as no-expiry).
-  const [expires, setExpires] = useState<24 | 168 | 720 | null>(168);
+  // null expires_at as no-expiry). Default flipped to Never per spec.
+  const [expires, setExpires] = useState<24 | 168 | 720 | null>(null);
   const [newLink, setNewLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -58,7 +63,10 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
     }
     try {
       const data = await create.mutateAsync({
-        role: 'manager',
+        // User-selected role (admin / manager / viewer). The backend
+        // RPC (create_invite, migration 0023) gates this by is_admin()
+        // already — only admins can reach this modal anyway.
+        role,
         boardId: scope === 'workspace' ? null : boardId,
         groupId: scope === 'group' ? groupId : null,
         // expires === null is the "Never expires" choice — sent through
@@ -96,16 +104,24 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
   return (
     <Modal open={open} onClose={handleClose} title={`Invite people — ${boardName}`} size="md">
       <div className="space-y-5">
-        {/* Role — fixed to Manager in the two-role model. We render this
-            as a single read-only card so the admin sees what the invitee
-            will become. */}
+        {/* Role — three-option selector. Backend (create_invite RPC,
+            migration 0020 + 0023) already accepts admin/manager/viewer
+            and accept_invite subscribes viewers with
+            board_subscribers.role = 'viewer'. */}
         <Section label="Role">
-          <div className="rounded-base border border-brand bg-brand/10 p-3 inline-flex items-center gap-2.5">
-            <RoleBadge role="manager" />
-            <span className="text-sm">
-              <span className="font-semibold text-brand">Manager</span>
-              <span className="text-text-secondary"> — assigned board(s) only, can change Status + post comments.</span>
-            </span>
+          <div className="flex items-stretch gap-2">
+            <RoleChoice
+              value="admin"   current={role} onSelect={setRole}
+              label="Admin"   hint="Full access — manage boards, columns, users, everything."
+            />
+            <RoleChoice
+              value="manager" current={role} onSelect={setRole}
+              label="Manager" hint="Assigned board(s) only; can change Status + post comments."
+            />
+            <RoleChoice
+              value="viewer"  current={role} onSelect={setRole}
+              label="Viewer"  hint="Read-only — can view the board but cannot edit anything."
+            />
           </div>
         </Section>
 
@@ -204,7 +220,7 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
                 </button>
               </div>
               <p className="text-[13px] text-text-secondary">
-                Anyone with this link can claim a manager account
+                Anyone with this link can claim {role === 'admin' ? 'an' : 'a'} {role} account
                 {scope === 'workspace'
                   ? ' in the workspace.'
                   : scope === 'group'
@@ -350,6 +366,37 @@ function ScopeChoice<T extends string>({
         <p className={cn('text-sm font-medium', active && 'text-brand')}>{label}</p>
         <p className="text-[11px] text-text-secondary truncate">{hint}</p>
       </div>
+    </button>
+  );
+}
+
+// Three-option role chip — same visual rhythm as ScopeChoice but
+// driven by a UserRole + a small RoleBadge inside the chip.
+function RoleChoice({
+  value, current, onSelect, label, hint,
+}: {
+  value: UserRole;
+  current: UserRole;
+  onSelect: (v: UserRole) => void;
+  label: string;
+  hint: string;
+}) {
+  const active = value === current;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(value)}
+      className={cn(
+        'flex-1 rounded-base border p-2.5 text-left transition-colors flex items-start gap-2',
+        active ? 'border-brand bg-brand/10' : 'border-border-light hover:bg-hover',
+      )}
+      aria-pressed={active}
+    >
+      <span className="shrink-0 mt-0.5"><RoleBadge role={value} /></span>
+      <span className="min-w-0">
+        <p className={cn('text-sm font-medium', active && 'text-brand')}>{label}</p>
+        <p className="text-[11px] text-text-secondary">{hint}</p>
+      </span>
     </button>
   );
 }
