@@ -25,6 +25,7 @@ import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/state/authStore';
 import { Spinner } from '@/components/Spinner';
+import { supabase } from '@/lib/supabase';
 
 interface LoginSearch { redirect?: string }
 
@@ -225,6 +226,10 @@ function LoginPage() {
   const [showPw, setShowPw]       = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [openModal, setOpenModal] = useState<'aup' | 'privacy' | null>(null);
+  // Email-link modal — used for BOTH "Forgot password" (sends a
+  // Supabase password-reset email) and the SSO sign-in option (sends
+  // a magic-link). Same UI, different action.
+  const [emailLink, setEmailLink] = useState<'reset' | 'magic' | null>(null);
 
   // Title for the tab — matches the design's <title>.
   useEffect(() => {
@@ -276,11 +281,13 @@ function LoginPage() {
           submitting={submitting}
           onSubmit={onSubmit}
           onOpenModal={setOpenModal}
+          onOpenEmailLink={setEmailLink}
         />
       </div>
 
       {openModal === 'aup'     && <AupModal     onClose={() => setOpenModal(null)} />}
       {openModal === 'privacy' && <PrivacyModal onClose={() => setOpenModal(null)} />}
+      {emailLink && <EmailLinkModal mode={emailLink} onClose={() => setEmailLink(null)} />}
     </div>
   );
 }
@@ -817,11 +824,12 @@ interface FormProps {
   submitting: boolean;
   onSubmit:   (e: React.FormEvent) => void;
   onOpenModal: (m: 'aup' | 'privacy') => void;
+  onOpenEmailLink: (m: 'reset' | 'magic') => void;
 }
 function FormPanel({
   identifier, setIdentifier, password, setPassword,
   remember, setRemember, showPw, setShowPw,
-  submitting, onSubmit, onOpenModal,
+  submitting, onSubmit, onOpenModal, onOpenEmailLink,
 }: FormProps) {
   return (
     <section className="form-panel" style={{
@@ -844,6 +852,39 @@ function FormPanel({
             Use your corporate credentials to continue.
           </p>
         </header>
+
+        {/* SSO button — opens the email-link modal in 'magic' mode.
+            We email a one-time sign-in link to the user (passwordless).
+            Works for any user with a real email on their auth record. */}
+        <button
+          type="button"
+          className="sso-btn"
+          onClick={() => onOpenEmailLink('magic')}
+          style={{
+            width: '100%', height: '44px',
+            background: T.bgCard, border: `1px solid ${T.border}`,
+            borderRadius: '8px', color: T.textStrong,
+            fontFamily: T.fontSans, fontSize: '14px', fontWeight: 500,
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textMuted }} aria-hidden>
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          <span>Continue with Single Sign-On</span>
+        </button>
+
+        <div style={{
+          margin: '18px 0', display: 'flex', alignItems: 'center', gap: '12px',
+          color: T.textSubtle, fontSize: '11px', fontWeight: 500,
+          fontFamily: T.fontMono, letterSpacing: '0.10em', textTransform: 'uppercase',
+        }}>
+          <span style={{ flex: 1, height: '1px', background: T.border }} />
+          or sign in with email
+          <span style={{ flex: 1, height: '1px', background: T.border }} />
+        </div>
 
         <form onSubmit={onSubmit} autoComplete="on" noValidate>
           {/* Identifier */}
@@ -879,7 +920,7 @@ function FormPanel({
               <label htmlFor="login-pw" style={{ fontSize: '12.5px', fontWeight: 500, color: T.textBody }}>Password</label>
               <a
                 href="#"
-                onClick={(e) => { e.preventDefault(); toast.info('Ask an admin to reset your password from the Users panel.'); }}
+                onClick={(e) => { e.preventDefault(); onOpenEmailLink('reset'); }}
                 style={{ fontSize: '12.5px', color: T.brand, textDecoration: 'none', fontWeight: 500 }}
               >Forgot?</a>
             </div>
@@ -1115,6 +1156,138 @@ const Meta = ({ left, right }: { left: string; right: string }) => (
     <span>{right}</span>
   </div>
 );
+
+// =====================================================================
+// EmailLinkModal — one modal serving two flows:
+//   mode='reset'  → password reset (Supabase sends a recovery email
+//                   whose link lands on /reset-password where the
+//                   user picks a new password).
+//   mode='magic'  → magic-link sign-in (Supabase sends a one-time
+//                   link whose click signs the user in directly).
+//
+// Input accepts EITHER an email OR a username — same UX as the
+// sign-in form. Username gets resolved to its email via the
+// existing resolve_login_email RPC (migration 0041).
+//
+// Success is always toasted GENERICALLY ("If an account exists for
+// that email, a link has been sent.") so an attacker can't probe
+// which usernames/emails are valid.
+// =====================================================================
+function EmailLinkModal({ mode, onClose }: { mode: 'reset' | 'magic'; onClose: () => void }) {
+  const [identifier, setIdentifier] = useState('');
+  const [sending, setSending]       = useState(false);
+
+  const title    = mode === 'reset' ? 'Reset your password' : 'Sign in with email link';
+  const eyebrow  = mode === 'reset' ? 'Password reset'      : 'Single sign-on';
+  const intro    = mode === 'reset'
+    ? "Enter your email or username and we'll send you a link to reset your password."
+    : "Enter your email or username and we'll email you a one-time sign-in link.";
+  const button   = mode === 'reset' ? 'Send reset link' : 'Send sign-in link';
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = identifier.trim();
+    if (!raw) { toast.error('Enter your email or username'); return; }
+
+    setSending(true);
+    try {
+      // Resolve username → email if needed (same path the sign-in
+      // form uses). For an email-shaped value this returns it back.
+      let email = raw.toLowerCase();
+      if (!email.includes('@')) {
+        const { data, error } = await supabase.rpc('resolve_login_email', { p_identifier: raw });
+        if (!error && typeof data === 'string') email = data;
+        // If resolve returns null we still call the auth method with
+        // the raw value — Supabase will return its own generic
+        // "User not found" path and we collapse both into the same
+        // toast below so the user can't enumerate accounts.
+      }
+
+      if (mode === 'reset') {
+        await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/reset-password',
+        });
+      } else {
+        await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: window.location.origin + '/' },
+        });
+      }
+
+      // GENERIC success — never confirm whether the account exists.
+      toast.success(
+        mode === 'reset'
+          ? 'If an account exists for that email, a reset link has been sent. Check your inbox.'
+          : 'If an account exists for that email, a sign-in link has been sent. Check your inbox.',
+      );
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send the link');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal title={title} eyebrow={eyebrow} onClose={onClose}>
+      <p style={{ fontSize: '14px', color: T.textBody, margin: '0 0 18px', lineHeight: 1.55 }}>
+        {intro}
+      </p>
+      <form onSubmit={onSubmit}>
+        <label htmlFor="el-id" style={{ display: 'block', fontSize: '12.5px', fontWeight: 500, color: T.textBody, marginBottom: '6px' }}>
+          Work email or username
+        </label>
+        <input
+          id="el-id"
+          type="text"
+          autoComplete="username"
+          autoFocus
+          placeholder="you@expert.com"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          className="input-base"
+          style={{
+            width: '100%', height: '42px', padding: '0 12px',
+            background: T.bgInput, border: `1px solid ${T.border}`,
+            borderRadius: '8px', color: T.textStrong,
+            fontFamily: T.fontSans, fontSize: '14px', outline: 'none',
+          }}
+        />
+        <div style={{
+          marginTop: '20px',
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px',
+        }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              height: '38px', padding: '0 16px', borderRadius: '8px',
+              background: 'transparent', border: `1px solid ${T.border}`,
+              color: T.textBody, fontFamily: T.fontSans, fontSize: '13px', fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >Cancel</button>
+          <button
+            type="submit"
+            disabled={sending}
+            className="submit-btn"
+            style={{
+              height: '38px', padding: '0 18px', borderRadius: '8px',
+              background: T.brand, border: 'none', color: '#fff',
+              fontFamily: T.fontSans, fontSize: '13px', fontWeight: 600,
+              cursor: sending ? 'wait' : 'pointer',
+              opacity: sending ? 0.92 : 1,
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+            }}
+          >
+            {sending && <Spinner className="h-3 w-3" />}
+            {sending ? 'Sending…' : button}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 function AupModal({ onClose }: { onClose: () => void }) {
   return (

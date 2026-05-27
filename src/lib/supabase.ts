@@ -116,7 +116,12 @@ export const supabase = createClient(url, anonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    // Auto-parse magic-link + recovery callbacks from the URL hash so
+    // "Forgot password" → email link → /reset-password and the SSO
+    // magic-link → / flows pick up the session automatically. Without
+    // this, clicking a Supabase auth email would land on a static page
+    // with the tokens sitting unread in the URL.
+    detectSessionInUrl: true,
     storageKey: 'pms.auth',
     lock: passThroughLock,
   },
