@@ -823,10 +823,6 @@ function FormPanel({
   remember, setRemember, showPw, setShowPw,
   submitting, onSubmit, onOpenModal,
 }: FormProps) {
-  const onSsoClick = () => {
-    toast.info('Single sign-on isn\'t configured yet — use your email and password.');
-  };
-
   return (
     <section className="form-panel" style={{
       background: T.bgApp,
@@ -848,40 +844,6 @@ function FormPanel({
             Use your corporate credentials to continue.
           </p>
         </header>
-
-        {/* SSO button — styled but disabled with tooltip. The handler
-            surfaces a toast explaining SSO isn't configured. */}
-        <button
-          type="button"
-          className="sso-btn"
-          onClick={onSsoClick}
-          title="SSO coming soon — use your email and password for now"
-          style={{
-            width: '100%', height: '44px',
-            background: T.bgCard, border: `1px solid ${T.border}`,
-            borderRadius: '8px', color: T.textStrong,
-            fontFamily: T.fontSans, fontSize: '14px', fontWeight: 500,
-            cursor: 'not-allowed',
-            opacity: 0.65,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textMuted }} aria-hidden>
-            <rect x="4" y="11" width="16" height="10" rx="2" />
-            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-          </svg>
-          <span>Continue with Single Sign-On</span>
-        </button>
-
-        <div style={{
-          margin: '18px 0', display: 'flex', alignItems: 'center', gap: '12px',
-          color: T.textSubtle, fontSize: '11px', fontWeight: 500,
-          fontFamily: T.fontMono, letterSpacing: '0.10em', textTransform: 'uppercase',
-        }}>
-          <span style={{ flex: 1, height: '1px', background: T.border }} />
-          or sign in with email
-          <span style={{ flex: 1, height: '1px', background: T.border }} />
-        </div>
 
         <form onSubmit={onSubmit} autoComplete="on" noValidate>
           {/* Identifier */}
