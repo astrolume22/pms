@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/state/authStore';
 import { Spinner } from '@/components/Spinner';
 import { supabase } from '@/lib/supabase';
+import { useIsMobileOrTablet } from '@/lib/deviceCheck';
 
 interface LoginSearch { redirect?: string }
 
@@ -220,6 +221,12 @@ function LoginPage() {
   const { redirect: redirectTarget } = Route.useSearch();
   const signIn = useAuthStore((s) => s.signInWithIdentifier);
 
+  // Phones and tablets (incl. iPadOS 13+ in desktop-Safari mode) are
+  // not allowed to sign in — this product is desktop/laptop only.
+  // Block visually AND defensively short-circuit onSubmit so a
+  // DevTools resize can't sneak past the visual block.
+  const blockMobile = useIsMobileOrTablet();
+
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword]   = useState('');
   const [remember, setRemember]   = useState(true);
@@ -234,12 +241,18 @@ function LoginPage() {
   // Title for the tab — matches the design's <title>.
   useEffect(() => {
     const prev = document.title;
-    document.title = 'EIA Internal Projects — Sign In';
+    document.title = blockMobile
+      ? 'EIA Internal Projects — Desktop only'
+      : 'EIA Internal Projects — Sign In';
     return () => { document.title = prev; };
-  }, []);
+  }, [blockMobile]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (blockMobile) {
+      toast.error('Sign-in is only available on a computer, laptop, or desktop device.');
+      return;
+    }
     if (!identifier.trim() || !password) {
       toast.error('Enter your username or email and password');
       return;
@@ -254,6 +267,12 @@ function LoginPage() {
       setSubmitting(false);
     }
   };
+
+  // Render the mobile/tablet block instead of the form. We bail before
+  // mounting BrandPanel / FormPanel so phones never see the inputs.
+  if (blockMobile) {
+    return <MobileOnlyBlocker />;
+  }
 
   return (
     <div
@@ -288,6 +307,83 @@ function LoginPage() {
       {openModal === 'aup'     && <AupModal     onClose={() => setOpenModal(null)} />}
       {openModal === 'privacy' && <PrivacyModal onClose={() => setOpenModal(null)} />}
       {emailLink && <EmailLinkModal mode={emailLink} onClose={() => setEmailLink(null)} />}
+    </div>
+  );
+}
+
+// =====================================================================
+// MobileOnlyBlocker — shown instead of the login form when the visitor
+// is on a phone or tablet (incl. iPadOS in desktop-Safari mode). The
+// product is desktop/laptop only; this is a hard block, not a warning.
+// Red copy per the explicit product requirement.
+// =====================================================================
+function MobileOnlyBlocker() {
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        background: T.bgApp,
+        color: T.textBody,
+        fontFamily: T.fontSans,
+        minHeight: '100vh',
+        margin: '-1px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px',
+        WebkitFontSmoothing: 'antialiased',
+      }}
+    >
+      <div style={{
+        width: '100%', maxWidth: '440px',
+        background: T.bgCard, border: `1px solid ${T.border}`,
+        borderRadius: '14px', padding: '32px 28px',
+        boxShadow: T.shadowCard, textAlign: 'center',
+      }}>
+        {/* Crest — same E mark as the brand panel for continuity */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '18px' }}>
+          <span style={{
+            width: '40px', height: '40px', borderRadius: '10px',
+            background: T.brand, color: '#fff',
+            display: 'grid', placeItems: 'center',
+            fontWeight: 700, fontSize: '16px',
+            boxShadow: '0 1px 0 rgba(255,255,255,0.12) inset, 0 1px 2px rgba(15,23,42,0.1)',
+          }}>E</span>
+        </div>
+
+        {/* Desktop / laptop icon */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none"
+               stroke="#DC2626" strokeWidth="1.6"
+               strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+        </div>
+
+        <h1 style={{
+          fontFamily: T.fontSans, fontWeight: 600, fontSize: '20px',
+          color: '#DC2626', margin: '0 0 10px', letterSpacing: '-0.015em',
+          lineHeight: 1.25,
+        }}>
+          Sign-in not available on this device
+        </h1>
+
+        <p style={{
+          color: '#DC2626', fontSize: '14px', fontWeight: 500,
+          lineHeight: 1.55, margin: '0 0 14px',
+        }}>
+          Phones and tablets (including iPad) cannot sign in to EIA Internal Projects.
+          Please sign in from a <strong style={{ fontWeight: 700 }}>computer, laptop, or desktop</strong> device.
+        </p>
+
+        <p style={{
+          color: T.textMuted, fontSize: '12.5px', lineHeight: 1.5,
+          margin: '14px 0 0', paddingTop: '14px',
+          borderTop: `1px solid ${T.border}`,
+        }}>
+          If you believe you're seeing this in error, switch to a desktop browser and try again.
+        </p>
+      </div>
     </div>
   );
 }
