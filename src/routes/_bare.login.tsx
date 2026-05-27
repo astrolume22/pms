@@ -392,8 +392,6 @@ function BrandPanel({ onOpenModal }: { onOpenModal: (m: 'aup' | 'privacy') => vo
           <button type="button" className="legal-link" onClick={() => onOpenModal('privacy')}>Privacy</button>
           &nbsp;·&nbsp;
           <button type="button" className="legal-link" onClick={() => onOpenModal('aup')}>Acceptable Use</button>
-          &nbsp;·&nbsp;
-          <a href="#" className="legal-link" onClick={(e) => e.preventDefault()}>Status</a>
         </span>
       </div>
     </aside>
