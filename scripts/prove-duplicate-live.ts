@@ -89,7 +89,7 @@ async function main() {
       where it.group_id = $1`,
     [newId],
   );
-  console.log('Copied column values: ' + vCount.rows?.[0]?.n ?? vCount.n);
+  console.log('Copied column values: ' + vCount.n);
 
   // AFTER: counter bumped past the source items.
   const { rows: [after] } = await db.query<{ last_task_number: number }>(

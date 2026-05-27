@@ -7,9 +7,14 @@
    are gone. Loaded eagerly so the layout doesn't reflow on font swap. */
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
 
-/* Cormorant Garamond — used ONLY by the EIA-branded login page wordmark
-   + company name. Body / inputs / button stay on Geist. */
+/* Cormorant Garamond — used by the legacy EIA invite-accept wordmark.
+   The current login page uses Inter + JetBrains Mono (see below). */
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+/* Inter + JetBrains Mono — used ONLY by the EIA Internal Projects
+   login page (src/routes/_bare.login.tsx). Scoped to that route via
+   inline styles so the in-app dark theme stays on Geist. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
