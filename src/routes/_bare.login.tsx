@@ -221,11 +221,13 @@ function LoginPage() {
   const { redirect: redirectTarget } = Route.useSearch();
   const signIn = useAuthStore((s) => s.signInWithIdentifier);
 
-  // Phones and tablets (incl. iPadOS 13+ in desktop-Safari mode) are
-  // not allowed to sign in — this product is desktop/laptop only.
-  // Block visually AND defensively short-circuit onSubmit so a
-  // DevTools resize can't sneak past the visual block.
+  // Phones and tablets (incl. iPadOS 13+ in desktop-Safari mode) can
+  // BROWSE the login page, but cannot actually sign in. We let them
+  // see the full page so the marketing/brand panel still reaches them,
+  // then short-circuit onSubmit and reveal a red inline banner the
+  // moment they hit "Sign in".
   const blockMobile = useIsMobileOrTablet();
+  const [mobileBlockShown, setMobileBlockShown] = useState(false);
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword]   = useState('');
@@ -241,16 +243,18 @@ function LoginPage() {
   // Title for the tab — matches the design's <title>.
   useEffect(() => {
     const prev = document.title;
-    document.title = blockMobile
-      ? 'EIA Internal Projects — Desktop only'
-      : 'EIA Internal Projects — Sign In';
+    document.title = 'EIA Internal Projects — Sign In';
     return () => { document.title = prev; };
-  }, [blockMobile]);
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (blockMobile) {
-      toast.error('Sign-in is only available on a computer, laptop, or desktop device.');
+      // Reveal the inline red banner (sticky for the rest of the
+      // session) and toast at the same time, then bail without any
+      // network call so credentials are never sent.
+      setMobileBlockShown(true);
+      toast.error('Please sign in from a computer, laptop, or desktop device.');
       return;
     }
     if (!identifier.trim() || !password) {
@@ -267,12 +271,6 @@ function LoginPage() {
       setSubmitting(false);
     }
   };
-
-  // Render the mobile/tablet block instead of the form. We bail before
-  // mounting BrandPanel / FormPanel so phones never see the inputs.
-  if (blockMobile) {
-    return <MobileOnlyBlocker />;
-  }
 
   return (
     <div
@@ -301,87 +299,62 @@ function LoginPage() {
           onSubmit={onSubmit}
           onOpenModal={setOpenModal}
           onOpenEmailLink={setEmailLink}
+          mobileBlockShown={mobileBlockShown}
         />
       </div>
 
       {openModal === 'aup'     && <AupModal     onClose={() => setOpenModal(null)} />}
       {openModal === 'privacy' && <PrivacyModal onClose={() => setOpenModal(null)} />}
-      {emailLink && <EmailLinkModal mode={emailLink} onClose={() => setEmailLink(null)} />}
+      {emailLink && (
+        <EmailLinkModal
+          mode={emailLink}
+          onClose={() => setEmailLink(null)}
+          blockMobile={blockMobile}
+        />
+      )}
     </div>
   );
 }
 
 // =====================================================================
-// MobileOnlyBlocker — shown instead of the login form when the visitor
-// is on a phone or tablet (incl. iPadOS in desktop-Safari mode). The
-// product is desktop/laptop only; this is a hard block, not a warning.
-// Red copy per the explicit product requirement.
+// MobileBlockBanner — small red inline banner shown inside the sign-in
+// card the moment a phone/tablet visitor actually clicks "Sign in".
+// We DON'T pre-empt the page — they can browse the whole login page;
+// the block only appears at the sign-in attempt. Red palette per the
+// explicit product requirement.
 // =====================================================================
-function MobileOnlyBlocker() {
+function MobileBlockBanner({ context = 'sign in' }: { context?: 'sign in' | 'send sign-in link' }) {
   return (
     <div
       role="alert"
       aria-live="assertive"
       style={{
-        background: T.bgApp,
-        color: T.textBody,
-        fontFamily: T.fontSans,
-        minHeight: '100vh',
-        margin: '-1px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '32px 20px',
-        WebkitFontSmoothing: 'antialiased',
+        display: 'flex', alignItems: 'flex-start', gap: '10px',
+        padding: '12px 14px', marginBottom: '18px',
+        background: '#FEF2F2', border: '1px solid #FECACA',
+        borderLeft: '4px solid #DC2626', borderRadius: '8px',
       }}
     >
-      <div style={{
-        width: '100%', maxWidth: '440px',
-        background: T.bgCard, border: `1px solid ${T.border}`,
-        borderRadius: '14px', padding: '32px 28px',
-        boxShadow: T.shadowCard, textAlign: 'center',
-      }}>
-        {/* Crest — same E mark as the brand panel for continuity */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '18px' }}>
-          <span style={{
-            width: '40px', height: '40px', borderRadius: '10px',
-            background: T.brand, color: '#fff',
-            display: 'grid', placeItems: 'center',
-            fontWeight: 700, fontSize: '16px',
-            boxShadow: '0 1px 0 rgba(255,255,255,0.12) inset, 0 1px 2px rgba(15,23,42,0.1)',
-          }}>E</span>
-        </div>
-
-        {/* Desktop / laptop icon */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
-          <svg width="42" height="42" viewBox="0 0 24 24" fill="none"
-               stroke="#DC2626" strokeWidth="1.6"
-               strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <rect x="2" y="4" width="20" height="13" rx="2" />
-            <path d="M8 21h8M12 17v4" />
-          </svg>
-        </div>
-
-        <h1 style={{
-          fontFamily: T.fontSans, fontWeight: 600, fontSize: '20px',
-          color: '#DC2626', margin: '0 0 10px', letterSpacing: '-0.015em',
-          lineHeight: 1.25,
-        }}>
-          Sign-in not available on this device
-        </h1>
-
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="#DC2626" strokeWidth="1.8"
+           strokeLinecap="round" strokeLinejoin="round" aria-hidden
+           style={{ flexShrink: 0, marginTop: '1px' }}>
+        <rect x="2" y="4" width="20" height="13" rx="2" />
+        <path d="M8 21h8M12 17v4" />
+      </svg>
+      <div style={{ minWidth: 0 }}>
         <p style={{
-          color: '#DC2626', fontSize: '14px', fontWeight: 500,
-          lineHeight: 1.55, margin: '0 0 14px',
+          margin: 0, color: '#DC2626', fontSize: '13px', fontWeight: 600,
+          lineHeight: 1.35, letterSpacing: '-0.005em',
         }}>
-          Phones and tablets (including iPad) cannot sign in to EIA Internal Projects.
-          Please sign in from a <strong style={{ fontWeight: 700 }}>computer, laptop, or desktop</strong> device.
+          Cannot {context} from this device.
         </p>
-
         <p style={{
-          color: T.textMuted, fontSize: '12.5px', lineHeight: 1.5,
-          margin: '14px 0 0', paddingTop: '14px',
-          borderTop: `1px solid ${T.border}`,
+          margin: '4px 0 0', color: '#DC2626', fontSize: '12.5px',
+          fontWeight: 500, lineHeight: 1.45,
         }}>
-          If you believe you're seeing this in error, switch to a desktop browser and try again.
+          Please sign in from a <strong style={{ fontWeight: 700 }}>computer, laptop, or desktop</strong> device.
+          Phones and tablets (including iPad) are not supported.
         </p>
       </div>
     </div>
@@ -921,11 +894,13 @@ interface FormProps {
   onSubmit:   (e: React.FormEvent) => void;
   onOpenModal: (m: 'aup' | 'privacy') => void;
   onOpenEmailLink: (m: 'reset' | 'magic') => void;
+  mobileBlockShown: boolean;
 }
 function FormPanel({
   identifier, setIdentifier, password, setPassword,
   remember, setRemember, showPw, setShowPw,
   submitting, onSubmit, onOpenModal, onOpenEmailLink,
+  mobileBlockShown,
 }: FormProps) {
   return (
     <section className="form-panel" style={{
@@ -948,6 +923,11 @@ function FormPanel({
             Use your corporate credentials to continue.
           </p>
         </header>
+
+        {/* Mobile/tablet sign-in block — shown only AFTER the user
+            attempts to sign in on a phone or iPad. They can browse
+            the page freely; only the sign-in attempt is rejected. */}
+        {mobileBlockShown && <MobileBlockBanner />}
 
         {/* SSO button — opens the email-link modal in 'magic' mode.
             We email a one-time sign-in link to the user (passwordless).
@@ -1269,9 +1249,18 @@ const Meta = ({ left, right }: { left: string; right: string }) => (
 // that email, a link has been sent.") so an attacker can't probe
 // which usernames/emails are valid.
 // =====================================================================
-function EmailLinkModal({ mode, onClose }: { mode: 'reset' | 'magic'; onClose: () => void }) {
+function EmailLinkModal({ mode, onClose, blockMobile }: {
+  mode: 'reset' | 'magic';
+  onClose: () => void;
+  blockMobile: boolean;
+}) {
   const [identifier, setIdentifier] = useState('');
   const [sending, setSending]       = useState(false);
+  // Mirror the login form: phones/iPads can OPEN this modal and see
+  // it; they just can't successfully request a magic sign-in link
+  // (which would otherwise let them log in by clicking the email).
+  // Password-reset is fine — it just sets a new password.
+  const [showMobileBlock, setShowMobileBlock] = useState(false);
 
   const title    = mode === 'reset' ? 'Reset your password' : 'Sign in with email link';
   const eyebrow  = mode === 'reset' ? 'Password reset'      : 'Single sign-on';
@@ -1282,6 +1271,14 @@ function EmailLinkModal({ mode, onClose }: { mode: 'reset' | 'magic'; onClose: (
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Block the magic-link sign-in path on phones/iPads — same rule
+    // as the password form. Reset-password is not a sign-in, so we
+    // let that one through even on mobile.
+    if (mode === 'magic' && blockMobile) {
+      setShowMobileBlock(true);
+      toast.error('Please sign in from a computer, laptop, or desktop device.');
+      return;
+    }
     const raw = identifier.trim();
     if (!raw) { toast.error('Enter your email or username'); return; }
 
@@ -1326,6 +1323,7 @@ function EmailLinkModal({ mode, onClose }: { mode: 'reset' | 'magic'; onClose: (
 
   return (
     <Modal title={title} eyebrow={eyebrow} onClose={onClose}>
+      {showMobileBlock && <MobileBlockBanner context="send sign-in link" />}
       <p style={{ fontSize: '14px', color: T.textBody, margin: '0 0 18px', lineHeight: 1.55 }}>
         {intro}
       </p>
