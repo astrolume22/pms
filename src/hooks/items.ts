@@ -6,9 +6,39 @@
  * later but it isn't worth the complexity yet.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/state/authStore';
 import type { ItemRow, ItemColumnValueRow } from '@/lib/database.types';
+
+// =====================================================================
+// Visible-error helper — kills the "saves silently fail" mystery class.
+// Every mutation in this file used to swallow its rejection: the
+// optimistic update flickered, then onSettled.invalidateQueries
+// refetched DB state and reverted the UI, leaving the user with a
+// soundless mystery (especially confusing with two browser tabs open
+// on the same account, where it looked like one tab was "locked out").
+//
+// Each mutation's onError now goes through this helper so the failure
+// is impossible to miss: a red toast + the full error object in the
+// dev console for diagnosis. Existing optimistic-state rollbacks are
+// preserved alongside the toast.
+//
+// Cause-agnostic by design — whether the rejection is a 401, an RLS
+// denial, a 404, a timeout, or a network drop, the user gets a
+// concrete message and we get the evidence we need.
+// =====================================================================
+function reportMutationError(action: string, err: unknown) {
+  const code = (err as { code?: string })?.code;
+  const message = err instanceof Error
+    ? err.message
+    : typeof err === 'string'
+      ? err
+      : 'unknown error';
+  const prefix = `Couldn't ${action}`;
+  toast.error(code ? `${prefix} — ${message} (${code})` : `${prefix} — ${message}`);
+  console.error(`[items] ${action} failed`, err);
+}
 
 export const itemKeys = {
   all:    ['items'] as const,
@@ -94,6 +124,7 @@ export function useCreateItem() {
     onSuccess: (item) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
     },
+    onError: (err) => reportMutationError('create task', err),
   });
 }
 
@@ -122,8 +153,9 @@ export function useRenameItem() {
       }
       return { previous };
     },
-    onError: (_err, vars, ctx) => {
+    onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
+      reportMutationError('rename task', err);
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -177,8 +209,9 @@ export function useUpdateCellValue() {
       }
       return { previous };
     },
-    onError: (_err, vars, ctx) => {
+    onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
+      reportMutationError('save cell', err);
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -200,6 +233,7 @@ export function useArchiveItem() {
       if (error) throw error;
     },
     onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onError: (err) => reportMutationError('archive task', err),
   });
 }
 
@@ -214,6 +248,7 @@ export function useDeleteItem() {
       if (error) throw error;
     },
     onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onError: (err) => reportMutationError('delete task', err),
   });
 }
 
@@ -255,8 +290,9 @@ export function useReorderItems() {
       }
       return { previous };
     },
-    onError: (_err, vars, ctx) => {
+    onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
+      reportMutationError('reorder tasks', err);
     },
     onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
   });
@@ -286,5 +322,11 @@ export function useBulkItemAction() {
       if (error) throw error;
     },
     onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onError: (err, vars) => reportMutationError(
+      vars.kind === 'archive' ? 'archive selected tasks'
+        : vars.kind === 'delete' ? 'delete selected tasks'
+        : 'move selected tasks',
+      err,
+    ),
   });
 }
