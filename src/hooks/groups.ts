@@ -29,6 +29,10 @@ export function useGroups(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? groupKeys.board(boardId) : ['groups', '_'],
     enabled: !!boardId,
+    // See useBoardItems comment — refetch on focus + every 60s as the
+    // cross-device sync backstop.
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
     queryFn: async (): Promise<GroupRow[]> => {
       const { data, error } = await supabase
         .from('groups')

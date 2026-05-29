@@ -61,6 +61,14 @@ export function useBoardItems(boardId: string | undefined) {
   return useQuery<BoardItemsData>({
     queryKey: boardId ? itemKeys.board(boardId) : ['items', '_'],
     enabled: !!boardId,
+    // Cross-device sync safety net (works even when Supabase Realtime
+    // is completely paused at the project level): refetch the moment
+    // the user clicks back into this tab AND every 60 seconds as a
+    // backstop. Realtime + the Save button still give instant sync
+    // when they work; this guarantees we never sit on stale data for
+    // longer than a minute.
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
     queryFn: async () => {
       const { data: items, error } = await supabase
         .from('items')

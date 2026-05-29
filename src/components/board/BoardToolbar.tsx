@@ -48,16 +48,19 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { broadcast } = await forceBoardSync(qc, boardId);
-      if (broadcast === 'sent') {
-        toast.success('Saved — all open tabs refreshed.');
-      } else if (broadcast === 'no-channel') {
-        // Realtime channel isn't up yet — this tab still refreshed and
-        // the same-browser BroadcastChannel still fired, so other tabs
-        // in THIS browser still got the message. Just no cross-machine.
-        toast.success('Saved — this browser refreshed.');
+      const { ping, broadcast } = await forceBoardSync(qc, boardId);
+      // The DB ping (postgres_changes) is the cross-machine guarantee.
+      // The broadcast is the faster supplementary signal. If the ping
+      // landed, every subscribed device gets the refresh signal even
+      // if the broadcast layer failed.
+      if (ping === 'inserted' && (broadcast === 'sent' || broadcast === 'no-channel')) {
+        toast.success('Saved — every open device will refresh.');
+      } else if (ping === 'inserted') {
+        toast.success('Saved — every open device will refresh shortly.');
+      } else if (broadcast === 'sent') {
+        toast.success('Saved — same-browser tabs refreshed; other devices may need a moment.');
       } else {
-        toast.success('Saved — this tab refreshed (other devices may take a moment).');
+        toast.error('Saved locally, but the cross-device signal failed. Other tabs may need to refresh manually.');
       }
     } finally {
       setSaving(false);

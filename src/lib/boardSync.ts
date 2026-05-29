@@ -166,13 +166,20 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
     // already scoped to this board, the refetch only pulls our rows.
     ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' }, invalidate);
 
-    // Broadcast layer — the "Save" button in the toolbar sends a
-    // { event: 'force-sync' } broadcast on this same channel. Every
-    // other client subscribed to 'board:<boardId>' (any tab, any
-    // machine) receives it instantly and invalidates. Realtime
-    // broadcast does NOT depend on postgres_changes / publications —
-    // it's a pure pub/sub layer, so it works even if the per-table
-    // Realtime feed is paused or filtered.
+    // board_sync_pings — the "Save" button writes a row here on click.
+    // This is the most reliable cross-machine signal: it goes through
+    // the postgres_changes pipeline (which is what cell saves use), so
+    // if cell saves propagate at all, this will too. Even if the
+    // dedicated broadcast layer below silently fails, this row write
+    // delivers via the same well-tested path. Filtered by board_id so
+    // we only wake up for our own board.
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_sync_pings',
+      filter: 'board_id=eq.' + boardId }, invalidate);
+
+    // Broadcast layer — same-name channel ('board:<boardId>'). Fastest
+    // signal IF the Realtime broadcast service is healthy on the
+    // project. We keep it as a supplementary layer; the postgres_changes
+    // path above is the actual reliability guarantee.
     ch.on('broadcast', { event: 'force-sync' }, () => {
       invalidate();
     });
@@ -212,26 +219,51 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
 // (best-effort; we can't know how many actually received it). The
 // caller toasts on success.
 // =====================================================================
-export async function forceBoardSync(qc: QueryClient, boardId: string): Promise<{ broadcast: 'sent' | 'no-channel' | 'failed' }> {
+export interface ForceBoardSyncResult {
+  /** Whether the cross-machine DB ping was written (postgres_changes path). */
+  ping: 'inserted' | 'failed';
+  /** Whether the supplementary Realtime broadcast was acknowledged. */
+  broadcast: 'sent' | 'no-channel' | 'failed';
+}
+
+export async function forceBoardSync(qc: QueryClient, boardId: string): Promise<ForceBoardSyncResult> {
   // 1. Local invalidate — this tab refetches.
   void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
   void qc.invalidateQueries({ queryKey: ['groups', 'board', boardId] });
   void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
 
-  // 2. Same-browser BroadcastChannel.
+  // 2. Same-browser BroadcastChannel — sub-ms for other tabs in this browser.
   publishBoardChange(boardId);
 
-  // 3. Cross-machine Realtime broadcast — needs an active channel.
+  // 3. CROSS-MACHINE PRIMARY PATH — INSERT a row into board_sync_pings.
+  //    This goes through PostgREST → DB → Realtime's postgres_changes
+  //    pipeline, which is the same pipeline cell saves use. Subscribed
+  //    clients on any machine receive the INSERT event and invalidate.
+  //    This is the RELIABLE layer: doesn't depend on broadcasts.
+  let ping: 'inserted' | 'failed' = 'failed';
+  try {
+    const { error } = await supabase
+      .from('board_sync_pings')
+      .insert({ board_id: boardId } as never);
+    ping = error ? 'failed' : 'inserted';
+    if (error) console.error('[boardSync] ping insert failed:', error);
+  } catch (e) {
+    console.error('[boardSync] ping insert threw:', e);
+  }
+
+  // 4. CROSS-MACHINE SUPPLEMENTARY PATH — Realtime broadcast on the
+  //    per-board channel. Faster IF the broadcast layer is healthy.
+  //    If it isn't, the ping above still delivers — no user impact.
   const ch = _boardChannels.get(boardId);
-  if (!ch) return { broadcast: 'no-channel' };
+  if (!ch) return { ping, broadcast: 'no-channel' };
   try {
     const result = await ch.send({
       type: 'broadcast',
       event: 'force-sync',
       payload: { ts: Date.now() },
     });
-    return { broadcast: result === 'ok' ? 'sent' : 'failed' };
+    return { ping, broadcast: result === 'ok' ? 'sent' : 'failed' };
   } catch {
-    return { broadcast: 'failed' };
+    return { ping, broadcast: 'failed' };
   }
 }
