@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, SlidersHorizontal, ArrowUpDown, EyeOff, Layers, Plus, ChevronDown, Check, X,
+  Search, SlidersHorizontal, ArrowUpDown, EyeOff, Layers, Plus, ChevronDown, Check, X, Undo2,
 } from 'lucide-react';
 import { useBoardViewStore, type ItemHeight } from '@/state/boardViewStore';
 import { useColumns } from '@/hooks/columns';
 import { useCreateItem } from '@/hooks/items';
 import { useGroups } from '@/hooks/groups';
+import { useUndoStore } from '@/lib/undoStack';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -30,6 +31,12 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
   const { data: groups } = useGroups(boardId);
   const create = useCreateItem();
 
+  // Undo stack — per-tab, in-memory. The button is disabled when the
+  // stack is empty so users can see whether they have something to undo.
+  const undoStackDepth = useUndoStore((s) => s.stack.length);
+  const isUndoing = useUndoStore((s) => s.isUndoing);
+  const runTopUndo = useUndoStore((s) => s.runTop);
+
   return (
     <div className="flex items-center gap-1.5 flex-wrap justify-end">
       {/* New task — admin only. Managers consume the board read-only
@@ -47,6 +54,30 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
               }
             }}
           />
+          {/* Undo (Ctrl+Z / Cmd+Z) — disabled when the in-memory stack
+              is empty. Lives next to New task because users instinctively
+              reach for "undo what I just did" right after creating things. */}
+          <button
+            type="button"
+            onClick={() => void runTopUndo()}
+            disabled={undoStackDepth === 0 || isUndoing}
+            title={undoStackDepth === 0 ? 'Nothing to undo' : 'Undo (Ctrl+Z)'}
+            aria-label="Undo"
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-button text-[13px] font-medium transition-colors duration-100',
+              undoStackDepth === 0 || isUndoing
+                ? 'text-text-secondary opacity-50 cursor-not-allowed'
+                : 'text-text-primary hover:bg-[var(--overlay-8)]',
+            )}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            <span>Undo</span>
+            {undoStackDepth > 0 && (
+              <span className="ml-0.5 text-[10px] text-text-secondary font-normal">
+                ({undoStackDepth})
+              </span>
+            )}
+          </button>
           <div className="h-5 w-px bg-border-light mx-1" />
         </>
       )}

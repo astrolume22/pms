@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/state/authStore';
 import { publishBoardChange } from '@/lib/boardSync';
+import { useUndoStore } from '@/lib/undoStack';
 import type { ItemRow, ItemColumnValueRow } from '@/lib/database.types';
 
 // =====================================================================
@@ -125,6 +126,19 @@ export function useCreateItem() {
     onSuccess: (item) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
       publishBoardChange(item.board_id);
+      // Undo: soft-delete the freshly-created item.
+      useUndoStore.getState().push({
+        description: 'create "' + item.name + '"',
+        undo: async () => {
+          const { error } = await supabase
+            .from('items')
+            .update({ deleted_at: new Date().toISOString() } as never)
+            .eq('id', item.id);
+          if (error) throw error;
+          void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
+          publishBoardChange(item.board_id);
+        },
+      });
     },
     onError: (err) => reportMutationError('create task', err),
   });
@@ -147,17 +161,34 @@ export function useRenameItem() {
     onMutate: async ({ id, name, boardId }) => {
       await qc.cancelQueries({ queryKey: itemKeys.board(boardId) });
       const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
+      const oldName = previous?.items.find((i) => i.id === id)?.name ?? null;
       if (previous) {
         qc.setQueryData<BoardItemsData>(itemKeys.board(boardId), {
           ...previous,
           items: previous.items.map((i) => (i.id === id ? { ...i, name } : i)),
         });
       }
-      return { previous };
+      return { previous, oldName };
     },
     onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
       reportMutationError('rename task', err);
+    },
+    onSuccess: (_d, vars, ctx) => {
+      if (ctx?.oldName === null || ctx?.oldName === undefined) return;
+      const oldName = ctx.oldName;
+      useUndoStore.getState().push({
+        description: 'rename of "' + vars.name + '" → "' + oldName + '"',
+        undo: async () => {
+          const { error } = await supabase
+            .from('items')
+            .update({ name: oldName, updated_by: userId } as never)
+            .eq('id', vars.id);
+          if (error) throw error;
+          void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+          publishBoardChange(vars.boardId);
+        },
+      });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -201,6 +232,8 @@ export function useUpdateCellValue() {
     onMutate: async ({ boardId, itemId, columnId, value }) => {
       await qc.cancelQueries({ queryKey: itemKeys.board(boardId) });
       const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
+      const oldValue = previous?.valuesByItemColumn.get(cellKey(itemId, columnId)) ?? null;
+      const itemName = previous?.items.find((i) => i.id === itemId)?.name ?? 'task';
       if (previous) {
         const next = new Map(previous.valuesByItemColumn);
         if (value === null || value === undefined) next.delete(cellKey(itemId, columnId));
@@ -210,11 +243,38 @@ export function useUpdateCellValue() {
           valuesByItemColumn: next,
         });
       }
-      return { previous };
+      return { previous, oldValue, itemName };
     },
     onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
       reportMutationError('save cell', err);
+    },
+    onSuccess: (_d, vars, ctx) => {
+      const oldValue = ctx?.oldValue ?? null;
+      const itemName = ctx?.itemName ?? 'task';
+      useUndoStore.getState().push({
+        description: 'cell change on "' + itemName + '"',
+        undo: async () => {
+          if (oldValue === null || oldValue === undefined) {
+            const { error } = await supabase
+              .from('item_column_values')
+              .delete()
+              .eq('item_id', vars.itemId)
+              .eq('column_id', vars.columnId);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase
+              .from('item_column_values')
+              .upsert({
+                item_id: vars.itemId, column_id: vars.columnId,
+                value: oldValue, updated_by: userId,
+              } as never, { onConflict: 'item_id,column_id' });
+            if (error) throw error;
+          }
+          void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+          publishBoardChange(vars.boardId);
+        },
+      });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -254,6 +314,29 @@ export function useDeleteItem() {
         .eq('id', id);
       if (error) throw error;
     },
+    onMutate: ({ id, boardId }) => {
+      // Capture the task name BEFORE we hide the row so the undo toast
+      // can name it. (No optimistic UI patch here — the existing flow
+      // relies on the onSettled invalidate to redraw.)
+      const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
+      const itemName = previous?.items.find((i) => i.id === id)?.name ?? 'task';
+      return { itemName };
+    },
+    onSuccess: (_d, vars, ctx) => {
+      const itemName = ctx?.itemName ?? 'task';
+      useUndoStore.getState().push({
+        description: 'delete of "' + itemName + '"',
+        undo: async () => {
+          const { error } = await supabase
+            .from('items')
+            .update({ deleted_at: null } as never)
+            .eq('id', vars.id);
+          if (error) throw error;
+          void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+          publishBoardChange(vars.boardId);
+        },
+      });
+    },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
       publishBoardChange(vars.boardId);
@@ -288,6 +371,19 @@ export function useReorderItems() {
     onMutate: async ({ boardId, patches }) => {
       await qc.cancelQueries({ queryKey: itemKeys.board(boardId) });
       const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
+      // Snapshot the BEFORE state for each touched item so the undo
+      // can move it back to its original group + position. (Read once
+      // from cache; closing the closure over the result.)
+      const reversePatches: ItemPatch[] = previous
+        ? patches.map((p) => {
+            const prev = previous.items.find((i) => i.id === p.id);
+            return {
+              id: p.id,
+              ...(p.sort_order !== undefined ? { sort_order: prev?.sort_order ?? 0 } : {}),
+              ...(p.group_id   !== undefined ? { group_id: prev?.group_id ?? '' }    : {}),
+            };
+          })
+        : [];
       if (previous) {
         const patchMap = new Map(patches.map((p) => [p.id, p]));
         const nextItems = previous.items.map((i) => {
@@ -298,11 +394,31 @@ export function useReorderItems() {
         });
         qc.setQueryData<BoardItemsData>(itemKeys.board(boardId), { ...previous, items: nextItems });
       }
-      return { previous };
+      return { previous, reversePatches };
     },
     onError: (err, vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
       reportMutationError('reorder tasks', err);
+    },
+    onSuccess: (_d, vars, ctx) => {
+      const reversePatches = ctx?.reversePatches ?? [];
+      if (reversePatches.length === 0) return;
+      // Describe as "move" when at least one patch moves between
+      // groups; otherwise it's just a reorder within a single group.
+      const isMove = vars.patches.some((p) => p.group_id !== undefined);
+      useUndoStore.getState().push({
+        description: isMove ? 'move of ' + reversePatches.length + ' task(s)'
+                            : 'reorder of ' + reversePatches.length + ' task(s)',
+        undo: async () => {
+          for (const p of reversePatches) {
+            const { id, ...rest } = p;
+            const { error } = await supabase.from('items').update(rest as never).eq('id', id);
+            if (error) throw error;
+          }
+          void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+          publishBoardChange(vars.boardId);
+        },
+      });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });

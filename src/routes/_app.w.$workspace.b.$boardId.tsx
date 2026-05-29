@@ -6,6 +6,7 @@ import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
 import { useViews } from '@/hooks/views';
 import { useBoardRealtimeSync } from '@/lib/boardSync';
+import { useUndoShortcut } from '@/hooks/useUndoShortcut';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import { BoardHeader } from '@/components/board/BoardHeader';
@@ -53,6 +54,11 @@ function BoardPage() {
   // the React Query cache and refetches. Mounts when boardId is
   // known, tears down on unmount. See src/lib/boardSync.ts.
   useBoardRealtimeSync(boardId);
+
+  // Ctrl+Z / Cmd+Z → undo the last board action this user took in
+  // this tab. Visible button lives in BoardToolbar; this hook adds
+  // the keyboard shortcut. See src/lib/undoStack.ts.
+  useUndoShortcut();
 
   const closePanel = () => navigate({
     to: '/w/$workspace/b/$boardId',

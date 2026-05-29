@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { publishBoardChange } from '@/lib/boardSync';
+import { useUndoStore } from '@/lib/undoStack';
+import { itemKeys, type BoardItemsData } from '@/hooks/items';
 import type { GroupRow } from '@/lib/database.types';
 
 export const groupKeys = {
@@ -64,6 +66,19 @@ export function useCreateGroup() {
     onSuccess: (g) => {
       void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) });
       publishBoardChange(g.board_id);
+      // Undo: soft-delete the freshly-created group.
+      useUndoStore.getState().push({
+        description: 'create group "' + g.name + '"',
+        undo: async () => {
+          const { error } = await supabase
+            .from('groups')
+            .update({ deleted_at: new Date().toISOString() } as never)
+            .eq('id', g.id);
+          if (error) throw error;
+          void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) });
+          publishBoardChange(g.board_id);
+        },
+      });
     },
   });
 }
@@ -94,6 +109,46 @@ export function useDeleteGroup() {
         .update({ deleted_at: new Date().toISOString() } as never)
         .eq('id', id);
       if (error) throw error;
+    },
+    onMutate: ({ id, boardId }) => {
+      // Snapshot the group's name + the ids of every alive item inside
+      // it BEFORE we soft-delete. Even though useDeleteGroup itself
+      // does not cascade to items today, other paths (or a future
+      // trigger) might — so the undo conservatively restores any
+      // items that were soft-deleted with the same timestamp window.
+      const groups = qc.getQueryData<GroupRow[]>(groupKeys.board(boardId));
+      const groupName = groups?.find((g) => g.id === id)?.name ?? 'group';
+      const items = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
+      const itemIds = items?.items.filter((it) => it.group_id === id).map((it) => it.id) ?? [];
+      return { groupName, itemIds };
+    },
+    onSuccess: (_d, vars, ctx) => {
+      const groupName = ctx?.groupName ?? 'group';
+      const itemIds = ctx?.itemIds ?? [];
+      useUndoStore.getState().push({
+        description: 'delete group "' + groupName + '"',
+        undo: async () => {
+          // 1. Restore the group row.
+          const { error: gErr } = await supabase
+            .from('groups')
+            .update({ deleted_at: null } as never)
+            .eq('id', vars.id);
+          if (gErr) throw gErr;
+          // 2. Restore any items that were soft-deleted as part of
+          //    the group delete. Safe even if none were — the .in()
+          //    update is a no-op on an empty array.
+          if (itemIds.length > 0) {
+            const { error: iErr } = await supabase
+              .from('items')
+              .update({ deleted_at: null } as never)
+              .in('id', itemIds);
+            if (iErr) throw iErr;
+          }
+          void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
+          void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+          publishBoardChange(vars.boardId);
+        },
+      });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
