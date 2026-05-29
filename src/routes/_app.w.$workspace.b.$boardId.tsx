@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
 import { useViews } from '@/hooks/views';
+import { useBoardRealtimeSync } from '@/lib/boardSync';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import { BoardHeader } from '@/components/board/BoardHeader';
@@ -45,6 +46,13 @@ function BoardPage() {
   const { data: views = [] } = useViews(boardId);
   const updateLastViewed = useUpdateLastViewed();
   const restore = useRestoreBoard();
+
+  // Cross-tab + cross-machine live sync. Subscribes to Realtime
+  // postgres_changes for the four board tables; any change anywhere
+  // (Dr. John's laptop, your other tab, this same tab) invalidates
+  // the React Query cache and refetches. Mounts when boardId is
+  // known, tears down on unmount. See src/lib/boardSync.ts.
+  useBoardRealtimeSync(boardId);
 
   const closePanel = () => navigate({
     to: '/w/$workspace/b/$boardId',
