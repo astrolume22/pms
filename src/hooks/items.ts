@@ -61,14 +61,13 @@ export function useBoardItems(boardId: string | undefined) {
   return useQuery<BoardItemsData>({
     queryKey: boardId ? itemKeys.board(boardId) : ['items', '_'],
     enabled: !!boardId,
-    // Cross-device sync safety net (works even when Supabase Realtime
-    // is completely paused at the project level): refetch the moment
-    // the user clicks back into this tab AND every 60 seconds as a
-    // backstop. Realtime + the Save button still give instant sync
-    // when they work; this guarantees we never sit on stale data for
-    // longer than a minute.
+    // Refetch the moment the user clicks back into this tab — gives
+    // instant catch-up on focus without a 3-second wait. The
+    // useBoardWatermarkPoll hook (mounted at the board route) handles
+    // background polling cheaply via a single-timestamp RPC, so we
+    // intentionally do NOT set refetchInterval here — that would
+    // double-poll the whole board payload every 3 seconds.
     refetchOnWindowFocus: true,
-    refetchInterval: 60_000,
     queryFn: async () => {
       const { data: items, error } = await supabase
         .from('items')

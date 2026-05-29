@@ -43,10 +43,9 @@ export function useColumns(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? columnKeys.board(boardId) : ['columns', '_'],
     enabled: !!boardId,
-    // See useBoardItems comment — refetch on focus + every 60s as the
-    // cross-device sync backstop.
+    // See useBoardItems comment — refetch on focus, watermark poll
+    // drives background invalidation cheaply.
     refetchOnWindowFocus: true,
-    refetchInterval: 60_000,
     queryFn: async (): Promise<ColumnRow[]> => {
       const { data, error } = await supabase
         .from('columns')

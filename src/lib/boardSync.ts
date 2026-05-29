@@ -28,8 +28,8 @@
  *     BroadcastChannel (older Safari, SSR) — saves still work, just
  *     no cross-tab live update there.
  */
-import { useEffect } from 'react';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
@@ -192,6 +192,73 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
       void supabase.removeChannel(ch);
     };
   }, [boardId, qc]);
+}
+
+// =====================================================================
+// useBoardWatermarkPoll — cheap 3-second cross-device sync backstop.
+//
+// Why this exists:
+//   The user wants any change made anywhere to land in every open tab
+//   within 1-5 seconds — even when Supabase Realtime is broken/paused
+//   at the project level. Realtime + the Save button still give
+//   instant when they work; this is the guaranteed always-works layer.
+//
+// What it does:
+//   • Polls the board_watermark(boardId) RPC every 3 seconds. The RPC
+//     returns ONE timestamp — the max of items.updated_at,
+//     groups.updated_at, columns.updated_at,
+//     item_column_values.updated_at, and board_sync_pings.pinged_at
+//     across this board. Total payload: ~30 bytes per poll.
+//   • Compares it to the last seen value (held in a ref so it
+//     survives re-renders without re-firing the effect).
+//   • When the watermark advances → invalidates the three heavy
+//     board queries → React Query refetches → UI updates.
+//
+// Cost:
+//   • 30 bytes × 20 polls/min = 600 bytes/min per tab. Negligible.
+//   • The full board refetch only happens when something ACTUALLY
+//     changed, not every 3 seconds.
+//
+// Mount at the board route. Tears down on unmount.
+// =====================================================================
+export function useBoardWatermarkPoll(boardId: string | undefined): void {
+  const qc = useQueryClient();
+  const lastSeenRef = useRef<string | null>(null);
+
+  useQuery({
+    queryKey: ['board-watermark', boardId],
+    enabled: !!boardId,
+    // Tight loop — the polling RPC is tiny. 3 seconds gives a worst-
+    // case sync latency well under the user's "max 5 seconds" target.
+    refetchInterval: 3_000,
+    // Also refire the moment the user clicks back into this tab.
+    refetchOnWindowFocus: true,
+    // Don't keep retrying noisily on transient errors.
+    retry: 1,
+    queryFn: async () => {
+      if (!boardId) return null;
+      const { data, error } = await supabase.rpc('board_watermark', { p_board_id: boardId });
+      if (error) throw error;
+      const ts = typeof data === 'string' ? data : null;
+      if (!ts) return null;
+      const previous = lastSeenRef.current;
+      lastSeenRef.current = ts;
+      // First call: record the baseline, don't invalidate (would just
+      // cause a redundant refetch right after mount).
+      if (previous === null) return ts;
+      if (ts !== previous) {
+        void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
+        void qc.invalidateQueries({ queryKey: ['groups', 'board', boardId] });
+        void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
+      }
+      return ts;
+    },
+  });
+
+  // Reset baseline when boardId changes so a fresh board starts clean.
+  useEffect(() => {
+    lastSeenRef.current = null;
+  }, [boardId]);
 }
 
 // =====================================================================

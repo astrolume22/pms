@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
 import { useViews } from '@/hooks/views';
-import { useBoardRealtimeSync } from '@/lib/boardSync';
+import { useBoardRealtimeSync, useBoardWatermarkPoll } from '@/lib/boardSync';
 import { useUndoShortcut } from '@/hooks/useUndoShortcut';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
@@ -54,6 +54,12 @@ function BoardPage() {
   // the React Query cache and refetches. Mounts when boardId is
   // known, tears down on unmount. See src/lib/boardSync.ts.
   useBoardRealtimeSync(boardId);
+
+  // Cheap 3-second cross-device sync backstop — polls a single-
+  // timestamp RPC and invalidates the heavy queries only when the
+  // watermark advances. Guaranteed to land within 3 seconds even if
+  // every Realtime layer is broken at the project level.
+  useBoardWatermarkPoll(boardId);
 
   // Ctrl+Z / Cmd+Z → undo the last board action this user took in
   // this tab. Visible button lives in BoardToolbar; this hook adds
