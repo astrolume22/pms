@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, SlidersHorizontal, ArrowUpDown, EyeOff, Layers, Plus, ChevronDown, Check, X, Undo2,
+  Search, SlidersHorizontal, ArrowUpDown, EyeOff, Layers, Plus, ChevronDown, Check, X, Undo2, Save,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useBoardViewStore, type ItemHeight } from '@/state/boardViewStore';
 import { useColumns } from '@/hooks/columns';
 import { useCreateItem } from '@/hooks/items';
 import { useGroups } from '@/hooks/groups';
 import { useUndoStore } from '@/lib/undoStack';
+import { forceBoardSync } from '@/lib/boardSync';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -30,12 +32,37 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
   const { data: columns } = useColumns(boardId);
   const { data: groups } = useGroups(boardId);
   const create = useCreateItem();
+  const qc = useQueryClient();
 
   // Undo stack — per-tab, in-memory. The button is disabled when the
   // stack is empty so users can see whether they have something to undo.
   const undoStackDepth = useUndoStore((s) => s.stack.length);
   const isUndoing = useUndoStore((s) => s.isUndoing);
   const runTopUndo = useUndoStore((s) => s.runTop);
+
+  // Save button — manual force-sync for when the user wants to be SURE
+  // every open tab (any browser, any machine) is showing the latest
+  // DB state. Cells already auto-save the moment they're edited; this
+  // button is a backstop that drops every tab's cache and refreshes.
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { broadcast } = await forceBoardSync(qc, boardId);
+      if (broadcast === 'sent') {
+        toast.success('Saved — all open tabs refreshed.');
+      } else if (broadcast === 'no-channel') {
+        // Realtime channel isn't up yet — this tab still refreshed and
+        // the same-browser BroadcastChannel still fired, so other tabs
+        // in THIS browser still got the message. Just no cross-machine.
+        toast.success('Saved — this browser refreshed.');
+      } else {
+        toast.success('Saved — this tab refreshed (other devices may take a moment).');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -77,6 +104,27 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
                 ({undoStackDepth})
               </span>
             )}
+          </button>
+          {/* Save — manual force-sync. Cells auto-save while you type,
+              but this drops every open tab's cache and re-reads from
+              the DB so everyone (any browser, any machine) is on the
+              latest state RIGHT NOW. Used when the user wants to be
+              certain the other side is in sync. */}
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            title="Save and refresh every open tab"
+            aria-label="Save and refresh every open tab"
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-button text-[13px] font-semibold transition-colors duration-100',
+              saving
+                ? 'text-text-secondary opacity-60 cursor-wait'
+                : 'text-white bg-brand hover:opacity-90',
+            )}
+          >
+            <Save className="h-3.5 w-3.5" />
+            <span>{saving ? 'Saving…' : 'Save'}</span>
           </button>
           <div className="h-5 w-px bg-border-light mx-1" />
         </>

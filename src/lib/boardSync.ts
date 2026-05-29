@@ -30,6 +30,7 @@
  */
 import { useEffect } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
 const CHANNEL_NAME = 'pms.board-sync';
@@ -130,6 +131,12 @@ export function attachBoardSyncListener(qc: QueryClient): () => void {
 // receive events for rows their SELECT policy already lets them read.
 // No new data exposure.
 // =====================================================================
+// Module-level registry of live Realtime channels keyed by boardId.
+// useBoardRealtimeSync writes here on mount and clears on unmount;
+// forceBoardSync() reads from here to send the cross-machine broadcast
+// without opening a second channel.
+const _boardChannels = new Map<string, RealtimeChannel>();
+
 export function useBoardRealtimeSync(boardId: string | undefined): void {
   const qc = useQueryClient();
   useEffect(() => {
@@ -159,10 +166,72 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
     // already scoped to this board, the refetch only pulls our rows.
     ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' }, invalidate);
 
+    // Broadcast layer — the "Save" button in the toolbar sends a
+    // { event: 'force-sync' } broadcast on this same channel. Every
+    // other client subscribed to 'board:<boardId>' (any tab, any
+    // machine) receives it instantly and invalidates. Realtime
+    // broadcast does NOT depend on postgres_changes / publications —
+    // it's a pure pub/sub layer, so it works even if the per-table
+    // Realtime feed is paused or filtered.
+    ch.on('broadcast', { event: 'force-sync' }, () => {
+      invalidate();
+    });
+
     ch.subscribe();
+    _boardChannels.set(boardId, ch);
 
     return () => {
+      _boardChannels.delete(boardId);
       void supabase.removeChannel(ch);
     };
   }, [boardId, qc]);
+}
+
+// =====================================================================
+// forceBoardSync — the "Save" button's handler.
+//
+// Fans a refresh request out to every layer we have:
+//   1. Local: invalidate this tab's React Query board keys so the
+//      current tab pulls the latest DB state immediately.
+//   2. Same-browser cross-tab: publishBoardChange() over the
+//      BroadcastChannel — other tabs in this browser receive it
+//      sub-millisecond and re-invalidate.
+//   3. Cross-machine: Realtime broadcast on 'board:<boardId>' so any
+//      other browser anywhere (Dr. John's laptop, your phone) that
+//      has the same board open receives the force-sync event and
+//      re-reads from the DB.
+//
+// Why three layers: each one has different failure modes. The local
+// invalidate always works. The BroadcastChannel covers the user's
+// most common multi-tab pattern instantly. The Realtime broadcast
+// reaches across the internet — it depends on the Realtime service
+// being healthy but does NOT depend on postgres_changes publications
+// (so it works even if the publication route is misconfigured).
+//
+// Returns a count of how many tabs/clients we attempted to notify
+// (best-effort; we can't know how many actually received it). The
+// caller toasts on success.
+// =====================================================================
+export async function forceBoardSync(qc: QueryClient, boardId: string): Promise<{ broadcast: 'sent' | 'no-channel' | 'failed' }> {
+  // 1. Local invalidate — this tab refetches.
+  void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
+  void qc.invalidateQueries({ queryKey: ['groups', 'board', boardId] });
+  void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
+
+  // 2. Same-browser BroadcastChannel.
+  publishBoardChange(boardId);
+
+  // 3. Cross-machine Realtime broadcast — needs an active channel.
+  const ch = _boardChannels.get(boardId);
+  if (!ch) return { broadcast: 'no-channel' };
+  try {
+    const result = await ch.send({
+      type: 'broadcast',
+      event: 'force-sync',
+      payload: { ts: Date.now() },
+    });
+    return { broadcast: result === 'ok' ? 'sent' : 'failed' };
+  } catch {
+    return { broadcast: 'failed' };
+  }
 }
