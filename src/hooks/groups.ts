@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { publishBoardChange } from '@/lib/boardSync';
 import type { GroupRow } from '@/lib/database.types';
 
 export const groupKeys = {
@@ -60,7 +61,10 @@ export function useCreateGroup() {
       if (error) throw error;
       return data as GroupRow;
     },
-    onSuccess: (g) => void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) }),
+    onSuccess: (g) => {
+      void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) });
+      publishBoardChange(g.board_id);
+    },
   });
 }
 
@@ -74,7 +78,10 @@ export function useUpdateGroup() {
       const { error } = await supabase.from('groups').update(patch as never).eq('id', id);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }
 
@@ -88,7 +95,10 @@ export function useDeleteGroup() {
         .eq('id', id);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }
 
@@ -118,6 +128,9 @@ export function useReorderGroups() {
     onError: (_err, vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(groupKeys.board(vars.boardId), ctx.prev);
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }

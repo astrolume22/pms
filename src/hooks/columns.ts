@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { publishBoardChange } from '@/lib/boardSync';
 import type { ColumnRow, ColumnType } from '@/lib/database.types';
 
 export const columnKeys = {
@@ -109,7 +110,10 @@ export function useCreateColumn() {
       }
       return col;
     },
-    onSuccess: (c) => void qc.invalidateQueries({ queryKey: columnKeys.board(c.board_id) }),
+    onSuccess: (c) => {
+      void qc.invalidateQueries({ queryKey: columnKeys.board(c.board_id) });
+      publishBoardChange(c.board_id);
+    },
   });
 }
 
@@ -144,7 +148,10 @@ export function useUpdateColumn() {
       const prev = (ctx as { prev?: ColumnRow[] } | undefined)?.prev;
       if (prev) qc.setQueryData(columnKeys.board(vars.boardId), prev);
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }
 
@@ -162,7 +169,10 @@ export function useReorderColumns() {
       }
       return boardId;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }
 
@@ -174,6 +184,9 @@ export function useDeleteColumn() {
       const { error } = await supabase.from('columns').delete().eq('id', id);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }

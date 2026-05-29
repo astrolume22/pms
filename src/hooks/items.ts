@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/state/authStore';
+import { publishBoardChange } from '@/lib/boardSync';
 import type { ItemRow, ItemColumnValueRow } from '@/lib/database.types';
 
 // =====================================================================
@@ -123,6 +124,7 @@ export function useCreateItem() {
     },
     onSuccess: (item) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
+      publishBoardChange(item.board_id);
     },
     onError: (err) => reportMutationError('create task', err),
   });
@@ -159,6 +161,7 @@ export function useRenameItem() {
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
     },
   });
 }
@@ -215,6 +218,7 @@ export function useUpdateCellValue() {
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
     },
   });
 }
@@ -232,7 +236,10 @@ export function useArchiveItem() {
         .eq('id', id);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
     onError: (err) => reportMutationError('archive task', err),
   });
 }
@@ -247,7 +254,10 @@ export function useDeleteItem() {
         .eq('id', id);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
     onError: (err) => reportMutationError('delete task', err),
   });
 }
@@ -294,7 +304,10 @@ export function useReorderItems() {
       if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
       reportMutationError('reorder tasks', err);
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
   });
 }
 
@@ -321,7 +334,10 @@ export function useBulkItemAction() {
         .in('id', args.ids);
       if (error) throw error;
     },
-    onSettled: (_d, _e, vars) => void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) }),
+    onSettled: (_d, _e, vars) => {
+      void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
+      publishBoardChange(vars.boardId);
+    },
     onError: (err, vars) => reportMutationError(
       vars.kind === 'archive' ? 'archive selected tasks'
         : vars.kind === 'delete' ? 'delete selected tasks'

@@ -9,6 +9,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FullPageSpinner } from '@/components/Spinner';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
+import { attachBoardSyncListener } from '@/lib/boardSync';
 import { routeTree } from './routeTree.gen';
 
 const queryClient = new QueryClient({
@@ -16,6 +17,12 @@ const queryClient = new QueryClient({
     queries: { staleTime: 60_000, refetchOnWindowFocus: false, retry: 1 },
   },
 });
+
+// Cross-tab live update: any mutation in another tab that publishes a
+// boardId via publishBoardChange() triggers this listener to invalidate
+// the three board-scoped query keys here, so React Query refetches and
+// the UI catches up within one network round-trip. See src/lib/boardSync.ts.
+attachBoardSyncListener(queryClient);
 
 const router = createRouter({
   routeTree,
