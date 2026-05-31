@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import {
   UserPlus, KeyRound, ShieldCheck, ShieldOff, MoreHorizontal,
-  Eye, EyeOff, Crown, AlertTriangle, RefreshCw, AtSign, Trash2,
+  Eye, EyeOff, Crown, AlertTriangle, RefreshCw, AtSign, Trash2, RotateCcw,
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { Avatar } from '@/components/Avatar';
@@ -22,7 +22,7 @@ import { EmptyMessage } from '@/components/EmptyMessage';
 import {
   useAdminUsers, useAdminCreateUser, useAdminResetPassword,
   useAdminSetRole, useAdminSetStatus, useAdminSetUsername,
-  useAdminDeleteUser,
+  useAdminDeleteUser, useMarkTeamblueRotated,
   type AdminUserRow,
 } from '@/hooks/admin';
 import { useAuthStore } from '@/state/authStore';
@@ -217,6 +217,7 @@ function UserRowItem({
           >
             <RowMenuItem icon={<AtSign className="h-4 w-4" />} label="Change username" onClick={onRenameUsername} />
             <RowMenuItem icon={<KeyRound className="h-4 w-4" />} label="Reset password" onClick={onResetPassword} />
+            {user.username === 'teamblue' && <MarkTeamblueRotatedItem onDone={onToggleMenu} />}
             <RowMenuItem icon={<ShieldCheck className="h-4 w-4" />} label="Change role"
               onClick={onChangeRole}
               disabled={user.is_super_admin}
@@ -279,6 +280,32 @@ function RowMenuItem({
       <span className={cn(destructive ? 'text-error' : 'text-text-secondary')}>{icon}</span>
       {label}
     </button>
+  );
+}
+
+/**
+ * teamblue-only row action. Marks the latest backup-login event rotated
+ * so the 72h chaser email stops. Additive — independent of the
+ * password-reset flow (resetting the password and marking rotated are
+ * intentionally decoupled so this never touches reset logic).
+ */
+function MarkTeamblueRotatedItem({ onDone }: { onDone: () => void }) {
+  const mark = useMarkTeamblueRotated();
+  return (
+    <RowMenuItem
+      icon={mark.isPending ? <Spinner className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+      label="Mark teamblue rotated"
+      onClick={() => {
+        if (mark.isPending) return;
+        mark.mutate(undefined, {
+          onSuccess: (did) => {
+            toast.success(did ? 'Marked rotated — chaser suppressed' : 'No pending login to mark');
+            onDone();
+          },
+          onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not mark rotated'),
+        });
+      }}
+    />
   );
 }
 

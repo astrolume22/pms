@@ -100,6 +100,24 @@ export function useAdminResetPassword() {
   });
 }
 
+/**
+ * Mark the latest teamblue backup-login event as rotated, which
+ * suppresses the 72h chaser email. Additive: calls the admin-only
+ * mark_teamblue_rotated() RPC (migration 0053). Does NOT touch the
+ * password-reset flow.
+ */
+export function useMarkTeamblueRotated() {
+  return useMutation({
+    mutationFn: async (): Promise<boolean> => {
+      // mark_teamblue_rotated() isn't in the hand-maintained Database
+      // types yet — cast the name like the rest of this untyped client.
+      const { data, error } = await supabase.rpc('mark_teamblue_rotated' as never);
+      if (error) throw error;
+      return data as unknown as boolean;
+    },
+  });
+}
+
 export function useAdminSetRole() {
   const qc = useQueryClient();
   return useMutation({
