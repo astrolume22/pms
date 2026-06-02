@@ -17,7 +17,14 @@ import { useBoardItems, useRenameItem } from '@/hooks/items';
 import { useColumns } from '@/hooks/columns';
 import { useColumnLabels } from '@/hooks/labels';
 import { useAuthStore } from '@/state/authStore';
-import { TaskFieldsZone } from './TaskFieldsZone';
+// UI polish (batch item 2): the top fields block (Status / Task Type /
+// Co-Work Time / Priority / Files) is no longer rendered in the right-
+// side panel — the panel now starts at Subitems / Updates / Files /
+// Activity Log. The board table keeps every one of those columns
+// unchanged (board grid renders through ItemRow + CellRenderer, not
+// TaskFieldsZone). The TaskFieldsZone component file is intentionally
+// kept in the repo so a future "fields-in-panel" toggle can reuse it.
+// import { TaskFieldsZone } from './TaskFieldsZone';
 import { UpdatesTab } from './UpdatesTab';
 import { FilesTab } from './FilesTab';
 import { ActivityTab } from './ActivityTab';
@@ -217,18 +224,12 @@ export function TaskDetail({
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto">
-        {/* Fields */}
-        <section className="border-b border-border-light bg-app/40">
-          <TaskFieldsZone
-            item={item}
-            columns={columns ?? []}
-            labelsByColumnId={labelsByColumnId ?? new Map()}
-            valuesByItemColumn={itemsData?.valuesByItemColumn ?? new Map()}
-            boardId={board.id}
-            canEdit={canEdit}
-            onOpenLabelsEditor={setLabelsForColumn}
-          />
-        </section>
+        {/* UI polish (batch item 2): the per-column fields block that
+            used to live here (TaskFieldsZone — Status / Task Type /
+            Co-Work Time / Priority / Files) has been removed from the
+            panel. The board table still shows every one of those
+            columns; only the panel was decluttered. The body now
+            starts directly at Subitems. */}
 
         {/* Subitems (only on top-level items) */}
         {!item.parent_item_id && (
