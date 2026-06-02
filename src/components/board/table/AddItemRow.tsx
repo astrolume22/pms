@@ -34,20 +34,28 @@ export function AddItemRow({
     }
   };
 
-  // Phase 1 EDIT 2: the "+" icon is now a real button that creates a
-  // blank task immediately. The Enter-on-input path above keeps its
-  // own blank-name guard so users typing in the input box don't
-  // accidentally submit an empty row.
-  //
-  // We pass NO name to mutateAsync so the hook's existing default
-  // (`(name ?? 'New task').trim() || 'New task'`) fires. The DB
-  // `before_item_insert` trigger then fills task_code from the self-
-  // healing counter (migration 0047), producing "Task N".
+  // Phase 1 EDIT 2 (follow-up): the "+" button MUST honor whatever the
+  // user typed in the row's input. Previous version ignored `name`
+  // state entirely and always created "New task" — confirmed wrong
+  // behavior live. Now:
+  //   - input has text  -> create that task, clear the input
+  //   - input is blank  -> pass name=undefined; hook default
+  //                        (`(name ?? 'New task').trim() || 'New task'`)
+  //                        yields "New task"
+  // The DB `before_item_insert` trigger (migration 0047) still fills
+  // task_code with "Task N" regardless of name.
   const quickCreate = async () => {
     if (submitting || disabled) return;
+    const trimmed = name.trim();
     setSubmitting(true);
     try {
-      await create.mutateAsync({ boardId, groupId, parentItemId: parentItemId ?? null });
+      await create.mutateAsync({
+        boardId,
+        groupId,
+        parentItemId: parentItemId ?? null,
+        name: trimmed || undefined,
+      });
+      setName('');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not create task');
     } finally {
