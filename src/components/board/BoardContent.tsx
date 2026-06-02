@@ -22,6 +22,10 @@ import { GroupBlock } from './table/GroupBlock';
 // potential future reuse / fallback.
 import { BulkActionBar } from './table/BulkActionBar';
 import { LabelsEditorModal } from './table/LabelsEditorModal';
+// P4.2 — Shift system gate + countdown chip. Manager-only mount.
+import { StartShiftGate } from '@/components/shift/StartShiftGate';
+import { ShiftCountdownChip } from '@/components/shift/ShiftCountdownChip';
+import { useTodayShiftSession } from '@/hooks/shift';
 import {
   GUTTER_WIDTH,
   COMMENT_COL_WIDTH,
@@ -62,6 +66,16 @@ export function BoardContent({ board }: BoardContentProps) {
   // structure or non-status cells. Managers can only change Status
   // (handled per-cell in ItemRow.canEditCell) and post comments.
   const canEdit = !!profile && (profile.role === 'admin' || profile.is_super_admin);
+
+  // P4.2 — manager-only shift gate. Admins/super never call the RPC,
+  // never see the overlay, never see the countdown chip. The data hook
+  // is gated by `isManager`; when it's false, useTodayShiftSession is
+  // disabled and shiftSession stays undefined → both UI elements no-op.
+  const isManager = !!profile && profile.role === 'manager'
+    && !profile.is_super_admin && profile.status === 'active';
+  const { data: shiftSession } = useTodayShiftSession(isManager);
+  const showShiftGate      = isManager && shiftSession?.status === 'not_started';
+  const showCountdownChip  = isManager && !!shiftSession && shiftSession.status !== 'not_started';
 
   const { data: groups, isLoading: groupsLoading } = useGroups(board.id);
   const { data: columns, isLoading: colsLoading } = useColumns(board.id);
@@ -375,7 +389,12 @@ export function BoardContent({ board }: BoardContentProps) {
   const tableMinWidth = dataWidth + (canEdit ? ADD_COL_WIDTH : 0);
 
   return (
-    <div className="px-8 py-4 bg-canvas">
+    // `relative` lets the P4.2 gate + countdown chip position absolutely
+    // against this container, so the blur covers exactly the groups area
+    // and the chip floats top-right of the visible board content.
+    <div className="relative px-8 py-4 bg-canvas">
+      {showShiftGate && <StartShiftGate />}
+      {showCountdownChip && shiftSession && <ShiftCountdownChip sessionId={shiftSession.id} />}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         {/* Single horizontal scroll container — column headers and every
             group row share this scroll and stay aligned column-by-column.
