@@ -37,6 +37,7 @@ const TESSERA_BOARD_ID = '28472783-6d7a-4de9-8834-2354f62856c5';
 // browser blocks the response.
 const STATIC_ALLOWED_ORIGINS = new Set<string>([
   'https://jobs.expertintuitiveadvisor.com',
+  'https://meeting-inteligence.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ]);
