@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext, closestCenter, useSensor, useSensors, PointerSensor, KeyboardSensor,
   type DragEndEvent,
@@ -44,6 +44,48 @@ export function BoardContent({ board }: BoardContentProps) {
   useEffect(() => {
     if (userId) hydrate(board.id, userId);
   }, [board.id, userId, hydrate]);
+
+  // ----- Monday-style sticky horizontal scrollbar -----------------------
+  // The real horizontal-scroll container has its native bar HIDDEN
+  // (via .scroll-x-hidden). The "ghost" sibling below it is a
+  // position: sticky strip pinned to the bottom of the BoardContent
+  // viewport that hosts a fat themed native scrollbar. The two scroll
+  // positions are mirrored both ways by the effect below — drag the
+  // bar, the table scrolls; drag the table, the bar scrolls.
+  //
+  // Anchoring: sticky bottom-0 inside the outer
+  // `<div className="px-8 py-4 bg-canvas">` wrapper. That wrapper lives
+  // inside <main className="overflow-y-auto"> (AppShell), so the bar
+  // rides the bottom of the viewport while the user scrolls vertically
+  // through groups. No conflict with the per-group sticky-left headers
+  // (those are horizontally sticky, not vertically).
+  const realRef  = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const [ghostNeeded, setGhostNeeded] = useState(false);
+  useEffect(() => {
+    const real = realRef.current, ghost = ghostRef.current;
+    if (!real || !ghost) return;
+    let syncing = false;
+    const onReal  = () => { if (syncing) return; syncing = true; ghost.scrollLeft = real.scrollLeft;  syncing = false; };
+    const onGhost = () => { if (syncing) return; syncing = true; real.scrollLeft  = ghost.scrollLeft; syncing = false; };
+    real .addEventListener('scroll', onReal,  { passive: true });
+    ghost.addEventListener('scroll', onGhost, { passive: true });
+    // Toggle visibility: if the table fits the viewport horizontally,
+    // the ghost has nothing to do — hide it so we don't render a dead
+    // gray strip across the bottom of every narrow board.
+    const recompute = () => setGhostNeeded(real.scrollWidth > real.clientWidth + 1);
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(real);
+    return () => {
+      real .removeEventListener('scroll', onReal);
+      ghost.removeEventListener('scroll', onGhost);
+      ro.disconnect();
+    };
+    // Re-run when the visible-columns identity changes — that's the
+    // signal that the table's total width might have crossed the
+    // viewport-width threshold (col added / hidden / resized).
+  }, []);
 
   // New permission model: only admin / super-admin can edit board
   // structure or non-status cells. Managers can only change Status
@@ -305,8 +347,10 @@ export function BoardContent({ board }: BoardContentProps) {
             group row share this scroll and stay aligned column-by-column.
             Premium polish: no surface border / radius around the whole
             table — the table reads as a continuous color mosaic on
-            canvas, with group spines as the only structural seams. */}
-        <div className="overflow-x-auto scroll-x-slim bg-canvas">
+            canvas, with group spines as the only structural seams.
+            Native scrollbar is HIDDEN here (.scroll-x-hidden); the
+            visible bar lives in the sticky ghost <div> after this one. */}
+        <div ref={realRef} className="overflow-x-auto scroll-x-hidden bg-canvas">
           {/* The board no longer carries a single column-header row.
               Per Monday's design, each GroupBlock renders its own
               ColumnHeaderRow between its title and its data rows so
@@ -357,6 +401,22 @@ export function BoardContent({ board }: BoardContentProps) {
               })}
             </SortableContext>
           )}
+        </div>
+
+        {/* Ghost horizontal scrollbar — sticky-pinned to the bottom of
+            the BoardContent viewport. Inner spacer of width=tableMinWidth
+            and 1px height gives the bar its scroll range; the effect
+            above mirrors scrollLeft both ways with the real container.
+            z-[6] beats the per-group sticky-left header (z-[5]) so the
+            bar overlays group spines instead of being hidden by them.
+            BulkActionBar (fixed z-40) still paints on top when active. */}
+        <div
+          ref={ghostRef}
+          aria-hidden
+          className="sticky bottom-0 z-[6] overflow-x-auto scroll-x-ghost bg-canvas"
+          style={{ display: ghostNeeded ? undefined : 'none' }}
+        >
+          <div style={{ width: tableMinWidth, height: 1 }} />
         </div>
 
         {/* Phase 1 EDIT 1b: the bottom-of-table "+ Add new group" used to
