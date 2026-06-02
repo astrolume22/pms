@@ -43,9 +43,9 @@ export function useColumns(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? columnKeys.board(boardId) : ['columns', '_'],
     enabled: !!boardId,
-    // See useBoardItems comment — refetch on focus, watermark poll
-    // drives background invalidation cheaply.
-    refetchOnWindowFocus: true,
+    // P4.0 fix: see useBoardItems — disabled to avoid the refocus
+    // stampede. The 3s board_watermark poll catches us up.
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<ColumnRow[]> => {
       const { data, error } = await supabase
         .from('columns')

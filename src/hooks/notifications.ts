@@ -40,7 +40,10 @@ export function useUnreadCount() {
       return count ?? 0;
     },
     refetchInterval: 30_000,           // background refresh every 30s
-    refetchOnWindowFocus: true,
+    // P4.0 fix: previously true, contributing to the refocus stampede +
+    // 401 spam on stale tokens. The 30s interval poll keeps the unread
+    // count fresh; visibility-driven refetch is no longer needed.
+    refetchOnWindowFocus: false,
   });
 }
 

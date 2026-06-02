@@ -61,13 +61,16 @@ export function useBoardItems(boardId: string | undefined) {
   return useQuery<BoardItemsData>({
     queryKey: boardId ? itemKeys.board(boardId) : ['items', '_'],
     enabled: !!boardId,
-    // Refetch the moment the user clicks back into this tab — gives
-    // instant catch-up on focus without a 3-second wait. The
-    // useBoardWatermarkPoll hook (mounted at the board route) handles
-    // background polling cheaply via a single-timestamp RPC, so we
-    // intentionally do NOT set refetchInterval here — that would
-    // double-poll the whole board payload every 3 seconds.
-    refetchOnWindowFocus: true,
+    // P4.0 fix: refetchOnWindowFocus was true here, which made FIVE
+    // board queries refetch simultaneously on tab refocus and pile
+    // onto the (possibly parked / stale-token) H/2 socket — the actual
+    // source of the refocus stampede + 401 spam. Cross-device
+    // freshness is already handled by the 3-second board_watermark
+    // poll below; that single small RPC catches up the heavy queries
+    // within 3s of refocus without the stampede. The new
+    // refreshAndProbe() in lib/supabase.ts handles the token + socket
+    // recovery before the watermark poll runs again.
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data: items, error } = await supabase
         .from('items')

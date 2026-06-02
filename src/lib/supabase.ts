@@ -10,85 +10,46 @@ if (!url || !anonKey) {
 }
 
 // =====================================================================
-// Auth lock — PASS-THROUGH (intentional)
-// ---------------------------------------------------------------------
-// This started life as a cross-tab `navigator.locks` reference, then a
-// hand-rolled in-memory mutex, then a more-careful in-memory mutex with
-// inFlight tracking and force-acquire. Every iteration of the "smart"
-// lock eventually wedged after a rapid tab-switch and froze every later
-// supabase.from(...) call (PostgREST goes through getSession → lock).
-// The user could only recover by reloading the page.
-//
-// Why pass-through is correct for THIS app:
-//   • PMS is a small internal tool (~20 users) where each user only
-//     ever has one tab/session open at a time. The cross-tab refresh
-//     contention navigator.locks was designed to prevent does not
-//     actually arise here.
-//   • @supabase/auth-js already deduplicates concurrent refreshes
-//     INTERNALLY via `this.refreshingDeferred` — see _callRefreshToken
-//     in node_modules/@supabase/auth-js/.../GoTrueClient.js. Two
-//     simultaneous refreshSession() calls within the same client end up
-//     awaiting the SAME in-flight fetch.
-//   • In the unlikely event that two truly-independent contexts (e.g.
-//     two browser tabs of the same user) BOTH refresh at the same
-//     moment, the Supabase server's refresh-token reuse window (~10s)
-//     lets both calls succeed and the second one inherits the rotated
-//     token. The worst case is one extra HTTP request, not data loss.
-//   • A pass-through cannot deadlock. Liveness is guaranteed.
-//
-// What still keeps us safe from session-related bugs:
-//   1. `global.fetch` below wraps every HTTP request in a 15s
-//      AbortController timeout so no individual fetch can ever hang
-//      forever (stale-socket protection on idle tabs).
-//   2. supabase-js's autoRefreshToken still rotates the access token
-//      on its own schedule.
-//   3. The TOKEN_REFRESHED listener in src/state/authStore.ts keeps
-//      our session state in sync when auth-js rotates the token.
-//
-// User authorized this trade-off explicitly: "if there's an extra
-// security reason, remove it — I don't need it."
+// Auth lock — PASS-THROUGH (intentional). See history in P1.5 notes:
+// every "smart" lock implementation eventually wedged on tab-switch and
+// froze later supabase.from(...) calls. supabase-auth-js already
+// deduplicates concurrent refreshes via its own refreshingDeferred, so
+// queueing on top of that is pure deadlock risk for this single-tab
+// internal tool. Pass-through is liveness-guaranteed.
 // =====================================================================
 async function passThroughLock<R>(
   _name: string,
   _acquireTimeoutMs: number,
   fn: () => Promise<R>,
 ): Promise<R> {
-  // Run the work immediately. No queueing, no gates, no chains —
-  // nothing that could ever wedge.
   return fn();
 }
 
 // =====================================================================
-// Hard-timeout fetch wrapper.
-// ---------------------------------------------------------------------
-// When a tab idles in the background, Chrome aggressively throttles
-// timers AND parks the OS-level HTTP/2 socket.  When the user comes
-// back, the next request goes out on a half-dead connection.  The
-// browser may take MINUTES to notice the socket is broken (it waits
-// on OS TCP keepalive), during which fetch() sits there pending and
-// never resolves.  No 401, no error, no retry — the UI just spins
-// forever.
+// Hard-timeout + refresh-on-401 fetch wrapper.  ALL Supabase HTTP routes
+// through this:  PostgREST, Storage, the auth-token endpoint itself.
 //
-// This wrapper attaches an AbortController to every Supabase fetch
-// so any request that doesn't complete in HARD_TIMEOUT_MS rejects
-// with a TimeoutError.  The caller's mutation/query then rejects
-// cleanly, react-query unwinds the loading state, and the user can
-// retry — instead of an infinite spinner.
+// (1) Timeout: when a tab idles in the background, Chrome parks the
+//     HTTP/2 socket. The next request would otherwise sit pending for
+//     MINUTES waiting on OS TCP keepalive. We bound every fetch at
+//     HARD_TIMEOUT_MS so the caller's query/mutation rejects cleanly.
 //
-// We respect the caller's `init.signal` so AbortController plumbing
-// from react-query / the route still works.  Once the dead socket
-// fails a request, Chrome opens a fresh connection for the next call —
-// so a single user-visible failure self-heals every subsequent call.
+// (2) Refresh-on-401 + retry (P4.0 fix): if PostgREST or Storage
+//     returns 401, we ask supabase-auth-js to refresh the session,
+//     rewrite the Authorization header with the new access token, and
+//     retry the request ONCE. Without this, the founder's symptom was:
+//     backgrounded tab → access token expired silently → first request
+//     on refocus 401s → React Query retries the same stale token →
+//     401 again → UI sits on a spinner. With this, the 401 path
+//     self-heals in one extra round-trip.
 //
-// HARD_TIMEOUT_MS was 15s; lowered to 6s so the worst-case dead-socket
-// wait after a tab-return drops from "feels frozen" to "noticeable but
-// brief". Node-side measurements show normal PostgREST + auth round-
-// trips complete in 300-800 ms here, so 6s is still comfortably above
-// p99 for any legitimate request.
+//     Only PostgREST + Storage URLs are eligible — we skip the
+//     /auth/v1/ path so the recursive refresh call doesn't loop on
+//     itself. Only ONE retry per call, ever, to bound the worst case.
 // =====================================================================
 const HARD_TIMEOUT_MS = 6_000;
 
-function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function timeoutFetchOnce(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const external = init?.signal;
   if (external) {
@@ -104,7 +65,7 @@ function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   const timer = setTimeout(() => {
     try {
-      ctrl.abort(new DOMException('Request timed out after 15s', 'TimeoutError'));
+      ctrl.abort(new DOMException(`Request timed out after ${HARD_TIMEOUT_MS / 1000}s`, 'TimeoutError'));
     } catch {
       ctrl.abort();
     }
@@ -112,80 +73,156 @@ function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
 
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const target = urlOf(input);
+  // Only refresh-and-retry for the data-plane endpoints. /auth/v1/ must
+  // never be retried this way — it would loop on itself if the refresh
+  // itself ever 401'd (shouldn't, but cheap belt-and-suspenders).
+  const isDataPlane = target.includes('/rest/v1/') || target.includes('/storage/v1/');
+
+  let resp = await timeoutFetchOnce(input, init);
+
+  if (resp.status === 401 && isDataPlane) {
+    try {
+      console.log('[fetch-auth-retry] 401 on', target.split('/rest/v1/')[1]?.split('?')[0] ?? target, '— refreshing token');
+      const { data, error } = await supabase.auth.refreshSession();
+      if (!error && data.session?.access_token) {
+        const retryHeaders = new Headers(init?.headers ?? undefined);
+        retryHeaders.set('Authorization', `Bearer ${data.session.access_token}`);
+        const retryInit: RequestInit = { ...init, headers: retryHeaders };
+        const retry = await timeoutFetchOnce(input, retryInit);
+        console.log('[fetch-auth-retry] retry status', retry.status);
+        return retry;
+      }
+      console.log('[fetch-auth-retry] refresh failed, returning original 401');
+    } catch (e) {
+      console.log('[fetch-auth-retry] refresh threw, returning original 401', (e as Error)?.message);
+    }
+  }
+
+  return resp;
+}
+
 export const supabase = createClient(url, anonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     // Auto-parse magic-link + recovery callbacks from the URL hash so
-    // "Forgot password" → email link → /reset-password and the SSO
-    // magic-link → / flows pick up the session automatically. Without
-    // this, clicking a Supabase auth email would land on a static page
-    // with the tokens sitting unread in the URL.
+    // /reset-password and magic-link → / flows pick up the session.
     detectSessionInUrl: true,
     storageKey: 'pms.auth',
     lock: passThroughLock,
   },
   global: {
-    // Every PostgREST / Storage call routes through this. Auth-endpoint
-    // calls also honour `global.fetch` for the actual HTTP request.
     fetch: timeoutFetch,
   },
 });
 
 // =====================================================================
-// Tab-return socket warm-up.
+// Tab-return refresh + authenticated probe.   P4.0 root-cause fix.
 // ---------------------------------------------------------------------
-// When a backgrounded tab regains visibility, Chrome may have parked
-// the HTTP/2 socket to Supabase. The user's first action then queues
-// on that dead socket and sits pending until our timeoutFetch aborts
-// it — felt as a "hang" on the click immediately after tab-return.
+// PREVIOUS BUG: this handler fired a HEAD /rest/v1/ with ONLY the apikey
+// (no Authorization). PostgREST 401'd it. The console showed repeated
+// "HEAD /rest/v1/ 401 net::ERR_ABORTED" spam — and because the HEAD
+// never actually wrote authenticated bytes on the H/2 socket, Chrome's
+// connection pool wasn't convinced the parked socket was dead. The
+// founder's next click 401'd on the SAME parked socket, hung 13s
+// (timeout + React-Query retry on the same stale token), and the UI
+// sat on spinners.
 //
-// This handler fires a tiny HEAD ping to /rest/v1/ within 200ms of
-// visibility=visible with its OWN 2s AbortController. Three cases:
-//   (1) Socket alive → HEAD returns quickly (~200-500ms). No-op.
-//   (2) Socket parked/dead → HEAD aborts at 2s. Chrome notices the
-//       connection is gone and opens a fresh one for the next request.
-//       The user's subsequent click goes on the new socket → fast.
-//   (3) User clicks BEFORE the ping completes → their request piggybacks
-//       on whatever connection Chrome picks. Either way the ping itself
-//       can't make things worse — its only effect is "kill dead socket
-//       sooner".
-//
-// We bail out cheaply when the doc is already visible (initial load),
-// when there's no localStorage session (unauthenticated user — nothing
-// useful to warm), and ignore any error from the ping itself (it's a
-// best-effort warm-up, not user-visible).
+// FIX:
+//   (1) await supabase.auth.getSession() so auth-js's own state is
+//       authoritative for this tab.
+//   (2) If the access token is expired / near-expiry (<30s), call
+//       supabase.auth.refreshSession(). This is a real authenticated
+//       round-trip to /auth/v1/token?grant_type=refresh_token — it
+//       writes bytes on the socket and gets bytes back. If the socket
+//       was dead, the write fails locally and Chrome opens a fresh one.
+//   (3) Fire ONE small AUTHENTICATED probe to PostgREST with the fresh
+//       token — GET /rest/v1/board_sync_pings?select=id&limit=1. A 200
+//       confirms the socket is healthy; any non-2xx tells us we still
+//       need to recover, and the refresh-on-401 layer in timeoutFetch
+//       will pick that up on the user's next real action.
 // =====================================================================
-if (typeof document !== 'undefined' && typeof window !== 'undefined') {
-  const VISIBILITY_WARMUP_TIMEOUT_MS = 2_000;
-  let warming = false;
+const VISIBILITY_WARMUP_TIMEOUT_MS = 5_000;
+let warming = false;
 
-  const warmSocket = () => {
-    if (warming) return; // already in flight, don't double-fire
-    // Skip if not authenticated — anon users have nothing useful to warm.
-    try {
-      if (!localStorage.getItem('pms.auth')) return;
-    } catch {
-      // localStorage may be unavailable in some contexts; skip silently.
+async function refreshAndProbe(): Promise<void> {
+  if (warming) return;
+  // Skip if no session in localStorage — anon visitors have nothing to warm.
+  try {
+    if (!localStorage.getItem('pms.auth')) return;
+  } catch {
+    return;
+  }
+  warming = true;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.log('[warm] no session, skipping probe');
       return;
     }
-    warming = true;
+
+    // Refresh if the access token is expired or within 30s of expiry.
+    // Belt-and-suspenders against Chrome's background-tab timer
+    // throttling — auth-js's autoRefreshToken setTimeout may not have
+    // fired while we were hidden, so we don't trust it to be fresh.
+    const expiresAt = session.expires_at ?? 0;     // unix seconds
+    const nowSec = Math.floor(Date.now() / 1000);
+    let token = session.access_token;
+    if (expiresAt && expiresAt - nowSec < 30) {
+      const { data: refreshed, error } = await supabase.auth.refreshSession();
+      if (error || !refreshed.session?.access_token) {
+        console.log('[warm] refresh failed:', error?.message ?? '(no session returned)');
+        return;
+      }
+      token = refreshed.session.access_token;
+    }
+
+    // Authenticated probe. Real GET that carries the Bearer — forces
+    // Chrome to actually write bytes on the H/2 socket. board_sync_pings
+    // is cheap (1-row RLS-allowed SELECT). 5s timeout, separate from
+    // the global 6s timeoutFetch so the probe never blocks user
+    // interaction longer than its own budget. We deliberately bypass
+    // timeoutFetch to avoid the refresh-on-401 layer (we just refreshed).
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
-      try { ctrl.abort(new DOMException('warm-up timeout', 'TimeoutError')); }
+      try { ctrl.abort(new DOMException('warm-up probe timeout', 'TimeoutError')); }
       catch { ctrl.abort(); }
     }, VISIBILITY_WARMUP_TIMEOUT_MS);
-    // Direct window.fetch (not timeoutFetch) so this stays a 2s window
-    // and doesn't double-wrap. Hit a non-existent rest path so PostgREST
-    // 404s fast — we only care that the socket round-trips at all.
-    fetch(`${url}/rest/v1/`, { method: 'HEAD', signal: ctrl.signal, headers: { apikey: anonKey } })
-      .catch(() => { /* dead socket; Chrome will reconnect on next req */ })
-      .finally(() => { clearTimeout(timer); warming = false; });
-  };
+    try {
+      const resp = await fetch(`${url}/rest/v1/board_sync_pings?select=id&limit=1`, {
+        method: 'GET',
+        cache: 'no-store',
+        keepalive: true,
+        signal: ctrl.signal,
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+      console.log(`[warm] refreshed + probed ${resp.status}`);
+    } catch (e) {
+      console.log('[warm] probe failed, reconnecting', (e as Error)?.name ?? e);
+    } finally {
+      clearTimeout(timer);
+    }
+  } finally {
+    warming = false;
+  }
+}
 
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') warmSocket();
+    if (document.visibilityState === 'visible') void refreshAndProbe();
   });
-  // window.focus also covers the "alt-tab back" case on some platforms.
-  window.addEventListener('focus', warmSocket);
+  // window.focus also catches the alt-tab-back case on some platforms.
+  window.addEventListener('focus', () => void refreshAndProbe());
 }

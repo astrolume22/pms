@@ -29,9 +29,9 @@ export function useGroups(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? groupKeys.board(boardId) : ['groups', '_'],
     enabled: !!boardId,
-    // See useBoardItems comment — refetch on focus, watermark poll
-    // drives background invalidation cheaply.
-    refetchOnWindowFocus: true,
+    // P4.0 fix: see useBoardItems — disabled to avoid the refocus
+    // stampede. The 3s board_watermark poll catches us up.
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<GroupRow[]> => {
       const { data, error } = await supabase
         .from('groups')

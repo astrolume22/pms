@@ -231,8 +231,15 @@ export function useBoardWatermarkPoll(boardId: string | undefined): void {
     // Tight loop — the polling RPC is tiny. 3 seconds gives a worst-
     // case sync latency well under the user's "max 5 seconds" target.
     refetchInterval: 3_000,
-    // Also refire the moment the user clicks back into this tab.
-    refetchOnWindowFocus: true,
+    // P4.0 fix: visibility-driven refetch is OFF here. With it ON, the
+    // watermark RPC was firing on the very first tick after refocus,
+    // before lib/supabase.ts refreshAndProbe() had a chance to refresh
+    // a stale token — which then 401'd through the global fetch
+    // wrapper. The 3-second interval below will pick up the next tick
+    // a moment later, by which time refreshAndProbe is done. And the
+    // refresh-on-401 layer in timeoutFetch will paper over any single
+    // request that races the warm-up.
+    refetchOnWindowFocus: false,
     // Don't keep retrying noisily on transient errors.
     retry: 1,
     queryFn: async () => {
