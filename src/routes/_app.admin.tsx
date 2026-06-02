@@ -10,6 +10,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/state/authStore';
 import { UsersSection } from '@/components/admin/UsersSection';
+import { GroupAccessSection } from '@/components/admin/GroupAccessSection';
 import { AiHealthSection } from '@/components/admin/AiHealthSection';
 import { AiRunsSection } from '@/components/admin/AiRunsSection';
 
@@ -35,6 +36,7 @@ function AdminPage() {
       </header>
 
       <UsersSection />
+      <GroupAccessSection />
       <AiHealthSection />
       <AiRunsSection />
     </div>

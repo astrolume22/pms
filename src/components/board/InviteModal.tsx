@@ -7,9 +7,12 @@
  * Every invite assigns the `manager` role — there's no Viewer / Editor
  * option anymore.
  *
- * Group-scoped invites carry `group_id` onto the new board_subscribers
- * row at accept time, so the new manager sees only that one group on
- * the board (RLS-enforced via can_access_item).
+ * Group-scoped invites carry `group_id` on the invite itself. At accept
+ * time (Phase 3 / migration 0056) the server creates the board
+ * subscription with group_id = NULL (membership) AND inserts the
+ * corresponding group_user_visibility ACL row so the new manager sees
+ * only the granted group. Board-wide invites grant zero ACL rows by
+ * default — admins explicitly grant via /admin → Group access.
  */
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -207,9 +210,9 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
     <Modal open={open} onClose={handleClose} title={`Invite people — ${boardName}`} size="md">
       <div className="space-y-5">
         {/* Role — three-option selector. Backend (create_invite RPC,
-            migration 0020 + 0023) already accepts admin/manager/viewer
-            and accept_invite subscribes viewers with
-            board_subscribers.role = 'viewer'. */}
+            migrations 0020 / 0023 / 0056) accepts admin/manager/viewer.
+            accept_invite (0056) writes board_subscribers with
+            group_id = NULL plus an ACL grant per the invite scope. */}
         <Section label="Role">
           <div className="flex items-stretch gap-2">
             <RoleChoice
