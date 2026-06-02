@@ -101,20 +101,36 @@ export function getCellValue(data: BoardItemsData | undefined, itemId: string, c
 // ---------------------------------------------------------------------
 // useCreateItem — top-level or subitem (parent_item_id optional)
 // ---------------------------------------------------------------------
+// UI polish (batch item 4): the create flow is now optimistic. Callers
+// pre-generate the item's UUID and pass it as `id`; we paint an
+// optimistic row in the items cache immediately (with task_code='…'
+// as a placeholder — the DB before_item_insert trigger fills the real
+// "Task N" code server-side). When the insert resolves, we replace
+// the same-id row in place: React reconciles by key, so it's a
+// field-level update (task_code becomes "Task N"), not a remount.
+// On error we roll back to the previous cache snapshot. No
+// invalidateQueries — that's what made the old flow flash the whole
+// board after every add.
 export interface CreateItemInput {
   boardId: string;
   groupId: string;
   parentItemId?: string | null;
   name?: string;
+  // Optional pre-generated id. When supplied, we paint an optimistic
+  // row at this id immediately and replace it with the real row at the
+  // same id when the insert returns. When absent, we fall back to the
+  // server-default uuid and skip the optimistic path.
+  id?: string;
 }
 
 export function useCreateItem() {
   const qc = useQueryClient();
   const userId = useAuthStore((s) => s.profile?.id);
   return useMutation({
-    mutationFn: async ({ boardId, groupId, parentItemId, name }: CreateItemInput): Promise<ItemRow> => {
+    mutationFn: async ({ id, boardId, groupId, parentItemId, name }: CreateItemInput): Promise<ItemRow> => {
       if (!userId) throw new Error('Not signed in');
       const payload = {
+        ...(id ? { id } : {}),
         board_id: boardId,
         group_id: groupId,
         parent_item_id: parentItemId ?? null,
@@ -130,8 +146,64 @@ export function useCreateItem() {
       if (error) throw error;
       return data as ItemRow;
     },
+    onMutate: async (vars) => {
+      // Skip optimistic when the caller didn't pre-generate an id —
+      // we'd have no stable key to swap on. The mutation still runs
+      // normally, just without the instant-paint.
+      if (!vars.id) {
+        await qc.cancelQueries({ queryKey: itemKeys.board(vars.boardId) });
+        return { previous: qc.getQueryData<BoardItemsData>(itemKeys.board(vars.boardId)) };
+      }
+      await qc.cancelQueries({ queryKey: itemKeys.board(vars.boardId) });
+      const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(vars.boardId));
+      const finalName = (vars.name ?? 'New task').trim() || 'New task';
+      const now = new Date().toISOString();
+      const optimistic: ItemRow = {
+        id: vars.id,
+        board_id: vars.boardId,
+        group_id: vars.groupId,
+        parent_item_id: vars.parentItemId ?? null,
+        name: finalName,
+        task_code: '…',                 // ← placeholder until the trigger-filled value lands
+        sort_order: 0,                   // ← matches the DB default so position stays put on swap
+        created_by: userId ?? '',
+        updated_by: null,
+        created_at: now,
+        updated_at: now,
+        archived_at: null,
+        deleted_at: null,
+      };
+      if (previous) {
+        qc.setQueryData<BoardItemsData>(itemKeys.board(vars.boardId), {
+          ...previous,
+          items: [optimistic, ...previous.items],
+        });
+      }
+      return { previous };
+    },
+    onError: (err, vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(itemKeys.board(vars.boardId), ctx.previous);
+      reportMutationError('create task', err);
+    },
     onSuccess: (item) => {
-      void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
+      // Replace the optimistic row (same id, when caller supplied one)
+      // with the real one — task_code goes from "…" → "Task N", any
+      // server-fixed timestamps land. If the optimistic row is missing
+      // for any reason (no pre-gen id / cache evicted mid-flight), we
+      // prepend the real row. We do NOT invalidate — that would refetch
+      // the whole board and flash the user's optimistic edits away.
+      const cur = qc.getQueryData<BoardItemsData>(itemKeys.board(item.board_id));
+      if (cur) {
+        let found = false;
+        const nextItems = cur.items.map((it) => {
+          if (it.id === item.id) { found = true; return item; }
+          return it;
+        });
+        qc.setQueryData<BoardItemsData>(itemKeys.board(item.board_id), {
+          ...cur,
+          items: found ? nextItems : [item, ...cur.items],
+        });
+      }
       publishBoardChange(item.board_id);
       // Undo: soft-delete the freshly-created item.
       useUndoStore.getState().push({
@@ -147,7 +219,6 @@ export function useCreateItem() {
         },
       });
     },
-    onError: (err) => reportMutationError('create task', err),
   });
 }
 
