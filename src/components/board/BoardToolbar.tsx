@@ -528,7 +528,13 @@ function AddGroupButton({ boardId }: { boardId: string }) {
       type="button"
       onClick={() => setOpen(true)}
       className="inline-flex items-center gap-1.5 h-8 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
-      style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+      // UI polish (batch item 1): recolor from --chip-sky to --chip-coral
+      // so this pill no longer reads as the same action as the blue
+      // "New task" button next to it. Coral is the closest existing
+      // chip token to the Critical label's stored #E2445C (both warm
+      // red-orange, hue ~17–25), keeping dark + light themes correct
+      // without inventing a new token. Size/shape/spacing unchanged.
+      style={{ background: 'var(--chip-coral)', letterSpacing: '0.02em' }}
       aria-label="Add group"
       title="Add a new group at the top of the board"
     >
