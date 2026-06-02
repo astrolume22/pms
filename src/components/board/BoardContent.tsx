@@ -45,47 +45,18 @@ export function BoardContent({ board }: BoardContentProps) {
     if (userId) hydrate(board.id, userId);
   }, [board.id, userId, hydrate]);
 
-  // ----- Monday-style sticky horizontal scrollbar -----------------------
-  // The real horizontal-scroll container has its native bar HIDDEN
-  // (via .scroll-x-hidden). The "ghost" sibling below it is a
-  // position: sticky strip pinned to the bottom of the BoardContent
-  // viewport that hosts a fat themed native scrollbar. The two scroll
-  // positions are mirrored both ways by the effect below — drag the
-  // bar, the table scrolls; drag the table, the bar scrolls.
-  //
-  // Anchoring: sticky bottom-0 inside the outer
-  // `<div className="px-8 py-4 bg-canvas">` wrapper. That wrapper lives
-  // inside <main className="overflow-y-auto"> (AppShell), so the bar
-  // rides the bottom of the viewport while the user scrolls vertically
-  // through groups. No conflict with the per-group sticky-left headers
-  // (those are horizontally sticky, not vertically).
+  // Sticky horizontal scrollbar state — refs created up here so they
+  // can be attached in the JSX below. The measure effect + observers
+  // live further down the function (after the data hooks) so the deps
+  // are in scope.
   const realRef  = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   const [ghostNeeded, setGhostNeeded] = useState(false);
-  useEffect(() => {
-    const real = realRef.current, ghost = ghostRef.current;
-    if (!real || !ghost) return;
-    let syncing = false;
-    const onReal  = () => { if (syncing) return; syncing = true; ghost.scrollLeft = real.scrollLeft;  syncing = false; };
-    const onGhost = () => { if (syncing) return; syncing = true; real.scrollLeft  = ghost.scrollLeft; syncing = false; };
-    real .addEventListener('scroll', onReal,  { passive: true });
-    ghost.addEventListener('scroll', onGhost, { passive: true });
-    // Toggle visibility: if the table fits the viewport horizontally,
-    // the ghost has nothing to do — hide it so we don't render a dead
-    // gray strip across the bottom of every narrow board.
-    const recompute = () => setGhostNeeded(real.scrollWidth > real.clientWidth + 1);
-    recompute();
-    const ro = new ResizeObserver(recompute);
-    ro.observe(real);
-    return () => {
-      real .removeEventListener('scroll', onReal);
-      ghost.removeEventListener('scroll', onGhost);
-      ro.disconnect();
-    };
-    // Re-run when the visible-columns identity changes — that's the
-    // signal that the table's total width might have crossed the
-    // viewport-width threshold (col added / hidden / resized).
-  }, []);
+  // Inner-spacer width tracks the REAL scrollable width so the ghost
+  // bar maps 1:1 to the table even if the precomputed tableMinWidth
+  // drifts from what the layout engine actually paints (Task name's
+  // 240-360 clamp, column-resize live state, etc.).
+  const [ghostInnerWidth, setGhostInnerWidth] = useState(0);
 
   // New permission model: only admin / super-admin can edit board
   // structure or non-status cells. Managers can only change Status
@@ -118,6 +89,69 @@ export function BoardContent({ board }: BoardContentProps) {
       return true;
     });
   }, [columns, hiddenIds]);
+
+  // ----- Monday-style sticky horizontal scrollbar — measure pipeline ----
+  // The real horizontal-scroll container has its native bar HIDDEN (via
+  // .scroll-x-hidden). The "ghost" sibling further down is a sticky
+  // bottom-0 strip hosting a fat themed native scrollbar, scroll-synced
+  // both ways with the real container.
+  //
+  // BUG FIX (UI polish item 5): the previous effect had an empty dep
+  // array and short-circuited on the first render — at that moment
+  // BoardContent was still rendering the loading spinner (early return
+  // below), so `realRef.current` was null. The effect never ran again,
+  // so `ghostNeeded` stayed false forever and the bar was permanently
+  // invisible even when there was real horizontal overflow.
+  //
+  // Fixed: the effect now depends on `dataReady` and the table's data
+  // shape. It re-fires as soon as the loading spinner unmounts and the
+  // real JSX renders, then again whenever something that could change
+  // scrollWidth lands. Visibility AND the inner spacer width key off
+  // the live `realRef.current.scrollWidth` — the only truthful signal —
+  // rather than the precomputed tableMinWidth.
+  const dataReady = !groupsLoading && !colsLoading && !itemsLoading;
+  useEffect(() => {
+    if (!dataReady) return;
+    const real = realRef.current, ghost = ghostRef.current;
+    if (!real || !ghost) return;
+
+    let syncing = false;
+    const onReal  = () => { if (syncing) return; syncing = true; ghost.scrollLeft = real.scrollLeft;  syncing = false; };
+    const onGhost = () => { if (syncing) return; syncing = true; real.scrollLeft  = ghost.scrollLeft; syncing = false; };
+    real .addEventListener('scroll', onReal,  { passive: true });
+    ghost.addEventListener('scroll', onGhost, { passive: true });
+
+    const recompute = () => {
+      const r = realRef.current;
+      if (!r) return;
+      const sw = r.scrollWidth;
+      const cw = r.clientWidth;
+      setGhostNeeded(sw > cw + 1);
+      setGhostInnerWidth(sw);
+    };
+    // Initial pass after mount. A second pass arrives via the observers
+    // below once the layout engine has fully flushed the table contents.
+    recompute();
+
+    // ResizeObserver — catches container size changes (window resize,
+    // sidebar toggle, anything that changes clientWidth).
+    const ro = new ResizeObserver(recompute);
+    ro.observe(real);
+
+    // MutationObserver — catches subtree changes that don't shift the
+    // container's own clientWidth: group expand/collapse adding /
+    // removing rows, inline cell edits widening a column, dnd reorders.
+    // Without this the bar would only react to viewport resize.
+    const mo = new MutationObserver(recompute);
+    mo.observe(real, { childList: true, subtree: true });
+
+    return () => {
+      real .removeEventListener('scroll', onReal);
+      ghost.removeEventListener('scroll', onGhost);
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [dataReady, groups, columns, itemsData, visibleColumns]);
 
   // Partition items: top-level vs subitems by parent_item_id
   const { topLevel, subitemsByParent } = useMemo(() => {
@@ -404,19 +438,21 @@ export function BoardContent({ board }: BoardContentProps) {
         </div>
 
         {/* Ghost horizontal scrollbar — sticky-pinned to the bottom of
-            the BoardContent viewport. Inner spacer of width=tableMinWidth
-            and 1px height gives the bar its scroll range; the effect
-            above mirrors scrollLeft both ways with the real container.
-            z-[6] beats the per-group sticky-left header (z-[5]) so the
-            bar overlays group spines instead of being hidden by them.
-            BulkActionBar (fixed z-40) still paints on top when active. */}
+            the BoardContent viewport. Inner spacer width tracks the
+            REAL container's live scrollWidth (set in the measure
+            effect) so dragging the bar maps 1:1 to the table even if
+            the precomputed tableMinWidth drifts from paint reality.
+            Falls back to tableMinWidth on the brief frame before the
+            first measure lands. z-[6] beats the per-group sticky-left
+            header (z-[5]); BulkActionBar (fixed z-40) still paints on
+            top when active. */}
         <div
           ref={ghostRef}
           aria-hidden
           className="sticky bottom-0 z-[6] overflow-x-auto scroll-x-ghost bg-canvas"
           style={{ display: ghostNeeded ? undefined : 'none' }}
         >
-          <div style={{ width: tableMinWidth, height: 1 }} />
+          <div style={{ width: ghostInnerWidth || tableMinWidth, height: 1 }} />
         </div>
 
         {/* Phase 1 EDIT 1b: the bottom-of-table "+ Add new group" used to
