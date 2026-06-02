@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Clock, FolderOpen, Users, Lock, Globe, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +20,49 @@ type Tab = 'recents' | 'content' | 'collaborators';
 
 function WorkspaceHome() {
   const [tab, setTab] = useState<Tab>('recents');
+  const profile = useAuthStore((s) => s.profile);
+  const isAdmin = !!profile && (profile.role === 'admin' || profile.is_super_admin);
+
+  // UI polish (batch item 3): with the sidebar hidden for non-admins,
+  // landing at "/" would leave them on the admin-flavoured Workspace
+  // Home with no clear path forward. Auto-redirect them to their
+  // first non-archived board (RLS already filters useBoards() down to
+  // boards they subscribe to). Admins keep the existing home.
+  const { data: nonAdminBoards, isLoading: nonAdminBoardsLoading } = useBoards();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (isAdmin) return;
+    if (nonAdminBoardsLoading || !nonAdminBoards) return;
+    const first = nonAdminBoards.find((b) => !b.archived_at && !b.deleted_at);
+    if (first) {
+      void navigate({
+        to: '/w/$workspace/b/$boardId',
+        params: { workspace: 'main', boardId: first.id },
+        replace: true,
+      });
+    }
+  }, [isAdmin, nonAdminBoardsLoading, nonAdminBoards, navigate]);
+
+  if (!isAdmin) {
+    if (nonAdminBoardsLoading) {
+      return <div className="flex justify-center py-20"><Spinner className="h-6 w-6 text-brand" /></div>;
+    }
+    const hasBoard = (nonAdminBoards ?? []).some((b) => !b.archived_at && !b.deleted_at);
+    if (!hasBoard) {
+      return (
+        <div className="px-8 py-20 max-w-md mx-auto">
+          <EmptyMessage
+            title="No board assigned"
+            description="Ask your admin to grant you access to a board."
+            icon={<FolderOpen className="h-7 w-7" />}
+          />
+        </div>
+      );
+    }
+    // Redirect is in flight — show a spinner so we don't flash the
+    // admin home tabs.
+    return <div className="flex justify-center py-20"><Spinner className="h-6 w-6 text-brand" /></div>;
+  }
 
   return (
     <div className="px-8 py-6 max-w-[1100px] mx-auto">
