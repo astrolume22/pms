@@ -17,7 +17,9 @@ import { useAuthStore } from '@/state/authStore';
 import { useActiveUsers } from '@/hooks/users';
 import { Spinner } from '@/components/Spinner';
 import { GroupBlock } from './table/GroupBlock';
-import { AddGroupRow } from './table/AddGroupRow';
+// AddGroupRow no longer mounted from BoardContent — it moved to the
+// BoardToolbar (Phase 1 EDIT 1). File is kept in the repo for
+// potential future reuse / fallback.
 import { BulkActionBar } from './table/BulkActionBar';
 import { LabelsEditorModal } from './table/LabelsEditorModal';
 import {
@@ -357,14 +359,13 @@ export function BoardContent({ board }: BoardContentProps) {
           )}
         </div>
 
-        {/* "+ Add new group" lives below the table so adding a group doesn't
-            depend on the table's horizontal scroll position. */}
-        {/* "+ Add group" footer — admin only. */}
-        {!groupByColumnId && canEdit && (
-          <div className="mt-3">
-            <AddGroupRow boardId={board.id} disabled={false} />
-          </div>
-        )}
+        {/* Phase 1 EDIT 1b: the bottom-of-table "+ Add new group" used to
+            live here. It moved to the top toolbar (BoardToolbar's new
+            AddGroupButton) so admins can add a group without scrolling
+            past every existing group. The AddGroupRow component still
+            exists in the codebase but is no longer mounted from this
+            route — keeping the file around as a fallback / reusable
+            primitive is intentional. */}
       </DndContext>
 
       {/* Hidden-columns chip */}

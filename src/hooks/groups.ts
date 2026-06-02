@@ -49,13 +49,20 @@ export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ boardId, name }: { boardId: string; name: string }) => {
+      // Phase 1 EDIT 1c: insert new groups at the TOP of the board.
+      // Look up the SMALLEST existing sort_order and pick a value one
+      // below it. Single-row insert — no reindex, no other rows touched.
+      // groups.sort_order is `int NOT NULL DEFAULT 0` with no CHECK
+      // (verified in migration 0004), so negative values are legal and
+      // the ascending read path in useGroups renders them first.
       const { data: existing } = await supabase
         .from('groups')
         .select('sort_order')
         .eq('board_id', boardId)
-        .order('sort_order', { ascending: false })
+        .order('sort_order', { ascending: true })
         .limit(1);
-      const nextSort = ((existing?.[0] as { sort_order?: number })?.sort_order ?? -1) + 1;
+      const minSort = (existing?.[0] as { sort_order?: number })?.sort_order;
+      const nextSort = (minSort ?? 0) - 1;
       const payload = {
         board_id: boardId,
         name: name.trim() || 'New group',

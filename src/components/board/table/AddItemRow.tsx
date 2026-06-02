@@ -34,6 +34,27 @@ export function AddItemRow({
     }
   };
 
+  // Phase 1 EDIT 2: the "+" icon is now a real button that creates a
+  // blank task immediately. The Enter-on-input path above keeps its
+  // own blank-name guard so users typing in the input box don't
+  // accidentally submit an empty row.
+  //
+  // We pass NO name to mutateAsync so the hook's existing default
+  // (`(name ?? 'New task').trim() || 'New task'`) fires. The DB
+  // `before_item_insert` trigger then fills task_code from the self-
+  // healing counter (migration 0047), producing "Task N".
+  const quickCreate = async () => {
+    if (submitting || disabled) return;
+    setSubmitting(true);
+    try {
+      await create.mutateAsync({ boardId, groupId, parentItemId: parentItemId ?? null });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create task');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div
       // Premium polish: lives on canvas, single row-tall (40px), no
@@ -48,9 +69,16 @@ export function AddItemRow({
       )}
       style={{ minWidth: totalWidth }}
     >
-      <div className="w-10 shrink-0 flex items-center justify-center text-text-secondary">
+      <button
+        type="button"
+        onClick={() => void quickCreate()}
+        disabled={disabled || submitting}
+        aria-label="Add task"
+        title="Add task"
+        className="w-10 shrink-0 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-[var(--overlay-8)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+      >
         <Plus className="h-3.5 w-3.5" />
-      </div>
+      </button>
       <input
         type="text"
         value={name}

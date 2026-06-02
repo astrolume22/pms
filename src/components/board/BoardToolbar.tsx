@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useBoardViewStore, type ItemHeight } from '@/state/boardViewStore';
 import { useColumns } from '@/hooks/columns';
 import { useCreateItem } from '@/hooks/items';
-import { useGroups } from '@/hooks/groups';
+import { useCreateGroup, useGroups } from '@/hooks/groups';
 import { useUndoStore } from '@/lib/undoStack';
 import { forceBoardSync } from '@/lib/boardSync';
 import { cn } from '@/lib/cn';
@@ -84,6 +84,13 @@ export function BoardToolbar({ boardId, canEdit }: BoardToolbarProps) {
               }
             }}
           />
+          {/* Add Group — sits next to New task. Only renders when the
+              board isn't being grouped-by a column (the default-group
+              layout is the only one this control creates groups for).
+              The bottom-of-table AddGroupRow used to live in
+              BoardContent; this toolbar entry replaces it so admins
+              don't have to scroll past the whole board to add a group. */}
+          {!groupByColumnId && <AddGroupButton boardId={boardId} />}
           {/* Undo (Ctrl+Z / Cmd+Z) — disabled when the in-memory stack
               is empty. Lives next to New task because users instinctively
               reach for "undo what I just did" right after creating things. */}
@@ -435,6 +442,99 @@ function NewTaskButton({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------- Add Group split button ----------
+// Mirrors AddGroupRow's expand-to-inline-form UX but compacted to fit
+// the toolbar. Collapsed: a single ghost "+ Add Group" pill. Expanded:
+// the same toolbar slot is replaced by an inline input + Create /
+// Cancel pair. Submission goes through useCreateGroup, which (per
+// Phase 1 EDIT 1c) inserts new groups at the TOP of the board.
+function AddGroupButton({ boardId }: { boardId: string }) {
+  const create = useCreateGroup();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Click-outside collapses the expanded form (same pattern the
+  // NewTaskButton dropdown uses above).
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setName('');
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    try {
+      await create.mutateAsync({ boardId, name: trimmed });
+      setName('');
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create group');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (open) {
+    return (
+      <div ref={ref} className="inline-flex items-center gap-1">
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !submitting) void submit();
+            else if (e.key === 'Escape') { setName(''); setOpen(false); }
+          }}
+          placeholder="Group name"
+          className="h-8 px-2.5 rounded-button bg-input border border-border-default text-[13px] text-text-primary placeholder:text-text-secondary outline-none w-[180px] focus:border-brand transition-colors duration-100"
+          style={{ letterSpacing: '0.02em' }}
+        />
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={!name.trim() || submitting}
+          className="inline-flex items-center h-8 px-3 rounded-button text-[13px] font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition-[filter] duration-100"
+          style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+        >
+          {submitting ? 'Creating…' : 'Create'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setName(''); setOpen(false); }}
+          className="btn-ghost-soft"
+          title="Cancel (Esc)"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-button text-[13px] font-medium text-white hover:brightness-110 transition-[filter] duration-100"
+      style={{ background: 'var(--chip-sky)', letterSpacing: '0.02em' }}
+      aria-label="Add group"
+      title="Add a new group at the top of the board"
+    >
+      <Plus className="h-3.5 w-3.5" />
+      Add Group
+    </button>
   );
 }
 
