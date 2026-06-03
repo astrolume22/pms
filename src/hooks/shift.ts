@@ -51,7 +51,8 @@ export interface ShiftSessionRow {
   updated_at: string;
 }
 
-// Live computed payload returned by shift_tick (jsonb).
+// Live computed payload returned by shift_tick (jsonb). Widened by
+// migration 0060 to expose break state + bio config + computed flags.
 export interface ShiftTickPayload {
   session_id: string;
   user_id: string;
@@ -65,11 +66,24 @@ export interface ShiftTickPayload {
   remaining_seconds: number;
   paused_total_seconds: number;
   current_period_index: number;
+  current_period_start_seconds?: number;
   current_period_end_seconds: number;
+  period_85_threshold_seconds?: number;
   period_85_due: boolean;
   period_lock_due: boolean;
+  // Break state (P4.4)
+  current_break_kind: 'shift' | 'bio' | null;
+  current_break_started_at: string | null;
+  current_break_elapsed_seconds: number;
+  // Bio counters + config (P4.4)
   bio_break_count_today: number;
   bio_break_total_seconds_today: number;
+  bio_break_admin_grants_today: number;
+  bio_break_max_per_day: number | null;
+  bio_break_warn_count: number | null;
+  bio_break_warn_total_seconds: number | null;
+  bio_break_max_seconds_each: number | null;
+  bio_limit_reached: boolean;
   locked_at: string | null;
   locked_reason: ShiftSessionRow['locked_reason'];
   completed_at: string | null;
@@ -477,6 +491,135 @@ export function useLockedShifts(enabled: boolean) {
       if (uErr) throw uErr;
       const byId = new Map((users ?? []).map(u => [u.id as string, u as { id: string; username: string; full_name: string | null }]));
       return list.map(r => ({
+        ...r,
+        full_name: byId.get(r.user_id)?.full_name ?? null,
+        username:  byId.get(r.user_id)?.username  ?? '?',
+      }));
+    },
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+}
+
+// ---------------------------------------------------------------------
+// P4.4 — break RPCs.  All three take session_id (post-0060). The RPCs
+// enforce self-or-admin; the UI only exposes them to managers.
+// ---------------------------------------------------------------------
+export function useShiftTakeShiftBreak() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_take_shift_break', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as { session_id: string; status: ShiftStatus };
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: shiftKeys.all }); },
+  });
+}
+
+export function useShiftTakeBioBreak() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_take_bio_break', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string; status: ShiftStatus;
+        needs_request: boolean;
+        count_today?: number; max_per_day?: number; admin_grants_today?: number;
+      };
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: shiftKeys.all }); },
+  });
+}
+
+export function useShiftEndBreak() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_end_break', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string; status: ShiftStatus;
+        kind: 'shift' | 'bio' | null;
+        duration_seconds_actual: number;
+        duration_seconds_recorded: number;
+        exceeded_cap: boolean;
+      };
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: shiftKeys.all }); },
+  });
+}
+
+// ---------------------------------------------------------------------
+// Bio break request lifecycle (manager creates, admin decides).
+// ---------------------------------------------------------------------
+export function useBioBreakRequestCreate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc('bio_break_request_create');
+      if (error) throw error;
+      return data as { request_id: string; status: 'pending' };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+      void qc.invalidateQueries({ queryKey: ['admin', 'bio-requests'] });
+    },
+  });
+}
+
+export function useBioBreakRequestDecide() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { requestId: string; decision: 'approved' | 'denied'; note?: string | null }) => {
+      const { data, error } = await supabase.rpc('bio_break_request_decide', {
+        p_request_id: args.requestId,
+        p_decision:   args.decision,
+        p_note:       args.note ?? null,
+      });
+      if (error) throw error;
+      return data as { request_id: string; status: 'approved' | 'denied' };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'bio-requests'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// Admin pending bio-break requests queue.
+// ---------------------------------------------------------------------
+export interface BioBreakRequestRow {
+  id: string;
+  session_id: string;
+  user_id: string;
+  requested_at: string;
+  full_name: string | null;
+  username: string;
+}
+export function useBioBreakPending(enabled: boolean) {
+  return useQuery<BioBreakRequestRow[]>({
+    queryKey: ['admin', 'bio-requests'],
+    enabled,
+    queryFn: async () => {
+      const { data: reqs, error } = await supabase
+        .from('bio_break_requests')
+        .select('id, session_id, user_id, requested_at')
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: true });
+      if (error) throw error;
+      const list = (reqs ?? []) as Array<Pick<BioBreakRequestRow,'id'|'session_id'|'user_id'|'requested_at'>>;
+      if (list.length === 0) return [];
+      const userIds = Array.from(new Set(list.map((r) => r.user_id)));
+      const { data: users, error: uErr } = await supabase
+        .from('users').select('id, username, full_name').in('id', userIds);
+      if (uErr) throw uErr;
+      const byId = new Map((users ?? []).map((u) => [u.id as string, u as { id: string; username: string; full_name: string | null }]));
+      return list.map((r) => ({
         ...r,
         full_name: byId.get(r.user_id)?.full_name ?? null,
         username:  byId.get(r.user_id)?.username  ?? '?',

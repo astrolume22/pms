@@ -31,6 +31,7 @@ import { supabase } from '@/lib/supabase';
 import { StartShiftGate } from './StartShiftGate';
 import { ShiftCountdownChip } from './ShiftCountdownChip';
 import { ShiftLockedOverlay } from './ShiftLockedOverlay';
+import { BreakControls } from './BreakControls';
 
 // Fire-and-forget POST to the email-alert endpoint. Caller authenticates
 // with the manager's Supabase access token (Bearer JWT) — no leakable
@@ -143,5 +144,13 @@ export function ShiftDriver() {
   if (liveStatus === 'locked') {
     return <ShiftLockedOverlay />;
   }
-  return <ShiftCountdownChip sessionId={session.id} />;
+  // Active / break / completed: countdown chip (which keeps ticking
+  // through breaks) AND the break controls. React Query dedupes the
+  // shift_tick query by key, so both components share the same poll.
+  return (
+    <>
+      <ShiftCountdownChip sessionId={session.id} />
+      <BreakControls sessionId={session.id} tick={tick} />
+    </>
+  );
 }

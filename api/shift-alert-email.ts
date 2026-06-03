@@ -128,8 +128,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const sessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
     const kind = typeof body.kind === 'string' ? body.kind : '';
-    if (!UUID_RE.test(sessionId) || (kind !== '85' && kind !== 'lock')) {
-      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock")' });
+    if (!UUID_RE.test(sessionId) || (kind !== '85' && kind !== 'lock' && kind !== 'bio_total_warn')) {
+      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock"|"bio_total_warn")' });
       return;
     }
 
@@ -179,7 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ADMIN_ALERT_EMAIL env override so the founder can redirect alerts
     // to a personal address without rewriting their users row.
     let adminEmail: string | null = null;
-    if (kind === 'lock') {
+    if (kind === 'lock' || kind === 'bio_total_warn') {
       if (adminAlertEmailEnv) {
         adminEmail = adminAlertEmailEnv;
       } else {
@@ -216,7 +216,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ---- compose + send ----
     const sent: Array<{ to: string; id?: string; error?: string }> = [];
 
-    if (kind === '85') {
+    if (kind === 'bio_total_warn') {
+      // Admin-only notification: manager's cumulative bio time crossed
+      // the warn threshold (default ~1h). The manager already sees an
+      // inline warning in BreakControls.
+      if (!adminEmail) {
+        res.status(200).json({ ok: false, error: 'no admin recipient configured', recipients: [] });
+        return;
+      }
+      const subject = `[admin] Heavy bio-break usage: ${managerName}`;
+      const text =
+        `Heads up — manager "${managerName}" (${manager.email}) has accumulated ` +
+        `more than the configured warn threshold of bio-break time today.\n\n` +
+        `Open /admin → Shift Control to review their session and bio counters.\n\n` +
+        `— EIA Projects (automated)`;
+      const r = await sendResend({ apiKey: resendKey, from: resendFrom, to: adminEmail, subject, text });
+      sent.push({ to: adminEmail, id: r.id, error: r.error });
+    } else if (kind === '85') {
       const subject = 'Check-in coming up';
       const text =
         `Hi ${managerName},\n\n` +
