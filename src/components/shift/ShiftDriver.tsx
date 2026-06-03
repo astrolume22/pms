@@ -27,9 +27,43 @@ import {
   useShiftMark85Alerted,
   useShiftSelfPeriodLock,
 } from '@/hooks/shift';
+import { supabase } from '@/lib/supabase';
 import { StartShiftGate } from './StartShiftGate';
 import { ShiftCountdownChip } from './ShiftCountdownChip';
 import { ShiftLockedOverlay } from './ShiftLockedOverlay';
+
+// Fire-and-forget POST to the email-alert endpoint. Caller authenticates
+// with the manager's Supabase access token (Bearer JWT) — no leakable
+// shared secret. Failures are logged but never break the shift UI.
+// `keepalive: true` lets the request survive even if the page navigates
+// or the user closes the tab right after firing.
+async function postShiftAlertEmail(sessionId: string, kind: '85' | 'lock'): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      console.warn('[shift] no access token; skipping email post');
+      return;
+    }
+    const resp = await fetch('/api/shift-alert-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ session_id: sessionId, kind }),
+      keepalive: true,
+    });
+    const body = (await resp.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+    if (!resp.ok || body.ok === false) {
+      console.warn(`[shift] email post returned`, resp.status, body);
+    } else {
+      console.info(`[shift] email post ok kind=${kind}`, body);
+    }
+  } catch (e) {
+    console.warn('[shift] email post failed:', e);
+  }
+}
 
 export function ShiftDriver() {
   const { data: session } = useTodayShiftSession(true);
@@ -54,7 +88,20 @@ export function ShiftDriver() {
       toast('Heads up — your check-in lock is coming soon. Save your place.', {
         duration: 8_000,
       });
-      mark85.mutate(sessionId);
+      // P4.3b: piggyback email on the RPC. Server-side mark RPC is
+      // idempotent; we only send the email when the RPC confirms this
+      // was a FRESH alert (already_alerted=false) — the same once-per-
+      // period guard the spec calls out.
+      void (async () => {
+        try {
+          const result = await mark85.mutateAsync(sessionId);
+          if (result && result.already_alerted === false) {
+            void postShiftAlertEmail(sessionId, '85');
+          }
+        } catch (e) {
+          console.warn('[shift] mark85 failed:', e);
+        }
+      })();
     }
   }, [tick, sessionId, mark85]);
 
@@ -68,13 +115,17 @@ export function ShiftDriver() {
     if (tick.period_lock_due && tick.status !== 'locked'
         && lockedFiredRef.current < tick.current_period_index) {
       lockedFiredRef.current = tick.current_period_index;
-      selfLock.mutate(sessionId);
-    }
-    // Reset the lock-fired guard whenever the period index advances
-    // (admin unlocked + we're past the boundary again).
-    if (tick.current_period_index > lockedFiredRef.current + 0) {
-      // no-op — already tracked above when we fire; this branch reserved
-      // for future "skip-fired-period" logic if we ever add manual lock.
+      // P4.3b: email piggybacks the FRESH lock only.
+      void (async () => {
+        try {
+          const result = await selfLock.mutateAsync(sessionId);
+          if (result && result.already_locked === false) {
+            void postShiftAlertEmail(sessionId, 'lock');
+          }
+        } catch (e) {
+          console.warn('[shift] self_period_lock failed:', e);
+        }
+      })();
     }
   }, [tick, sessionId, selfLock]);
 
