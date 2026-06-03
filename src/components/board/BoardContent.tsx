@@ -22,10 +22,10 @@ import { GroupBlock } from './table/GroupBlock';
 // potential future reuse / fallback.
 import { BulkActionBar } from './table/BulkActionBar';
 import { LabelsEditorModal } from './table/LabelsEditorModal';
-// P4.2 — Shift system gate + countdown chip. Manager-only mount.
-import { StartShiftGate } from '@/components/shift/StartShiftGate';
-import { ShiftCountdownChip } from '@/components/shift/ShiftCountdownChip';
-import { useTodayShiftSession } from '@/hooks/shift';
+// P4.2 + P4.3 — Shift system orchestrator. Mounts the gate, countdown
+// chip, or locked overlay depending on server-authoritative tick state.
+// Manager-only — admins/super never call any shift RPC.
+import { ShiftDriver } from '@/components/shift/ShiftDriver';
 import {
   GUTTER_WIDTH,
   COMMENT_COL_WIDTH,
@@ -67,15 +67,13 @@ export function BoardContent({ board }: BoardContentProps) {
   // (handled per-cell in ItemRow.canEditCell) and post comments.
   const canEdit = !!profile && (profile.role === 'admin' || profile.is_super_admin);
 
-  // P4.2 — manager-only shift gate. Admins/super never call the RPC,
-  // never see the overlay, never see the countdown chip. The data hook
-  // is gated by `isManager`; when it's false, useTodayShiftSession is
-  // disabled and shiftSession stays undefined → both UI elements no-op.
+  // P4.2 + P4.3 — manager-only shift orchestrator. Admins/super never
+  // mount ShiftDriver, never call any shift RPC. ShiftDriver itself
+  // subscribes to today's session + the 10s tick poll and renders the
+  // gate, the locked overlay, or the countdown chip — plus the side-
+  // effect RPCs (mark_85_alerted, self_period_lock).
   const isManager = !!profile && profile.role === 'manager'
     && !profile.is_super_admin && profile.status === 'active';
-  const { data: shiftSession } = useTodayShiftSession(isManager);
-  const showShiftGate      = isManager && shiftSession?.status === 'not_started';
-  const showCountdownChip  = isManager && !!shiftSession && shiftSession.status !== 'not_started';
 
   const { data: groups, isLoading: groupsLoading } = useGroups(board.id);
   const { data: columns, isLoading: colsLoading } = useColumns(board.id);
@@ -393,8 +391,7 @@ export function BoardContent({ board }: BoardContentProps) {
     // against this container, so the blur covers exactly the groups area
     // and the chip floats top-right of the visible board content.
     <div className="relative px-8 py-4 bg-canvas">
-      {showShiftGate && <StartShiftGate />}
-      {showCountdownChip && shiftSession && <ShiftCountdownChip sessionId={shiftSession.id} />}
+      {isManager && <ShiftDriver />}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         {/* Single horizontal scroll container — column headers and every
             group row share this scroll and stay aligned column-by-column.

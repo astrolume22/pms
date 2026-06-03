@@ -133,6 +133,108 @@ export function useShiftStart() {
 // useShiftTick — polls the read-only RPC every 10s. The component
 // using this is responsible for the 1/sec local interpolation.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// useShiftSelfPeriodLock — manager-callable (idempotent) when tick says
+// period_lock_due. Server-time gated by the RPC itself.
+// ---------------------------------------------------------------------
+export function useShiftSelfPeriodLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_self_period_lock', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as { session_id: string; status: ShiftStatus; already_locked: boolean };
+    },
+    onSuccess: (_data, sessionId) => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+      void sessionId;
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useShiftMark85Alerted — manager-callable; flips period_85_due to
+// false for the current period so the toast never re-fires.
+// ---------------------------------------------------------------------
+export function useShiftMark85Alerted() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_mark_85_alerted', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as { session_id: string; already_alerted: boolean; period_index?: number };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useShiftAdminUnlock — admin-only RPC, server-side is_admin() gate.
+// ---------------------------------------------------------------------
+export function useShiftAdminUnlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_admin_unlock', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as { session_id: string; status: ShiftStatus; lock_wait_seconds: number };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+      // Also kick the admin's locked-shifts list so the row disappears.
+      void qc.invalidateQueries({ queryKey: ['admin', 'locked-shifts'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useLockedShifts — admin Locked-Shifts queue. Polls every 10s so new
+// locks land within the polling window. Filtered server-side to
+// status='locked' (admin RLS lets is_admin() read all shift_sessions).
+// ---------------------------------------------------------------------
+export interface LockedShiftRow {
+  id: string;
+  user_id: string;
+  locked_at: string;
+  locked_reason: string;
+  locked_by: string | null;
+  full_name: string | null;
+  username: string;
+}
+export function useLockedShifts(enabled: boolean) {
+  return useQuery<LockedShiftRow[]>({
+    queryKey: ['admin', 'locked-shifts'],
+    enabled,
+    queryFn: async () => {
+      // Two-step: shift_sessions + users for the display name. Cheap
+      // (locked shifts at any moment are rare).
+      const { data: rows, error } = await supabase
+        .from('shift_sessions')
+        .select('id, user_id, locked_at, locked_reason, locked_by')
+        .eq('status', 'locked')
+        .order('locked_at', { ascending: true });
+      if (error) throw error;
+      const list = (rows ?? []) as Array<Pick<LockedShiftRow,'id'|'user_id'|'locked_at'|'locked_reason'|'locked_by'>>;
+      if (list.length === 0) return [];
+      const userIds = Array.from(new Set(list.map(r => r.user_id)));
+      const { data: users, error: uErr } = await supabase
+        .from('users').select('id, username, full_name').in('id', userIds);
+      if (uErr) throw uErr;
+      const byId = new Map((users ?? []).map(u => [u.id as string, u as { id: string; username: string; full_name: string | null }]));
+      return list.map(r => ({
+        ...r,
+        full_name: byId.get(r.user_id)?.full_name ?? null,
+        username:  byId.get(r.user_id)?.username  ?? '?',
+      }));
+    },
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+}
+
 export function useShiftTick(sessionId: string | undefined, enabled: boolean) {
   return useQuery<ShiftTickPayload>({
     queryKey: sessionId ? shiftKeys.tick(sessionId) : [...shiftKeys.all, 'tick', '_'],
