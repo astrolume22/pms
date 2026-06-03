@@ -34,13 +34,32 @@ import {
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// P4.5 — common IANA tz names (covers the team's likely spread).
+// Admin can also paste any IANA name into the freeform input fallback.
+const TZ_OPTIONS = [
+  'Asia/Manila',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Hong_Kong',
+  'Asia/Tokyo',
+  'Asia/Dubai',
+  'Europe/London',
+  'America/New_York',
+  'America/Los_Angeles',
+  'UTC',
+];
+
 interface AdminShiftEditModalProps {
   row: AdminShiftRow;
   open: boolean;
   onClose: () => void;
 }
 
-interface DayState { weekday: number; enabled: boolean; hours: number }
+interface DayState {
+  weekday: number; enabled: boolean; hours: number;
+  // P4.5 — per-day start time of work in employee local tz (HH:MM, blank = no window).
+  startTime: string;
+}
 
 export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalProps) {
   const { data: schedules, isLoading: schedLoading } = useAdminShiftSchedules(row.user_id, open);
@@ -57,6 +76,9 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
   const [bioWarn, setBioWarn]         = useState<number>(row.bio_break_warn_count ?? 6);
   const [bioWarnTotal, setBWT]        = useState<number>(Math.round((row.bio_break_warn_total_seconds ?? 3600) / 60));
   const [bioMaxEach, setBME]          = useState<number>(Math.round((row.bio_break_max_seconds_each ?? 900) / 60));
+  // P4.5 — per-employee tz + late threshold (in minutes for the UI).
+  const [tz, setTz]                   = useState<string>(row.timezone ?? 'Asia/Manila');
+  const [lateThresholdMin, setLTM]    = useState<number>(Math.round((row.late_start_threshold_seconds ?? 900) / 60));
   const [days, setDays]               = useState<DayState[]>([]);
   const [submitting, setSubmitting]   = useState(false);
 
@@ -70,6 +92,8 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
     setBioWarn(row.bio_break_warn_count ?? 6);
     setBWT(Math.round((row.bio_break_warn_total_seconds ?? 3600) / 60));
     setBME(Math.round((row.bio_break_max_seconds_each ?? 900) / 60));
+    setTz(row.timezone ?? 'Asia/Manila');
+    setLTM(Math.round((row.late_start_threshold_seconds ?? 900) / 60));
   }, [open, row]);
   useEffect(() => {
     if (!schedules) return;
@@ -77,10 +101,13 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
     const byWd = new Map(schedules.map((s) => [s.weekday, s] as const));
     setDays(Array.from({ length: 7 }, (_, wd) => {
       const r = byWd.get(wd);
+      // start_time_local from DB is "HH:MM:SS" — trim to "HH:MM" for the input[type=time].
+      const startTime = r?.start_time_local ? r.start_time_local.slice(0, 5) : '';
       return {
         weekday: wd,
         enabled: r?.enabled ?? false,
         hours:   Math.round(((r?.required_seconds ?? 28800)) / 3600),
+        startTime,
       };
     }));
   }, [schedules]);
@@ -104,14 +131,19 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
         bio_break_warn_total_seconds: bioWarnTotal * 60,
         bio_break_max_seconds_each:   bioMaxEach * 60,
         primary_group_id:             primaryGroupId,
+        // P4.5
+        timezone:                     tz,
+        late_start_threshold_seconds: lateThresholdMin * 60,
       });
       // Send all 7 days — server RPC is idempotent for no-ops.
       await Promise.all(days.map((d) =>
         setSchedule.mutateAsync({
-          target_user_id:   row.user_id,
-          weekday:          d.weekday,
-          enabled:          d.enabled,
-          required_seconds: d.hours * 3600,
+          target_user_id:    row.user_id,
+          weekday:           d.weekday,
+          enabled:           d.enabled,
+          required_seconds:  d.hours * 3600,
+          // Empty input → null = no start-window enforcement for that day.
+          start_time_local:  d.startTime ? `${d.startTime}:00` : null,
         })
       ));
       toast.success(`Saved settings for ${row.full_name ?? row.username}. Changes take effect on the next shift / next period.`);
@@ -172,6 +204,32 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
         </section>
 
         <section>
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-text-secondary mb-2">Schedule timezone &amp; late-start threshold</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-[12px] text-text-secondary">Employee timezone (IANA)</span>
+              <select
+                value={TZ_OPTIONS.includes(tz) ? tz : '__custom'}
+                onChange={(e) => { if (e.target.value !== '__custom') setTz(e.target.value); }}
+                className="mt-1 w-full h-9 px-3 rounded-base bg-canvas border border-border-light text-text-primary"
+              >
+                {TZ_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                {!TZ_OPTIONS.includes(tz) && <option value="__custom">{tz} (custom)</option>}
+              </select>
+              <input
+                type="text"
+                placeholder="or paste any IANA tz, e.g. Pacific/Auckland"
+                value={tz}
+                onChange={(e) => setTz(e.target.value.trim())}
+                className="mt-1 w-full h-8 px-3 rounded-base bg-canvas border border-border-light text-text-primary text-[12px]"
+              />
+              <span className="text-[11px] text-text-secondary mt-0.5 block">All late-start &amp; expected-end math is computed in this tz on the server.</span>
+            </label>
+            <NumberField label="Late-start threshold (minutes)" value={lateThresholdMin} setValue={setLTM} min={0} max={240} />
+          </div>
+        </section>
+
+        <section>
           <h3 className="text-[12px] font-semibold uppercase tracking-wide text-text-secondary mb-2">Breaks</h3>
           <div className="grid grid-cols-2 gap-4">
             <NumberField label="Shift break (minutes)" value={shiftBreakMin} setValue={setSBMin} min={1} max={240} />
@@ -190,7 +248,7 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
             <ul className="divide-y divide-border-hair">
               {days.map((d, idx) => (
                 <li key={d.weekday} className="flex items-center gap-3 py-2">
-                  <label className="inline-flex items-center gap-2 w-20">
+                  <label className="inline-flex items-center gap-2 w-20 shrink-0">
                     <input
                       type="checkbox"
                       checked={d.enabled}
@@ -200,7 +258,16 @@ export function AdminShiftEditModal({ row, open, onClose }: AdminShiftEditModalP
                     <span className="text-sm">{DAY_LABELS[d.weekday]}</span>
                   </label>
                   <div className="flex items-center gap-2 ml-auto">
-                    <span className="text-[12px] text-text-secondary">Hours</span>
+                    <span className="text-[11px] text-text-secondary">Start</span>
+                    <input
+                      type="time"
+                      value={d.startTime}
+                      disabled={!d.enabled}
+                      onChange={(e) => setDays((arr) => arr.map((x, i) => i === idx ? { ...x, startTime: e.target.value } : x))}
+                      className="h-9 px-2 rounded-base bg-canvas border border-border-light text-text-primary disabled:opacity-40 text-[12px]"
+                      title={d.startTime ? `Scheduled start ${d.startTime} (${tz})` : 'Blank = no start-window enforcement that day'}
+                    />
+                    <span className="text-[11px] text-text-secondary ml-2">Hours</span>
                     <input
                       type="number"
                       min={0}

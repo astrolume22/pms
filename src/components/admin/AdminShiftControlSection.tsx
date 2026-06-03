@@ -27,6 +27,7 @@ import {
   useShiftAdminLock,
   useShiftAdminUnlock,
   useShiftAdminRearm,
+  useShiftAdminForceEnd,
   useBioBreakPending,
   useBioBreakRequestDecide,
   type AdminShiftRow,
@@ -34,7 +35,7 @@ import {
 } from '@/hooks/shift';
 import { AdminShiftEditModal } from './AdminShiftEditModal';
 import { useAuthStore } from '@/state/authStore';
-import { Check, X } from 'lucide-react';
+import { Check, X, Square, Clock } from 'lucide-react';
 
 function formatHMS(s: number): string {
   const v = Math.max(0, Math.floor(s));
@@ -79,9 +80,10 @@ export function AdminShiftControlSection() {
   const profile = useAuthStore((s) => s.profile);
   const isAdmin = !!profile && (profile.role === 'admin' || profile.is_super_admin);
   const { data: rows, isLoading, refetch, isFetching } = useAdminShiftControl(isAdmin);
-  const lockMut   = useShiftAdminLock();
-  const unlockMut = useShiftAdminUnlock();
-  const rearmMut  = useShiftAdminRearm();
+  const lockMut    = useShiftAdminLock();
+  const unlockMut  = useShiftAdminUnlock();
+  const rearmMut   = useShiftAdminRearm();
+  const forceMut   = useShiftAdminForceEnd();
 
   const [editRow, setEditRow] = useState<AdminShiftRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -132,6 +134,17 @@ export function AdminShiftControlSection() {
       await unlockMut.mutateAsync(row.session_id);
       toast.success(`Unlocked ${row.full_name ?? row.username}`);
     } catch (err) { toast.error(err instanceof Error ? err.message : 'Unlock failed'); }
+    finally { setBusy(null); }
+  };
+  const runForceEnd = async (row: AdminShiftRow) => {
+    if (!row.session_id) { toast.error('No session today — nothing to end'); return; }
+    if (!confirm(`Force end ${row.full_name ?? row.username}'s shift NOW? Their session will be marked completed regardless of elapsed time. If before their expected end, an early_end_flag is recorded.`)) return;
+    setBusy(row.user_id);
+    try {
+      const r = await forceMut.mutateAsync(row.session_id);
+      const tag = r.early_end_flag ? ` (early by ${r.early_end_minutes ?? '?'} min)` : '';
+      toast.success(`Force-ended ${row.full_name ?? row.username}${tag}`);
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Force-end failed'); }
     finally { setBusy(null); }
   };
   const runRearm = async (row: AdminShiftRow) => {
@@ -212,6 +225,19 @@ export function AdminShiftControlSection() {
                       {status === 'locked' && r.session_locked_reason && (
                         <div className="text-[10px] text-text-secondary mt-0.5">{r.session_locked_reason}</div>
                       )}
+                      {/* P4.5 — flag chips */}
+                      {r.late_start_flag === true && (
+                        <span className="inline-flex items-center gap-1 h-5 px-1.5 mt-1 mr-1 rounded-pill text-[10px] font-semibold bg-amber-900/30 text-amber-200" title={`Started ${r.late_start_minutes ?? '?'} min after scheduled start`}>
+                          <Clock className="h-3 w-3" />
+                          Late {r.late_start_minutes}m
+                        </span>
+                      )}
+                      {r.early_end_flag === true && (
+                        <span className="inline-flex items-center gap-1 h-5 px-1.5 mt-1 rounded-pill text-[10px] font-semibold bg-rose-900/30 text-rose-200" title={`Ended ${r.early_end_minutes ?? '?'} min before expected end`}>
+                          <Square className="h-3 w-3" />
+                          Early end {r.early_end_minutes}m
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 pr-3 tabular-nums">
                       {remaining !== null
@@ -245,6 +271,13 @@ export function AdminShiftControlSection() {
                           title="Re-arm — reset timer fresh">
                           <RotateCcw className="h-3.5 w-3.5" /> Re-arm
                         </button>
+                        {status !== 'completed' && status !== 'not_started' && (
+                          <button type="button" onClick={() => void runForceEnd(r)} disabled={isBusy || !r.session_id}
+                            className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
+                            title="Force end — mark session completed now (may set early_end_flag)">
+                            <Square className="h-3.5 w-3.5" /> End
+                          </button>
+                        )}
                         <button type="button" onClick={() => setEditRow(r)} disabled={isBusy}
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px]"
                           title="Edit settings">

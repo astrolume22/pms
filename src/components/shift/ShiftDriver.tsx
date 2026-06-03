@@ -109,6 +109,21 @@ export function ShiftDriver() {
     }
   }, [tick, sessionId, mark85]);
 
+  // P4.5 — subtle "you started X min late today" toast, once per session.
+  // Stays off the screen if late_start_flag is false or null. Strict
+  // anti-nag: keyed on session id so it never re-fires for the same
+  // session after a refresh.
+  const lateNotifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || !sessionId) return;
+    if (tick.late_start_flag === true
+        && typeof tick.late_start_minutes === 'number'
+        && lateNotifiedRef.current !== sessionId) {
+      lateNotifiedRef.current = sessionId;
+      toast.message(`You started ${tick.late_start_minutes} minutes late today.`, { duration: 6_000 });
+    }
+  }, [tick, sessionId]);
+
   // P4.8 — instant 8h complete. When tick reports remaining_seconds==0
   // AND status is a working state, fire shift_complete_if_due once. The
   // RPC is idempotent; the lockedFiredRef-style debounce here is a

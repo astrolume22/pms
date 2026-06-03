@@ -87,6 +87,13 @@ export interface ShiftTickPayload {
   locked_at: string | null;
   locked_reason: ShiftSessionRow['locked_reason'];
   completed_at: string | null;
+  // P4.5 schedule flags
+  scheduled_start_at: string | null;
+  expected_end_at: string | null;
+  late_start_flag: boolean | null;
+  late_start_minutes: number | null;
+  early_end_flag: boolean | null;
+  early_end_minutes: number | null;
   now: string;
 }
 
@@ -228,6 +235,10 @@ export interface AdminSetConfigInput {
   bio_break_warn_total_seconds: number;
   bio_break_max_seconds_each: number;
   primary_group_id: string | null;
+  // P4.5 — per-employee tz + late-start threshold (optional, defaults
+  // apply if omitted).
+  timezone?: string;
+  late_start_threshold_seconds?: number;
 }
 export function useShiftAdminSetConfig() {
   const qc = useQueryClient();
@@ -242,6 +253,8 @@ export function useShiftAdminSetConfig() {
         p_bio_break_warn_total_seconds: input.bio_break_warn_total_seconds,
         p_bio_break_max_seconds_each:   input.bio_break_max_seconds_each,
         p_primary_group_id:             input.primary_group_id,
+        p_timezone:                     input.timezone ?? 'Asia/Manila',
+        p_late_start_threshold_seconds: input.late_start_threshold_seconds ?? 900,
       });
       if (error) throw error;
       return data as { user_id: string; existed_before: boolean };
@@ -255,18 +268,48 @@ export function useShiftAdminSetConfig() {
 export function useShiftAdminSetSchedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { target_user_id: string; weekday: number; enabled: boolean; required_seconds: number }) => {
+    mutationFn: async (input: {
+      target_user_id: string; weekday: number; enabled: boolean; required_seconds: number;
+      // P4.5 — per-day start of work in employee's local tz, e.g. "10:00:00". Null = no start window.
+      start_time_local?: string | null;
+    }) => {
       const { data, error } = await supabase.rpc('shift_admin_set_schedule', {
         p_target_user_id:   input.target_user_id,
         p_weekday:          input.weekday,
         p_enabled:          input.enabled,
         p_required_seconds: input.required_seconds,
+        p_start_time_local: input.start_time_local ?? null,
       });
       if (error) throw error;
       return data as { user_id: string; weekday: number; changed: boolean };
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
+// P4.5 — admin force-end (marks session completed at now() regardless
+// of elapsed). Triggers early_end_flag if before expected_end_at.
+export function useShiftAdminForceEnd() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_admin_force_end', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string;
+        completed?: boolean;
+        already_completed?: boolean;
+        worked_seconds?: number;
+        from_status?: string;
+        early_end_flag?: boolean;
+        early_end_minutes?: number | null;
+      };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
     },
   });
 }
@@ -294,6 +337,9 @@ export interface AdminShiftRow {
   bio_break_max_seconds_each: number | null;
   primary_group_id: string | null;
   primary_group_name: string | null;
+  // P4.5 — per-employee tz + late-start threshold (config-level)
+  timezone: string | null;
+  late_start_threshold_seconds: number | null;
   // Today's session (may be null if not_started not yet created).
   session_id: string | null;
   status: ShiftStatus | null;
@@ -303,6 +349,13 @@ export interface AdminShiftRow {
   session_current_pause_started_at: string | null;
   session_locked_reason: string | null;
   session_bio_break_count_today: number | null;
+  // P4.5 — flags on today's session
+  late_start_flag: boolean | null;
+  late_start_minutes: number | null;
+  early_end_flag: boolean | null;
+  early_end_minutes: number | null;
+  scheduled_start_at: string | null;
+  expected_end_at: string | null;
 }
 export function useAdminShiftControl(enabled: boolean) {
   return useQuery<AdminShiftRow[]>({
@@ -313,8 +366,8 @@ export function useAdminShiftControl(enabled: boolean) {
       // Three small parallel queries — RLS lets admins read everything.
       const [usersRes, cfgRes, sessRes] = await Promise.all([
         supabase.from('users').select('id, full_name, username, email, role, status, is_super_admin').eq('role', 'manager').eq('status', 'active').eq('is_super_admin', false),
-        supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id'),
-        supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today').eq('work_date', todayUTC),
+        supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id, timezone, late_start_threshold_seconds'),
+        supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today, late_start_flag, late_start_minutes, early_end_flag, early_end_minutes, scheduled_start_at, expected_end_at').eq('work_date', todayUTC),
       ]);
       if (usersRes.error) throw usersRes.error;
       if (cfgRes.error)  throw cfgRes.error;
@@ -323,11 +376,15 @@ export function useAdminShiftControl(enabled: boolean) {
       type CfgRow = { user_id: string; mode: ShiftMode; shift_break_seconds: number;
         bio_break_max_per_day: number; bio_break_warn_count: number;
         bio_break_warn_total_seconds: number; bio_break_max_seconds_each: number;
-        primary_group_id: string | null };
+        primary_group_id: string | null; timezone: string;
+        late_start_threshold_seconds: number };
       type SessRow = { id: string; user_id: string; status: ShiftStatus; required_seconds: number;
         started_at: string | null; paused_total_seconds: number;
         current_pause_started_at: string | null; locked_reason: string | null;
-        bio_break_count_today: number };
+        bio_break_count_today: number;
+        late_start_flag: boolean | null; late_start_minutes: number | null;
+        early_end_flag: boolean | null; early_end_minutes: number | null;
+        scheduled_start_at: string | null; expected_end_at: string | null };
       const cfgByUser  = new Map<string, CfgRow>((cfgRes.data ?? []).map((r) => [r.user_id, r as CfgRow]));
       const sessByUser = new Map<string, SessRow>((sessRes.data ?? []).map((r) => [r.user_id, r as SessRow]));
 
@@ -358,6 +415,8 @@ export function useAdminShiftControl(enabled: boolean) {
           bio_break_max_seconds_each:   cfg?.bio_break_max_seconds_each    ?? null,
           primary_group_id:             cfg?.primary_group_id              ?? null,
           primary_group_name:           cfg?.primary_group_id ? (groupNames.get(cfg.primary_group_id) ?? null) : null,
+          timezone:                     cfg?.timezone                      ?? null,
+          late_start_threshold_seconds: cfg?.late_start_threshold_seconds  ?? null,
           session_id:                       s?.id                          ?? null,
           status:                           s?.status                      ?? null,
           session_required_seconds:         s?.required_seconds            ?? null,
@@ -366,6 +425,12 @@ export function useAdminShiftControl(enabled: boolean) {
           session_current_pause_started_at: s?.current_pause_started_at    ?? null,
           session_locked_reason:            s?.locked_reason               ?? null,
           session_bio_break_count_today:    s?.bio_break_count_today       ?? null,
+          late_start_flag:                  s?.late_start_flag             ?? null,
+          late_start_minutes:               s?.late_start_minutes          ?? null,
+          early_end_flag:                   s?.early_end_flag              ?? null,
+          early_end_minutes:                s?.early_end_minutes           ?? null,
+          scheduled_start_at:               s?.scheduled_start_at          ?? null,
+          expected_end_at:                  s?.expected_end_at             ?? null,
         };
       }).sort((a, b) => (a.full_name ?? a.username).localeCompare(b.full_name ?? b.username));
     },
@@ -379,7 +444,10 @@ export function useAdminShiftControl(enabled: boolean) {
 // useAdminShiftSchedules — load all shift_schedules rows for ONE user
 // (admin opens the edit modal). 7 rows expected; sorted weekday 0→6.
 // ---------------------------------------------------------------------
-export interface AdminScheduleRow { user_id: string; weekday: number; enabled: boolean; required_seconds: number; }
+export interface AdminScheduleRow {
+  user_id: string; weekday: number; enabled: boolean; required_seconds: number;
+  start_time_local: string | null;  // P4.5 — e.g. "10:00:00" or null
+}
 export function useAdminShiftSchedules(userId: string | undefined, enabled: boolean) {
   return useQuery<AdminScheduleRow[]>({
     queryKey: userId ? ['admin', 'shift-schedules', userId] : ['admin', 'shift-schedules', '_'],
@@ -387,7 +455,7 @@ export function useAdminShiftSchedules(userId: string | undefined, enabled: bool
     queryFn: async () => {
       const { data, error } = await supabase
         .from('shift_schedules')
-        .select('user_id, weekday, enabled, required_seconds')
+        .select('user_id, weekday, enabled, required_seconds, start_time_local')
         .eq('user_id', userId!)
         .order('weekday', { ascending: true });
       if (error) throw error;
