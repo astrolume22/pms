@@ -158,10 +158,13 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
 
   return (
     <div
-      // Sits absolute, top-right of BoardContent's relative wrapper,
-      // tucked under the countdown chip (which is at top-4 right-8).
-      // Same z-40, below the gate (z-50).
-      className="absolute top-14 right-8 z-40 flex flex-col items-end gap-1.5 pointer-events-none"
+      // UI FIX: previously top-14 right-8 (tucked under the countdown
+      // chip). Founder reported the buttons overlapped column headers
+      // and read awkwardly. Now centered horizontally at the top of
+      // BoardContent — clearly visible above the first group, no
+      // overlap with the chip (which stays at top-4 right-8). z-40 keeps
+      // it below the gate/locked/completed overlays (z-50).
+      className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1.5 pointer-events-none"
     >
       <div className="inline-flex items-center gap-2 pointer-events-auto">
         {onBreak ? (
@@ -227,7 +230,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
       </div>
 
       {(showCountWarn || showTotalWarn) && !onBreak && (
-        <div className="pointer-events-auto inline-flex flex-col items-end gap-0.5 text-right">
+        <div className="pointer-events-auto inline-flex flex-col items-center gap-0.5 text-center">
           {showCountWarn && (
             <span className="text-[11px] text-amber-200 bg-amber-900/30 px-2 py-0.5 rounded-full">
               You&apos;ve used {bioCount} of {effMax} bio breaks today.

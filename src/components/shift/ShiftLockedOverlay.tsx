@@ -18,7 +18,9 @@ const EIA_GOLD = '#E1B978';
 export function ShiftLockedOverlay() {
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-md"
+      // UI FIX: fixed (viewport-anchored) so the popup is dead-center
+      // on screen regardless of board content height. See StartShiftGate.
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md"
       style={{ background: 'rgba(15, 30, 54, 0.65)' }}
       role="dialog"
       aria-modal="true"

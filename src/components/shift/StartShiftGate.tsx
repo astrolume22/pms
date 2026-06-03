@@ -40,10 +40,14 @@ export function StartShiftGate() {
 
   return (
     <div
-      // Absolute against BoardContent's outer (which becomes `relative`
-      // when this gate is mounted). z-50 sits above every board layer
+      // UI FIX: was `absolute inset-0` against BoardContent's relative
+      // wrapper, but that wrapper grows tall with stacked groups so
+      // `items-center` was centering vertically far below the viewport.
+      // `fixed inset-0` anchors to the viewport so the popup is always
+      // dead-center on screen regardless of board content height or
+      // scroll position. z-50 still sits above every board layer
       // (per-group sticky-left = z-[5], ghost scrollbar = z-[6]).
-      className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md"
       style={{ background: 'rgba(15, 30, 54, 0.55)' }}
       role="dialog"
       aria-modal="true"
