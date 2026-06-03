@@ -171,8 +171,261 @@ export function useShiftMark85Alerted() {
 }
 
 // ---------------------------------------------------------------------
-// useShiftAdminUnlock — admin-only RPC, server-side is_admin() gate.
+// Admin-only shift RPCs (P4.7). Server-side is_admin() is the truth
+// gate; the UI hides these buttons for non-admins as a UX layer.
 // ---------------------------------------------------------------------
+export function useShiftAdminLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { sessionId: string; reason: 'period_lock' | 'shift_complete' | 'admin' | 'bio_request' }) => {
+      const { data, error } = await supabase.rpc('shift_admin_lock', {
+        p_session_id: args.sessionId, p_reason: args.reason,
+      });
+      if (error) throw error;
+      return data as { session_id: string; status: ShiftStatus };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'locked-shifts'] });
+    },
+  });
+}
+
+export function useShiftAdminRearm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_admin_rearm', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as { session_id: string; status: ShiftStatus };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
+export interface AdminSetConfigInput {
+  target_user_id: string;
+  mode: ShiftMode;
+  shift_break_seconds: number;
+  bio_break_max_per_day: number;
+  bio_break_warn_count: number;
+  bio_break_warn_total_seconds: number;
+  bio_break_max_seconds_each: number;
+  primary_group_id: string | null;
+}
+export function useShiftAdminSetConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AdminSetConfigInput) => {
+      const { data, error } = await supabase.rpc('shift_admin_set_config', {
+        p_target_user_id:               input.target_user_id,
+        p_mode:                         input.mode,
+        p_shift_break_seconds:          input.shift_break_seconds,
+        p_bio_break_max_per_day:        input.bio_break_max_per_day,
+        p_bio_break_warn_count:         input.bio_break_warn_count,
+        p_bio_break_warn_total_seconds: input.bio_break_warn_total_seconds,
+        p_bio_break_max_seconds_each:   input.bio_break_max_seconds_each,
+        p_primary_group_id:             input.primary_group_id,
+      });
+      if (error) throw error;
+      return data as { user_id: string; existed_before: boolean };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
+export function useShiftAdminSetSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { target_user_id: string; weekday: number; enabled: boolean; required_seconds: number }) => {
+      const { data, error } = await supabase.rpc('shift_admin_set_schedule', {
+        p_target_user_id:   input.target_user_id,
+        p_weekday:          input.weekday,
+        p_enabled:          input.enabled,
+        p_required_seconds: input.required_seconds,
+      });
+      if (error) throw error;
+      return data as { user_id: string; weekday: number; changed: boolean };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useAdminShiftControl — the unified per-manager view that powers the
+// /admin → Shift Control panel. Returns one row per active manager
+// joining users + shift_configs + today's shift_sessions + primary
+// group name. Polled every 10s so live status (active / locked /
+// break / completed) stays current. Admin RLS already grants SELECT
+// on all three tables to is_admin().
+// ---------------------------------------------------------------------
+export interface AdminShiftRow {
+  user_id: string;
+  full_name: string | null;
+  username: string;
+  email: string;
+  // Config (may be null if config row missing — rare; will create on
+  // first save).
+  mode: ShiftMode | null;
+  shift_break_seconds: number | null;
+  bio_break_max_per_day: number | null;
+  bio_break_warn_count: number | null;
+  bio_break_warn_total_seconds: number | null;
+  bio_break_max_seconds_each: number | null;
+  primary_group_id: string | null;
+  primary_group_name: string | null;
+  // Today's session (may be null if not_started not yet created).
+  session_id: string | null;
+  status: ShiftStatus | null;
+  session_required_seconds: number | null;
+  session_started_at: string | null;
+  session_paused_total_seconds: number | null;
+  session_current_pause_started_at: string | null;
+  session_locked_reason: string | null;
+  session_bio_break_count_today: number | null;
+}
+export function useAdminShiftControl(enabled: boolean) {
+  return useQuery<AdminShiftRow[]>({
+    queryKey: ['admin', 'shift-control'],
+    enabled,
+    queryFn: async () => {
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      // Three small parallel queries — RLS lets admins read everything.
+      const [usersRes, cfgRes, sessRes] = await Promise.all([
+        supabase.from('users').select('id, full_name, username, email, role, status, is_super_admin').eq('role', 'manager').eq('status', 'active').eq('is_super_admin', false),
+        supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id'),
+        supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today').eq('work_date', todayUTC),
+      ]);
+      if (usersRes.error) throw usersRes.error;
+      if (cfgRes.error)  throw cfgRes.error;
+      if (sessRes.error) throw sessRes.error;
+
+      type CfgRow = { user_id: string; mode: ShiftMode; shift_break_seconds: number;
+        bio_break_max_per_day: number; bio_break_warn_count: number;
+        bio_break_warn_total_seconds: number; bio_break_max_seconds_each: number;
+        primary_group_id: string | null };
+      type SessRow = { id: string; user_id: string; status: ShiftStatus; required_seconds: number;
+        started_at: string | null; paused_total_seconds: number;
+        current_pause_started_at: string | null; locked_reason: string | null;
+        bio_break_count_today: number };
+      const cfgByUser  = new Map<string, CfgRow>((cfgRes.data ?? []).map((r) => [r.user_id, r as CfgRow]));
+      const sessByUser = new Map<string, SessRow>((sessRes.data ?? []).map((r) => [r.user_id, r as SessRow]));
+
+      // Collect primary_group_ids → fetch group names in one go.
+      const groupIds = Array.from(new Set(
+        ((cfgRes.data ?? []) as CfgRow[]).map((c) => c.primary_group_id).filter(Boolean) as string[]
+      ));
+      let groupNames = new Map<string, string>();
+      if (groupIds.length > 0) {
+        const { data: groups, error: gErr } = await supabase.from('groups').select('id, name').in('id', groupIds);
+        if (gErr) throw gErr;
+        groupNames = new Map((groups ?? []).map((g) => [g.id as string, g.name as string]));
+      }
+
+      return (usersRes.data ?? []).map((u) => {
+        const cfg = cfgByUser.get(u.id as string);
+        const s   = sessByUser.get(u.id as string);
+        return {
+          user_id: u.id as string,
+          full_name: (u.full_name ?? null) as string | null,
+          username: u.username as string,
+          email: u.email as string,
+          mode:                         cfg?.mode                          ?? null,
+          shift_break_seconds:          cfg?.shift_break_seconds           ?? null,
+          bio_break_max_per_day:        cfg?.bio_break_max_per_day         ?? null,
+          bio_break_warn_count:         cfg?.bio_break_warn_count          ?? null,
+          bio_break_warn_total_seconds: cfg?.bio_break_warn_total_seconds  ?? null,
+          bio_break_max_seconds_each:   cfg?.bio_break_max_seconds_each    ?? null,
+          primary_group_id:             cfg?.primary_group_id              ?? null,
+          primary_group_name:           cfg?.primary_group_id ? (groupNames.get(cfg.primary_group_id) ?? null) : null,
+          session_id:                       s?.id                          ?? null,
+          status:                           s?.status                      ?? null,
+          session_required_seconds:         s?.required_seconds            ?? null,
+          session_started_at:               s?.started_at                  ?? null,
+          session_paused_total_seconds:     s?.paused_total_seconds        ?? null,
+          session_current_pause_started_at: s?.current_pause_started_at    ?? null,
+          session_locked_reason:            s?.locked_reason               ?? null,
+          session_bio_break_count_today:    s?.bio_break_count_today       ?? null,
+        };
+      }).sort((a, b) => (a.full_name ?? a.username).localeCompare(b.full_name ?? b.username));
+    },
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+}
+
+// ---------------------------------------------------------------------
+// useAdminShiftSchedules — load all shift_schedules rows for ONE user
+// (admin opens the edit modal). 7 rows expected; sorted weekday 0→6.
+// ---------------------------------------------------------------------
+export interface AdminScheduleRow { user_id: string; weekday: number; enabled: boolean; required_seconds: number; }
+export function useAdminShiftSchedules(userId: string | undefined, enabled: boolean) {
+  return useQuery<AdminScheduleRow[]>({
+    queryKey: userId ? ['admin', 'shift-schedules', userId] : ['admin', 'shift-schedules', '_'],
+    enabled: enabled && !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('shift_schedules')
+        .select('user_id, weekday, enabled, required_seconds')
+        .eq('user_id', userId!)
+        .order('weekday', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as AdminScheduleRow[];
+    },
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
+// ---------------------------------------------------------------------
+// useUserVisibleGroups — for the admin edit modal's primary-group
+// dropdown. Returns the groups a given user has been granted via
+// group_user_visibility (Phase 3 ACL). Admin RLS lets is_admin() read
+// every row.
+// ---------------------------------------------------------------------
+export interface VisibleGroupRow { id: string; name: string; color: string; board_id: string; board_name: string; }
+export function useUserVisibleGroups(userId: string | undefined, enabled: boolean) {
+  return useQuery<VisibleGroupRow[]>({
+    queryKey: userId ? ['admin', 'user-visible-groups', userId] : ['admin', 'user-visible-groups', '_'],
+    enabled: enabled && !!userId,
+    queryFn: async () => {
+      // Step 1: which groups can this user see?
+      const { data: acl, error: aclErr } = await supabase
+        .from('group_user_visibility').select('group_id').eq('user_id', userId!);
+      if (aclErr) throw aclErr;
+      const ids = (acl ?? []).map((r) => r.group_id as string);
+      if (ids.length === 0) return [];
+      // Step 2: group details + board name
+      const { data: groups, error: gErr } = await supabase
+        .from('groups').select('id, name, color, board_id, deleted_at').in('id', ids);
+      if (gErr) throw gErr;
+      const aliveGroups = (groups ?? []).filter((g) => !g.deleted_at);
+      if (aliveGroups.length === 0) return [];
+      const boardIds = Array.from(new Set(aliveGroups.map((g) => g.board_id as string)));
+      const { data: boards, error: bErr } = await supabase
+        .from('boards').select('id, name').in('id', boardIds);
+      if (bErr) throw bErr;
+      const boardName = new Map((boards ?? []).map((b) => [b.id as string, b.name as string]));
+      return aliveGroups.map((g) => ({
+        id: g.id as string,
+        name: g.name as string,
+        color: g.color as string,
+        board_id: g.board_id as string,
+        board_name: boardName.get(g.board_id as string) ?? '?',
+      })).sort((a, b) => a.board_name.localeCompare(b.board_name) || a.name.localeCompare(b.name));
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useShiftAdminUnlock() {
   const qc = useQueryClient();
   return useMutation({

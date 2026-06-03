@@ -11,9 +11,12 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/state/authStore';
 import { UsersSection } from '@/components/admin/UsersSection';
 import { GroupAccessSection } from '@/components/admin/GroupAccessSection';
-import { LockedShiftsSection } from '@/components/admin/LockedShiftsSection';
+import { AdminShiftControlSection } from '@/components/admin/AdminShiftControlSection';
 import { AiHealthSection } from '@/components/admin/AiHealthSection';
 import { AiRunsSection } from '@/components/admin/AiRunsSection';
+// LockedShiftsSection is now folded into AdminShiftControlSection — the
+// unified panel exposes Unlock per row in the locked state. The file
+// stays in the repo as a fallback / standalone widget.
 
 export const Route = createFileRoute('/_app/admin')({
   beforeLoad: () => {
@@ -38,7 +41,7 @@ function AdminPage() {
 
       <UsersSection />
       <GroupAccessSection />
-      <LockedShiftsSection />
+      <AdminShiftControlSection />
       <AiHealthSection />
       <AiRunsSection />
     </div>
