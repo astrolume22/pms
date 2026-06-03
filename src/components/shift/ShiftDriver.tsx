@@ -26,11 +26,13 @@ import {
   useShiftTick,
   useShiftMark85Alerted,
   useShiftSelfPeriodLock,
+  useShiftCompleteIfDue,
 } from '@/hooks/shift';
 import { supabase } from '@/lib/supabase';
 import { StartShiftGate } from './StartShiftGate';
 import { ShiftCountdownChip } from './ShiftCountdownChip';
 import { ShiftLockedOverlay } from './ShiftLockedOverlay';
+import { ShiftCompletedOverlay } from './ShiftCompletedOverlay';
 import { BreakControls } from './BreakControls';
 
 // Fire-and-forget POST to the email-alert endpoint. Caller authenticates
@@ -38,7 +40,7 @@ import { BreakControls } from './BreakControls';
 // shared secret. Failures are logged but never break the shift UI.
 // `keepalive: true` lets the request survive even if the page navigates
 // or the user closes the tab right after firing.
-async function postShiftAlertEmail(sessionId: string, kind: '85' | 'lock'): Promise<void> {
+async function postShiftAlertEmail(sessionId: string, kind: '85' | 'lock' | 'complete' | 'bio_total_warn'): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
@@ -77,6 +79,7 @@ export function ShiftDriver() {
 
   const mark85 = useShiftMark85Alerted();
   const selfLock = useShiftSelfPeriodLock();
+  const completeIfDue = useShiftCompleteIfDue();
 
   // Debounce 85% alerts client-side per period — server is idempotent
   // but we don't want to spam the RPC every 10s while waiting for the
@@ -105,6 +108,37 @@ export function ShiftDriver() {
       })();
     }
   }, [tick, sessionId, mark85]);
+
+  // P4.8 — instant 8h complete. When tick reports remaining_seconds==0
+  // AND status is a working state, fire shift_complete_if_due once. The
+  // RPC is idempotent; the lockedFiredRef-style debounce here is a
+  // cheap belt-and-suspenders so we don't spam it every 10s.
+  const completeFiredRef = useRef<string | null>(null);  // last session_id we fired for
+  useEffect(() => {
+    if (!tick || !sessionId) return;
+    const isWorking = tick.status === 'active'
+      || tick.status === 'on_shift_break' || tick.status === 'on_bio_break';
+    if (isWorking && tick.remaining_seconds <= 0 && completeFiredRef.current !== sessionId) {
+      completeFiredRef.current = sessionId;
+      void (async () => {
+        try {
+          const r = await completeIfDue.mutateAsync(sessionId);
+          if (r && r.completed === true && r.already_completed === false) {
+            toast.success("Shift complete — that's your 8 hours. Great work.", { duration: 10_000 });
+            void postShiftAlertEmail(sessionId, 'complete');
+          }
+        } catch (e) {
+          console.warn('[shift] complete_if_due failed:', e);
+        }
+      })();
+    }
+    // Reset the fired guard when a NEW (different) session id appears
+    // (lazy daily reset: tomorrow's row has a fresh uuid).
+    if (sessionId && completeFiredRef.current && completeFiredRef.current !== sessionId
+        && tick.status === 'not_started') {
+      completeFiredRef.current = null;
+    }
+  }, [tick, sessionId, completeIfDue]);
 
   // Auto-fire the period lock when the server says it's due. The RPC
   // is idempotent so the multiple 10s ticks during the same lock-due
@@ -144,8 +178,11 @@ export function ShiftDriver() {
   if (liveStatus === 'locked') {
     return <ShiftLockedOverlay />;
   }
-  // Active / break / completed: countdown chip (which keeps ticking
-  // through breaks) AND the break controls. React Query dedupes the
+  if (liveStatus === 'completed') {
+    return <ShiftCompletedOverlay />;
+  }
+  // Active / break: countdown chip (which keeps ticking through
+  // breaks) AND the break controls. React Query dedupes the
   // shift_tick query by key, so both components share the same poll.
   return (
     <>

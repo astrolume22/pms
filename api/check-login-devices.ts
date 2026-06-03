@@ -254,7 +254,73 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    res.status(200).json({ status: 'ok', recipient: ALERT_RECIPIENT, ...summary });
+    // =================================================================
+    // P4.8 — Shift system sweep (folded into this existing daily cron
+    // to stay within the Vercel Hobby tier's 2-cron limit). Catches:
+    //   • status='active'/'on_*_break' sessions whose work elapsed has
+    //     reached required_seconds while the tab was closed → marks
+    //     them 'completed' + emits shift_complete event.
+    //   • prior-day orphaned non-completed sessions → closes them.
+    // Service-role calls the RPC; RPC's auth check (auth.uid() IS NULL)
+    // lets the cron through without an admin user.
+    //
+    // Best-effort emails to managers we just auto-completed. Failures
+    // here MUST NOT fail the existing login-devices cron — wrap in try.
+    // =================================================================
+    const shiftSweep: { completed: number; orphan: number; emails: number; errors: number; skipped: number } =
+      { completed: 0, orphan: 0, emails: 0, errors: 0, skipped: 0 };
+    try {
+      const { data: sweepResult, error: sweepErr } = await sb.rpc('shift_sweep_due_and_orphans');
+      if (sweepErr) {
+        shiftSweep.errors++;
+        console.error('[shift sweep] RPC failed:', sweepErr.message);
+      } else {
+        const r = (sweepResult ?? {}) as {
+          completed_today_count?: number;
+          completed_today_user_ids?: string[];
+          closed_orphan_count?: number;
+        };
+        shiftSweep.completed = r.completed_today_count ?? 0;
+        shiftSweep.orphan    = r.closed_orphan_count ?? 0;
+        const ids = (r.completed_today_user_ids ?? []) as string[];
+        if (ids.length > 0) {
+          // Email each newly-completed manager. Need today's session_id
+          // for /api/shift-alert-email — look them up in one query.
+          const todayUTC = new Date().toISOString().slice(0, 10);
+          const { data: sessions } = await sb
+            .from('shift_sessions')
+            .select('id, user_id, mode, current_period_index')
+            .eq('work_date', todayUTC)
+            .eq('status', 'completed')
+            .in('user_id', ids);
+          for (const s of (sessions ?? []) as Array<{ id: string; user_id: string; mode: string; current_period_index: number }>) {
+            // Look up manager email + name
+            const { data: u } = await sb.from('users').select('email, full_name, username').eq('id', s.user_id).maybeSingle();
+            if (!u?.email) { shiftSweep.skipped++; continue; }
+            const name = (u as { email: string; full_name: string | null; username: string }).full_name
+                       ?? (u as { username: string }).username;
+            const subject = 'Shift complete for today';
+            const text =
+              `Hi ${name},\n\n` +
+              `That's your 8 hours — your shift is complete for today. Great work.\n\n` +
+              `Your account is now locked for the rest of the day. ` +
+              `Tomorrow you'll see the Start Shift button again.\n\n` +
+              `— EIA Projects (automated)`;
+            const ok = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ from: resendFrom, to: (u as { email: string }).email, subject, text }),
+            }).then((r) => r.ok).catch(() => false);
+            if (ok) shiftSweep.emails++; else shiftSweep.errors++;
+          }
+        }
+      }
+    } catch (e) {
+      shiftSweep.errors++;
+      console.error('[shift sweep] threw:', e);
+    }
+
+    res.status(200).json({ status: 'ok', recipient: ALERT_RECIPIENT, ...summary, shift_sweep: shiftSweep });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message ?? 'unknown error' });
   }

@@ -128,8 +128,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const sessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
     const kind = typeof body.kind === 'string' ? body.kind : '';
-    if (!UUID_RE.test(sessionId) || (kind !== '85' && kind !== 'lock' && kind !== 'bio_total_warn')) {
-      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock"|"bio_total_warn")' });
+    if (!UUID_RE.test(sessionId)
+        || (kind !== '85' && kind !== 'lock' && kind !== 'bio_total_warn' && kind !== 'complete')) {
+      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock"|"bio_total_warn"|"complete")' });
       return;
     }
 
@@ -216,7 +217,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ---- compose + send ----
     const sent: Array<{ to: string; id?: string; error?: string }> = [];
 
-    if (kind === 'bio_total_warn') {
+    if (kind === 'complete') {
+      const subject = 'Shift complete for today';
+      const text =
+        `Hi ${managerName},\n\n` +
+        `That's your 8 hours — your shift is complete for today. Great work.\n\n` +
+        `Your account is now locked for the rest of the day. ` +
+        `Tomorrow you'll see the Start Shift button again.\n\n` +
+        `— EIA Projects (automated)`;
+      const r = await sendResend({ apiKey: resendKey, from: resendFrom, to: manager.email, subject, text });
+      sent.push({ to: manager.email, id: r.id, error: r.error });
+    } else if (kind === 'bio_total_warn') {
       // Admin-only notification: manager's cumulative bio time crossed
       // the warn threshold (default ~1h). The manager already sees an
       // inline warning in BreakControls.

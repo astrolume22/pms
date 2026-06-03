@@ -631,6 +631,37 @@ export function useBioBreakPending(enabled: boolean) {
   });
 }
 
+// ---------------------------------------------------------------------
+// useShiftCompleteIfDue — P4.8. Self-or-admin RPC. Idempotent. Returns
+// `already_completed` / `due` / `completed` flags so the caller can
+// fire the bell + email only on the actual transition.
+// ---------------------------------------------------------------------
+export function useShiftCompleteIfDue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_complete_if_due', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string;
+        already_completed: boolean;
+        due?: boolean;
+        completed?: boolean;
+        worked_seconds?: number;
+        from_status?: string;
+        remaining_seconds?: number;
+        elapsed_seconds?: number;
+        reason?: string;
+        completed_at?: string;
+      };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
 export function useShiftTick(sessionId: string | undefined, enabled: boolean) {
   return useQuery<ShiftTickPayload>({
     queryKey: sessionId ? shiftKeys.tick(sessionId) : [...shiftKeys.all, 'tick', '_'],

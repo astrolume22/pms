@@ -61,9 +61,11 @@ export function ShiftCountdownChip({ sessionId }: ShiftCountdownChipProps) {
   if (display === null) return null;
 
   // P4.3 — while server reports status='locked', show "LOCKED" instead
-  // of the ticking time. The lock overlay covers the board anyway, but
-  // if the user closes/peeks the chip stays visually truthful.
+  // of the ticking time. P4.8 — when status='completed' show "DONE".
+  // The matching overlays cover the board anyway; chips stay
+  // visually truthful in case the user peeks.
   const isLocked = tick?.status === 'locked';
+  const isDone   = tick?.status === 'completed';
 
   return (
     <div
@@ -79,13 +81,13 @@ export function ShiftCountdownChip({ sessionId }: ShiftCountdownChipProps) {
         letterSpacing: '0.05em',
         border: `1px solid ${EIA_GOLD}33`,
       }}
-      title={isLocked ? 'Shift locked — admin will unlock' : 'Shift countdown — server-time authoritative'}
-      aria-label={isLocked ? 'Shift locked' : `Shift countdown ${formatHMS(display)}`}
+      title={isLocked ? 'Shift locked — admin will unlock' : isDone ? 'Shift complete for today' : 'Shift countdown — server-time authoritative'}
+      aria-label={isLocked ? 'Shift locked' : isDone ? 'Shift complete' : `Shift countdown ${formatHMS(display)}`}
     >
       <span className="text-[13px] font-semibold tabular-nums">
-        {isLocked ? 'LOCKED' : formatHMS(display)}
+        {isLocked ? 'LOCKED' : isDone ? 'DONE' : formatHMS(display)}
       </span>
-      {!isLocked && <ArrowDown className="h-3.5 w-3.5" strokeWidth={2.25} />}
+      {!isLocked && !isDone && <ArrowDown className="h-3.5 w-3.5" strokeWidth={2.25} />}
     </div>
   );
 }
