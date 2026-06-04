@@ -143,7 +143,15 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
     if (!boardId) return;
 
     const channelName = 'board:' + boardId;
-    const ch = supabase.channel(channelName);
+    let activeChannel: RealtimeChannel | null = null;
+    let teardown = false;
+    // Exponential backoff for reconnect attempts: 1s, 2s, 4s, 8s, 16s,
+    // capped at 30s. Reset to 0 on successful SUBSCRIBED. Stops the
+    // self-heal from spinning into a storm if the Realtime service is
+    // genuinely down — the 3s board_watermark poll is still catching us
+    // up regardless.
+    let attempt = 0;
+    let retryTimer: number | null = null;
 
     const invalidate = () => {
       void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
@@ -151,45 +159,87 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
       void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
     };
 
-    // Rows that carry board_id directly — filter server-side so we
-    // only receive what's relevant. (Saves bandwidth + protects
-    // against accidental cross-board leakage even if RLS were misconfigured.)
-    ch.on('postgres_changes', { event: '*', schema: 'public', table: 'items',
-      filter: 'board_id=eq.' + boardId }, invalidate);
-    ch.on('postgres_changes', { event: '*', schema: 'public', table: 'groups',
-      filter: 'board_id=eq.' + boardId }, invalidate);
-    ch.on('postgres_changes', { event: '*', schema: 'public', table: 'columns',
-      filter: 'board_id=eq.' + boardId }, invalidate);
+    // Build the channel + wire all subscriptions. Extracted so the
+    // reconnect path can call it on a fresh channel after a CLOSED /
+    // CHANNEL_ERROR — Realtime channel state is sticky, so re-using
+    // the old object after a hard error doesn't always recover.
+    const open = () => {
+      if (teardown) return;
+      const ch = supabase.channel(channelName);
 
-    // item_column_values has no board_id column — subscribe globally
-    // and invalidate on any change. Since the React Query queries are
-    // already scoped to this board, the refetch only pulls our rows.
-    ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' }, invalidate);
+      // Rows that carry board_id directly — filter server-side so we
+      // only receive what's relevant. (Saves bandwidth + protects
+      // against accidental cross-board leakage even if RLS were misconfigured.)
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'items',
+        filter: 'board_id=eq.' + boardId }, invalidate);
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'groups',
+        filter: 'board_id=eq.' + boardId }, invalidate);
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'columns',
+        filter: 'board_id=eq.' + boardId }, invalidate);
+      // item_column_values has no board_id column — subscribe globally
+      // and invalidate on any change. Since the React Query queries are
+      // already scoped to this board, the refetch only pulls our rows.
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' }, invalidate);
+      // board_sync_pings — the Save button writes a row here on click.
+      // The most reliable cross-machine signal: goes through the
+      // postgres_changes pipeline cell saves use.
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_sync_pings',
+        filter: 'board_id=eq.' + boardId }, invalidate);
+      // Broadcast layer — same-name channel. Fastest signal IF the
+      // broadcast service is healthy. Supplementary; postgres_changes
+      // above is the actual reliability guarantee.
+      ch.on('broadcast', { event: 'force-sync' }, () => {
+        invalidate();
+      });
 
-    // board_sync_pings — the "Save" button writes a row here on click.
-    // This is the most reliable cross-machine signal: it goes through
-    // the postgres_changes pipeline (which is what cell saves use), so
-    // if cell saves propagate at all, this will too. Even if the
-    // dedicated broadcast layer below silently fails, this row write
-    // delivers via the same well-tested path. Filtered by board_id so
-    // we only wake up for our own board.
-    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_sync_pings',
-      filter: 'board_id=eq.' + boardId }, invalidate);
+      // Self-heal status callback. Chrome aggressively suspends
+      // WebSockets in backgrounded tabs; without this handler the
+      // channel can drift into CLOSED and silently never deliver
+      // events again, leaving the founder with stale data until the
+      // next manual refresh. Now: on CLOSED / CHANNEL_ERROR /
+      // TIMED_OUT we tear the channel down and re-open after a
+      // backoff. On the next SUBSCRIBED we also invalidate so any
+      // events we missed while the channel was dead get picked up
+      // from the DB.
+      ch.subscribe((status) => {
+        if (teardown) return;
+        if (status === 'SUBSCRIBED') {
+          // First subscribe of this lifecycle: nothing missed. A
+          // RE-subscribe (attempt > 0): catch up on whatever might
+          // have changed while the socket was dead.
+          if (attempt > 0) invalidate();
+          attempt = 0;
+          return;
+        }
+        if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Backoff: 1, 2, 4, 8, 16, 30, 30, …  Capped so a long
+          // Realtime outage doesn't burn battery.
+          const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
+          attempt += 1;
+          if (retryTimer !== null) clearTimeout(retryTimer);
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            if (teardown) return;
+            // Drop the dead channel; it's been .closed by Realtime.
+            const dying = activeChannel;
+            activeChannel = null;
+            if (dying) void supabase.removeChannel(dying);
+            open();
+          }, delay);
+        }
+      });
 
-    // Broadcast layer — same-name channel ('board:<boardId>'). Fastest
-    // signal IF the Realtime broadcast service is healthy on the
-    // project. We keep it as a supplementary layer; the postgres_changes
-    // path above is the actual reliability guarantee.
-    ch.on('broadcast', { event: 'force-sync' }, () => {
-      invalidate();
-    });
+      activeChannel = ch;
+      _boardChannels.set(boardId, ch);
+    };
 
-    ch.subscribe();
-    _boardChannels.set(boardId, ch);
+    open();
 
     return () => {
+      teardown = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
       _boardChannels.delete(boardId);
-      void supabase.removeChannel(ch);
+      if (activeChannel) void supabase.removeChannel(activeChannel);
     };
   }, [boardId, qc]);
 }

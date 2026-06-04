@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Session } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import type { UserRow } from '@/lib/database.types';
 
@@ -61,6 +62,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
+        // Distinguish the two ways we lose the session:
+        //  - User clicked Sign out → `signOut` action already ran; their
+        //    state is already cleared and they expect to land on /login.
+        //    No toast needed (would feel like a system error message).
+        //  - Refresh token expired / revoked → auth-js silently fires
+        //    SIGNED_OUT and the AppLayout effect bounces us to /login.
+        //    Without a toast, the jump is a confusing "the app broke"
+        //    moment; with one, it's a clear "session timed out" reason.
+        //
+        // We detect (b) as: we currently THINK we're authenticated when
+        // the event arrives. The `signOut` action sets status before
+        // awaiting, so by the time SIGNED_OUT fires there, status is
+        // already 'unauthenticated' and we stay silent.
+        const wasAuthenticated = get().status === 'authenticated';
+        if (event === 'SIGNED_OUT' && wasAuthenticated) {
+          try {
+            toast.message('Your session expired — please sign in again.', { duration: 6_000 });
+          } catch {
+            /* sonner may not be mounted; ignore */
+          }
+        }
         set({ status: 'unauthenticated', session: null, profile: null });
         return;
       }

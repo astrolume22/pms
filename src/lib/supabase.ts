@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -31,8 +32,24 @@ async function passThroughLock<R>(
 //
 // (1) Timeout: when a tab idles in the background, Chrome parks the
 //     HTTP/2 socket. The next request would otherwise sit pending for
-//     MINUTES waiting on OS TCP keepalive. We bound every fetch at
-//     HARD_TIMEOUT_MS so the caller's query/mutation rejects cleanly.
+//     MINUTES waiting on OS TCP keepalive. We bound every fetch with a
+//     per-plane timeout so the caller's query/mutation rejects cleanly.
+//
+//     The timeout is SPLIT into two budgets:
+//
+//       DATAPLANE_TIMEOUT_MS = 3_000  (PostgREST + Storage)
+//         PostgREST p95 here is sub-200ms. 3s is generous for normal
+//         calls and slashes the worst-case visible "frozen" time on a
+//         parked H/2 socket from ~18s (6+6+6) to ~9s (3+12 refresh
+//         budget +3 retry). Most users will never notice 3s; everyone
+//         notices 18s and assumes the tab is broken.
+//
+//       AUTHPLANE_TIMEOUT_MS = 12_000  (/auth/v1/token? — refresh)
+//         The token refresh on a cold socket can be slow (TCP setup +
+//         TLS handshake + bcrypt-equiv on Supabase side). Giving the
+//         refresh a wider budget makes recovery actually succeed
+//         instead of timing out half-way, which would force the user
+//         into the "session expired" route unnecessarily.
 //
 // (2) Refresh-on-401 + retry (P4.0 fix): if PostgREST or Storage
 //     returns 401, we ask supabase-auth-js to refresh the session,
@@ -47,9 +64,24 @@ async function passThroughLock<R>(
 //     /auth/v1/ path so the recursive refresh call doesn't loop on
 //     itself. Only ONE retry per call, ever, to bound the worst case.
 // =====================================================================
-const HARD_TIMEOUT_MS = 6_000;
+const DATAPLANE_TIMEOUT_MS = 3_000;
+const AUTHPLANE_TIMEOUT_MS = 12_000;
 
-function timeoutFetchOnce(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+function isAuthPlaneUrl(target: string): boolean {
+  return target.includes('/auth/v1/');
+}
+
+function timeoutFetchOnce(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs: number = DATAPLANE_TIMEOUT_MS,
+): Promise<Response> {
   const ctrl = new AbortController();
   const external = init?.signal;
   if (external) {
@@ -65,39 +97,38 @@ function timeoutFetchOnce(input: RequestInfo | URL, init?: RequestInit): Promise
   }
   const timer = setTimeout(() => {
     try {
-      ctrl.abort(new DOMException(`Request timed out after ${HARD_TIMEOUT_MS / 1000}s`, 'TimeoutError'));
+      ctrl.abort(new DOMException(`Request timed out after ${timeoutMs / 1000}s`, 'TimeoutError'));
     } catch {
       ctrl.abort();
     }
-  }, HARD_TIMEOUT_MS);
+  }, timeoutMs);
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
-}
-
-function urlOf(input: RequestInfo | URL): string {
-  if (typeof input === 'string') return input;
-  if (input instanceof URL) return input.href;
-  return input.url;
 }
 
 async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const target = urlOf(input);
-  // Only refresh-and-retry for the data-plane endpoints. /auth/v1/ must
-  // never be retried this way — it would loop on itself if the refresh
-  // itself ever 401'd (shouldn't, but cheap belt-and-suspenders).
+  // Route the request to the right timeout budget. /auth/v1/ — token
+  // refresh, sign-in, password recovery — gets the wider 12s budget so
+  // recovery actually completes instead of half-failing. Everything
+  // else (PostgREST, Storage, RPCs over /rest/v1/) gets the tight 3s.
+  const isAuth = isAuthPlaneUrl(target);
   const isDataPlane = target.includes('/rest/v1/') || target.includes('/storage/v1/');
+  const budget = isAuth ? AUTHPLANE_TIMEOUT_MS : DATAPLANE_TIMEOUT_MS;
 
-  let resp = await timeoutFetchOnce(input, init);
+  let resp = await timeoutFetchOnce(input, init, budget);
 
   if (resp.status === 401 && isDataPlane) {
     try {
       console.log('[fetch-auth-retry] 401 on', target.split('/rest/v1/')[1]?.split('?')[0] ?? target, '— refreshing token');
+      notifyReconnecting();
       const { data, error } = await supabase.auth.refreshSession();
       if (!error && data.session?.access_token) {
         const retryHeaders = new Headers(init?.headers ?? undefined);
         retryHeaders.set('Authorization', `Bearer ${data.session.access_token}`);
         const retryInit: RequestInit = { ...init, headers: retryHeaders };
-        const retry = await timeoutFetchOnce(input, retryInit);
+        const retry = await timeoutFetchOnce(input, retryInit, DATAPLANE_TIMEOUT_MS);
         console.log('[fetch-auth-retry] retry status', retry.status);
+        if (retry.ok) notifyReconnected();
         return retry;
       }
       console.log('[fetch-auth-retry] refresh failed, returning original 401');
@@ -107,6 +138,74 @@ async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promi
   }
 
   return resp;
+}
+
+// =====================================================================
+// Recovery visibility — debounced sonner toasts.
+//
+// Past pain: when refocus → 401 → refresh → retry kicked in, the user
+// just saw spinners or empty UI for several seconds and assumed the
+// tab had hung. They'd hit Cmd-R, which "fixed" it (because page load
+// triggers the same recovery in ~1 round-trip on a fresh socket). The
+// invisible recovery was the actual bug.
+//
+// Now: whenever a REAL recovery actually runs — either timeoutFetch's
+// 401-retry path OR refreshAndProbe doing an actual refreshSession —
+// we show "Reconnecting…" while it's in flight, then "Reconnected." on
+// success. So the user has feedback and waits the ~2-9s instead of
+// reaching for refresh.
+//
+// Debounce rules:
+//   - "Reconnecting…" must NOT fire on normal fast requests. Only when
+//     a 401 actually triggered a refresh, OR refreshAndProbe actually
+//     called refreshSession (not just on every harmless visibility
+//     event where the token was still fresh).
+//   - The "Reconnecting…" toast is sonner.loading(); we keep its ID
+//     and dismiss / replace it with sonner.success() on success or
+//     sonner.error() on failure. Sonner deduplicates same-id toasts,
+//     so concurrent 401 retries on multiple queries only show ONE
+//     spinner toast.
+//   - We additionally rate-limit: at most one "Reconnecting…" toast
+//     per 5s window. Bursts of 401s after a long backgrounded period
+//     reuse the existing in-flight toast.
+// =====================================================================
+const RECONNECT_TOAST_ID = 'pms-reconnecting';
+const RECONNECT_TOAST_THROTTLE_MS = 5_000;
+let lastReconnectShownAt = 0;
+let reconnectActive = false;
+
+function notifyReconnecting(): void {
+  const now = Date.now();
+  if (reconnectActive) return; // already showing the spinner
+  if (now - lastReconnectShownAt < RECONNECT_TOAST_THROTTLE_MS) return;
+  lastReconnectShownAt = now;
+  reconnectActive = true;
+  try {
+    toast.loading('Reconnecting…', { id: RECONNECT_TOAST_ID, duration: 15_000 });
+  } catch {
+    /* sonner may not yet be mounted on cold boot; ignore */
+  }
+}
+function notifyReconnected(): void {
+  if (!reconnectActive) return;
+  reconnectActive = false;
+  try {
+    toast.success('Reconnected', { id: RECONNECT_TOAST_ID, duration: 2_000 });
+  } catch {
+    /* ignore */
+  }
+}
+function notifyReconnectFailed(): void {
+  if (!reconnectActive) return;
+  reconnectActive = false;
+  try {
+    toast.error('Reconnect failed — try again or refresh', {
+      id: RECONNECT_TOAST_ID,
+      duration: 4_000,
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 export const supabase = createClient(url, anonKey, {
@@ -173,16 +272,25 @@ async function refreshAndProbe(): Promise<void> {
     // Belt-and-suspenders against Chrome's background-tab timer
     // throttling — auth-js's autoRefreshToken setTimeout may not have
     // fired while we were hidden, so we don't trust it to be fresh.
+    //
+    // Visibility: when a refresh ACTUALLY runs we surface a debounced
+    // "Reconnecting…" toast (and "Reconnected" on success) so the user
+    // doesn't think the tab is hung during the round-trip. The toast
+    // is NOT shown on the fast path where the token is still fresh —
+    // every normal refocus stays silent.
     const expiresAt = session.expires_at ?? 0;     // unix seconds
     const nowSec = Math.floor(Date.now() / 1000);
     let token = session.access_token;
     if (expiresAt && expiresAt - nowSec < 30) {
+      notifyReconnecting();
       const { data: refreshed, error } = await supabase.auth.refreshSession();
       if (error || !refreshed.session?.access_token) {
         console.log('[warm] refresh failed:', error?.message ?? '(no session returned)');
+        notifyReconnectFailed();
         return;
       }
       token = refreshed.session.access_token;
+      notifyReconnected();
     }
 
     // Authenticated probe. Real GET that carries the Bearer — forces
