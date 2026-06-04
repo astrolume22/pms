@@ -19,6 +19,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 import { useAuthStore } from '@/state/authStore';
 import { Spinner } from '@/components/Spinner';
 
@@ -56,7 +57,11 @@ function ResetPasswordPage() {
     // Initial check — if the URL has already been processed before
     // the listener was wired, getSession() returns the new session.
     void (async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, timedOut } = await safeGetSession('reset-password');
+      if (timedOut) {
+        if (!cancelled) setWaiting(false);
+        return;
+      }
       if (!cancelled && data.session) {
         setRecoverySessionReady(true);
         setWaiting(false);

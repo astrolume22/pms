@@ -4,7 +4,7 @@
  * passes the session JWT and parses the JSON.
  */
 import { useMutation } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 import type { Action, EngineContext } from '@/lib/ai-applier';
 
 export interface AiBuildArgs {
@@ -25,7 +25,8 @@ export function useAiBuild() {
     mutationFn: async (args: AiBuildArgs): Promise<AiBuildResponse> => {
       // Grab the current session JWT — the function uses it to identify
       // the caller and re-fetch their role from public.users.
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: sessionData, timedOut } = await safeGetSession('ai-build');
+      if (timedOut) throw new Error('auth check timed out — please try again');
       const jwt = sessionData.session?.access_token;
       if (!jwt) throw new Error('not signed in');
 

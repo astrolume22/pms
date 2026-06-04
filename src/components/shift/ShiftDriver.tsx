@@ -28,7 +28,7 @@ import {
   useShiftSelfPeriodLock,
   useShiftCompleteIfDue,
 } from '@/hooks/shift';
-import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 import { StartShiftGate } from './StartShiftGate';
 import { ShiftCountdownChip } from './ShiftCountdownChip';
 import { ShiftLockedOverlay } from './ShiftLockedOverlay';
@@ -42,7 +42,11 @@ import { BreakControls } from './BreakControls';
 // or the user closes the tab right after firing.
 async function postShiftAlertEmail(sessionId: string, kind: '85' | 'lock' | 'complete' | 'bio_total_warn'): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, timedOut } = await safeGetSession('shift-email');
+    if (timedOut) {
+      console.warn('[shift] getSession timed out; skipping email post');
+      return;
+    }
     const token = session?.access_token;
     if (!token) {
       console.warn('[shift] no access token; skipping email post');

@@ -11,6 +11,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 
 // ---------------------------------------------------------------------
 // useAiRuns
@@ -112,7 +113,8 @@ export function useAiHealth() {
     staleTime: 60_000,
     refetchOnWindowFocus: false,
     queryFn: async (): Promise<AiHealthResponse> => {
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: sessionData, timedOut } = await safeGetSession('ai-health');
+      if (timedOut) throw new Error('auth check timed out');
       const jwt = sessionData.session?.access_token;
       if (!jwt) throw new Error('not signed in');
 

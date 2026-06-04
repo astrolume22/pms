@@ -31,7 +31,7 @@ import {
   useBioBreakRequestCreate,
   type ShiftTickPayload,
 } from '@/hooks/shift';
-import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 
 interface BreakControlsProps {
   sessionId: string;
@@ -48,7 +48,8 @@ function formatMS(s: number): string {
 // Fire-and-forget bio-total warn email to admin. Re-uses P4.3b endpoint.
 async function postBioTotalWarn(sessionId: string): Promise<void> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, timedOut } = await safeGetSession('shift-bio-total-warn');
+    if (timedOut) return;
     const token = session?.access_token;
     if (!token) return;
     await fetch('/api/shift-alert-email', {

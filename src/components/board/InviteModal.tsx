@@ -30,6 +30,7 @@ import {
 import { useGroups } from '@/hooks/groups';
 import { useAuthStore } from '@/state/authStore';
 import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 import type { UserRole } from '@/lib/database.types';
 import { cn } from '@/lib/cn';
 
@@ -127,13 +128,15 @@ export function InviteModal({ open, onClose, boardId, boardName }: InviteModalPr
 
       // 2) Grab the current session JWT — /api/send-invite-email
       //    re-validates it server-side via is_admin().
-      const { data: sessionData } = await supabase.auth.getSession();
-      const jwt = sessionData.session?.access_token;
+      const { data: sessionData, timedOut } = await safeGetSession('invite-email');
+      const jwt = timedOut ? null : sessionData.session?.access_token;
       if (!jwt) {
         // Show the link anyway so the admin can copy/share it manually.
         setNewLink(link);
         setCopied(false);
-        toast.error('Not signed in — link generated but email not sent');
+        toast.error(timedOut
+          ? 'Auth check timed out — link generated but email not sent'
+          : 'Not signed in — link generated but email not sent');
         return;
       }
 

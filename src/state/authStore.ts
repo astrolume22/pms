@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Session } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { safeGetSession } from '@/lib/safeAuth';
 import type { UserRow } from '@/lib/database.types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -52,7 +53,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
 
   initialize: async () => {
-    const { data } = await supabase.auth.getSession();
+    // safeGetSession bounds the call at 8s. If auth-js somehow hangs at
+    // boot (the founder's wedge symptom), we fall through to the
+    // unauthenticated path instead of leaving the FullPageSpinner up
+    // forever — the user gets the /login screen and can sign back in
+    // rather than staring at a frozen spinner.
+    const { data, timedOut } = await safeGetSession('boot-initialize');
+    if (timedOut) {
+      console.warn('[auth] initialize getSession timed out — treating as logged out');
+      set({ status: 'unauthenticated', session: null, profile: null });
+      return;
+    }
     if (data.session) {
       const profile = await loadProfile(data.session.user.id);
       set({ status: profile ? 'authenticated' : 'unauthenticated', session: data.session, profile });
