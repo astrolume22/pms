@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Lock, Pencil, RefreshCw, RotateCcw, Unlock } from 'lucide-react';
+import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw, Unlock } from 'lucide-react';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import {
@@ -240,9 +240,42 @@ export function AdminShiftControlSection() {
                       )}
                     </td>
                     <td className="py-2 pr-3 tabular-nums">
-                      {remaining !== null
-                        ? <span className={status === 'locked' ? 'text-text-secondary' : ''}>{formatHMS(remaining)}</span>
-                        : <span className="text-text-disabled">—</span>}
+                      {/*
+                        Founder requirement: the admin must SEE whether
+                        each manager's timer is currently FROZEN (paused
+                        by a lock — period_lock or admin lock) vs
+                        RUNNING (active / on a paid break).
+
+                        - status='locked' → amber "Paused (locked)" badge
+                          + the remaining value shown bold-amber. The
+                          value is the FROZEN snapshot at lock time —
+                          our computeRemainingSeconds mirrors the server
+                          shift_tick formula so it does NOT decrement
+                          while paused.
+                        - status='active' / 'on_*_break' → green "Running"
+                          badge + live-decrementing remaining (breaks are
+                          paid, timer keeps running — DECISION 1).
+                      */}
+                      {remaining !== null ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <span className={status === 'locked' ? 'text-amber-200 font-semibold' : ''}>
+                            {formatHMS(remaining)}
+                          </span>
+                          {status === 'locked' ? (
+                            <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-pill text-[10px] font-semibold bg-amber-900/35 text-amber-200">
+                              <Pause className="h-2.5 w-2.5" />
+                              Paused (locked)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-pill text-[10px] font-semibold bg-emerald-900/30 text-emerald-300">
+                              <Play className="h-2.5 w-2.5" />
+                              Running
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-text-disabled">—</span>
+                      )}
                     </td>
                     <td className="py-2 pr-3 capitalize">{r.mode ?? '—'}</td>
                     <td className="py-2 pr-3 truncate max-w-[180px]" title={r.primary_group_name ?? ''}>
