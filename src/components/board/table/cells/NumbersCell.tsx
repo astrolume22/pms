@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { isBlurFromWindowLostFocus } from '@/lib/windowBlur';
 import type { CellProps } from './cellTypes';
 import { readNumberValue } from './cellValue';
 
@@ -43,7 +44,9 @@ export function NumbersCell({ column, value, readonly, isEditing, onStartEdit, o
         inputMode="decimal"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        // See windowBlur.ts — skip commit when the whole window lost
+        // focus so a brief alt-tab preserves the in-progress number.
+        onBlur={() => { if (!isBlurFromWindowLostFocus()) commit(); }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit();
           else if (e.key === 'Escape') { setDraft(raw == null ? '' : String(raw)); onEndEdit(); }

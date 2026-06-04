@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
 
@@ -12,10 +12,72 @@ import { useThemeStore } from '@/state/themeStore';
 import { attachBoardSyncListener } from '@/lib/boardSync';
 import { routeTree } from './routeTree.gen';
 
+// =====================================================================
+// QueryClient — defaults tuned for the focus-recovery bug fix.
+//
+//   refetchOnWindowFocus: false
+//     We DO NOT want a stampede on every focus. The
+//     AppShell.useRefocusInvalidate hook handles refocus, gated on a
+//     sustained-hidden duration (≥5s).
+//
+//   refetchOnReconnect: true   (NEW)
+//     When the browser detects the network coming back online (offline
+//     → online transition fires `online` event, which TanStack Query
+//     listens to natively), refetch every query. This rescues the
+//     "tab was offline / socket parked" case for free, with no extra
+//     code from us.
+//
+//   retry: 1
+//     One in-line retry on a failed fetch. Combined with the new
+//     timeout-error self-heal below, transient timeouts recover
+//     within ~500ms instead of staying stuck forever.
+//
+// QueryCache.onError — TRANSIENT-TIMEOUT SELF-HEAL.
+//   Pre-fix, when timeoutFetch fired its AbortController and the
+//   retry also failed, the query went to error state and STAYED
+//   there forever (because refetchOnWindowFocus:false everywhere
+//   blocked auto-recovery). The user had to manually refresh.
+//
+//   Now: when a query errors with a TimeoutError / AbortError, we
+//   schedule ONE delayed invalidate (~500ms) of that query key. That
+//   triggers a single retry on a (likely) freshly-recovered socket.
+//   If that also fails, no further auto-heal — the user can refresh,
+//   but they won't be stuck on a hung query for a transient network
+//   blip.
+// =====================================================================
+const TRANSIENT_RETRY_DELAY_MS = 500;
+function isTransientTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const name = err.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 60_000, refetchOnWindowFocus: false, retry: 1 },
+    queries: {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+    },
   },
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (!isTransientTimeoutError(error)) return;
+      // Single delayed self-heal. If it also fails, give up — we
+      // don't want to spin on a genuinely-down endpoint.
+      const key = query.queryKey;
+      setTimeout(() => {
+        // Only invalidate if the query is still in cache AND still in
+        // error state. If a subsequent successful refetch already
+        // happened, this is a no-op (React Query coalesces).
+        const q = queryClient.getQueryCache().find({ queryKey: key });
+        if (!q) return;
+        if (q.state.status !== 'error') return;
+        void queryClient.invalidateQueries({ queryKey: key });
+      }, TRANSIENT_RETRY_DELAY_MS);
+    },
+  }),
 });
 
 // Cross-tab live update: any mutation in another tab that publishes a

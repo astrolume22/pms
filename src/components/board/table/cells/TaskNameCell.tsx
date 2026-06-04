@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRenameItem } from '@/hooks/items';
 import { cn } from '@/lib/cn';
+import { isBlurFromWindowLostFocus } from '@/lib/windowBlur';
 import type { CellProps } from './cellTypes';
 
 /**
@@ -54,7 +55,9 @@ export function TaskNameCell({ item, boardId, readonly, isEditing, onStartEdit, 
           ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit()}
+          // See windowBlur.ts — preserve the in-progress task name
+          // when the window briefly loses focus.
+          onBlur={() => { if (!isBlurFromWindowLostFocus()) void commit(); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void commit();
             else if (e.key === 'Escape') {

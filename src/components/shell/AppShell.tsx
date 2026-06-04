@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Outlet } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { TopBar } from './TopBar';
@@ -7,39 +7,96 @@ import { WorkspacePanel } from './WorkspacePanel';
 import { useAuthStore } from '@/state/authStore';
 
 // =====================================================================
-// useRefocusInvalidate — on tab visibility flip to 'visible', invalidate
-// every React Query entry whose data is older than 60s. This is what
-// makes the board catch up INSTANTLY to changes Dr. John (or the user's
-// other machine) made while this tab was hidden, instead of waiting up
-// to 3s for the next board_watermark poll (or worse, waiting on a dead
-// Realtime WebSocket that never reconnects).
+// useRefocusInvalidate — when the tab comes back from a SUSTAINED
+// hidden / unfocused period, invalidate stale board + shift queries so
+// the UI catches up to any changes another tab / machine made while
+// we were away.
 //
-// We only invalidate STALE-ish queries (data > 60s old). Queries that
-// just refetched milliseconds ago — like a fresh shift_tick — are left
-// alone so we don't burn round-trips on data that's already current.
+// CRITICAL: this runs ONLY when the tab was hidden for >= 5 seconds.
+// A sub-second blur→focus (the founder's pattern of glancing at
+// another window then coming back) is a strict NO-OP. The previous
+// version invalidated on EVERY focus event, which combined with a
+// tight 3s timeout created a refetch-storm that left queries stuck in
+// error state and forced a manual reload — exactly the bug we are
+// fixing here.
 //
-// All the polls + warmup probe + 401-retry still run as before; this
-// just shaves the "delay until I see today's truth" from up to 3s down
-// to one round-trip. Combined with the new 3s data-plane timeout, the
-// refocus-to-truth experience drops from ~6–18s to ~0.5–3s.
+// We also NARROW the predicate to specific board/shift query roots
+// (instead of "every stale query"). Notifications, auth-related
+// queries, etc. don't need a refetch storm on refocus — they have
+// their own intervals.
 // =====================================================================
+const SUSTAINED_HIDDEN_MS = 5_000;
 const STALE_WINDOW_MS = 60_000;
+
+// Query-key root prefixes that get invalidated on sustained refocus.
+// Read from src/hooks/{items,groups,columns}.ts + src/hooks/shift.ts:
+//   items.ts  → ['items','board', <boardId>]
+//   groups.ts → ['groups','board', <boardId>]
+//   columns.ts→ ['columns','board', <boardId>]
+//   shift.ts  → ['shift', 'today' | 'tick', …]
+//             → ['admin','shift-control'] / ['admin','locked-shifts'] / ['admin','bio-requests']
+//                (admin queries auto-refresh via their own 10s
+//                refetchInterval; we DON'T pile on here)
+// Polled queries (board_watermark every 3s, useUnreadCount every 30s)
+// catch up on their own — no need to add to the storm.
+const REFOCUS_QUERY_ROOTS: ReadonlyArray<string> = [
+  'items', 'groups', 'columns', 'shift',
+];
 
 function useRefocusInvalidate(): void {
   const qc = useQueryClient();
+  // Single source of truth for "how long has the tab been hidden /
+  // unfocused?" Set the moment we go hidden / blur, cleared the moment
+  // we go visible / focus.
+  const hiddenSinceRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const onVisible = () => {
+    const markHidden = () => {
+      if (hiddenSinceRef.current === null) {
+        hiddenSinceRef.current = Date.now();
+      }
+    };
+    const onVisibleOrFocus = () => {
+      // Only act on the becoming-visible transition. The native
+      // `focus` event also fires on document.visibilityState=visible,
+      // so we treat them uniformly.
       if (document.visibilityState !== 'visible') return;
+
+      const hiddenSince = hiddenSinceRef.current;
+      hiddenSinceRef.current = null;
+      // First load — no prior hidden period to compare against.
+      if (hiddenSince === null) return;
+
+      const hiddenMs = Date.now() - hiddenSince;
+      if (hiddenMs < SUSTAINED_HIDDEN_MS) {
+        // Sub-5s blur — sub-second alt-tab, brief click elsewhere,
+        // mouse leaving the window. NO-OP. The whole point of this
+        // fix: the storm of refetches must not fire on these brief
+        // events.
+        return;
+      }
+
       const cutoff = Date.now() - STALE_WINDOW_MS;
       void qc.invalidateQueries({
-        predicate: (q) => q.state.dataUpdatedAt < cutoff,
+        predicate: (q) => {
+          if (q.state.dataUpdatedAt >= cutoff) return false;
+          const root = q.queryKey[0];
+          return typeof root === 'string' && REFOCUS_QUERY_ROOTS.includes(root);
+        },
       });
     };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') markHidden();
+    };
+    document.addEventListener('visibilitychange', onHidden);
+    document.addEventListener('visibilitychange', onVisibleOrFocus);
+    window.addEventListener('blur', markHidden);
+    window.addEventListener('focus', onVisibleOrFocus);
     return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onHidden);
+      document.removeEventListener('visibilitychange', onVisibleOrFocus);
+      window.removeEventListener('blur', markHidden);
+      window.removeEventListener('focus', onVisibleOrFocus);
     };
   }, [qc]);
 }

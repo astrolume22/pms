@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { isBlurFromWindowLostFocus } from '@/lib/windowBlur';
 import type { CellProps } from './cellTypes';
 import { readTextValue } from './cellValue';
 
@@ -30,7 +31,13 @@ export function TextCell({ value, readonly, isEditing, onStartEdit, onEndEdit, o
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        // Window-blur guard: a brief alt-tab fires blur on this input
+        // because the window lost focus. We must NOT commit + close in
+        // that case — preserve the draft and keep the input mounted so
+        // the user can finish typing when they return. See
+        // src/lib/windowBlur.ts for the rationale + the focus-then-
+        // must-refresh bug history.
+        onBlur={() => { if (!isBlurFromWindowLostFocus()) commit(); }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit();
           else if (e.key === 'Escape') { setDraft(raw); onEndEdit(); }
