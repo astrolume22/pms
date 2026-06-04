@@ -83,7 +83,18 @@ function BoardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board?.id, profile?.id]);
 
-  if (isLoading) {
+  // PERMANENT FIX for the "spinner stuck after tab refocus" bug:
+  // Gate the full-screen spinner on ABSENCE OF DATA, not isLoading.
+  // Once `board` lands once, any subsequent refetch keeps the previous
+  // value in cache (status: 'success', fetchStatus: 'fetching') — we
+  // must NOT throw the user back to a spinner on those background
+  // refetches. The previous gate `if (isLoading)` was technically
+  // correct in React Query v5 (isLoading = isPending && isFetching),
+  // but if a corner case ever resets the query (cache eviction past
+  // gcTime, manual removeQueries, etc.) the spinner would reappear.
+  // Gating on `!board` makes the regression impossible.
+  if (!board && isLoading) {
+    console.log('[diag] BoardPage spinner -> first load', { boardId, isLoading, hasBoard: !!board });
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner className="h-6 w-6 text-brand" />

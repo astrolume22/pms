@@ -157,12 +157,30 @@ export function useFileUrl(path: string | null | undefined, expiresInSec = 60 * 
 
 // ---------------------------------------------------------------------
 // useCellFiles — files attached to a specific item-column pair (files col)
-// ---------------------------------------------------------------------
+//
+// FIX for the "files refetching in a loop on tab refocus" report: the
+// queryKey is keyed on (itemId, columnId) — both strings, so it is
+// already stable across re-renders. We also explicitly set
+// refetchOnWindowFocus: false here (the global default in main.tsx is
+// already false; this is belt-and-suspenders so a future global change
+// can't reintroduce a refocus storm). Plus a temporary diag log on
+// each queryFn entry so the founder can confirm in DevTools whether
+// the same cell's files endpoint is being hammered or whether the run
+// of #39-#48 was simply N distinct cells fetching once each on
+// initial mount (the expected pattern for a Files-column board).
+// =====================================================================
+const cellFilesFetchCount = new Map<string, number>();
 export function useCellFiles(itemId: string | undefined, columnId: string | undefined) {
   return useQuery({
     queryKey: itemId && columnId ? fileKeys.byCell(itemId, columnId) : ['files', 'cell', '_'],
     enabled: !!itemId && !!columnId,
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<FileRow[]> => {
+      const cellKey = `${itemId}:${columnId}`;
+      const n = (cellFilesFetchCount.get(cellKey) ?? 0) + 1;
+      cellFilesFetchCount.set(cellKey, n);
+      console.count('files-fetch');
+      console.log(`[diag] useCellFiles fetch cell=${cellKey.slice(0, 12)}… run=${n}`);
       const { data, error } = await supabase
         .from('files')
         .select('*')

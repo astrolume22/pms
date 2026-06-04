@@ -352,7 +352,22 @@ export function BoardContent({ board }: BoardContentProps) {
   // Modal state for label editing
   const [labelsForColumn, setLabelsForColumn] = useState<ColumnRow | null>(null);
 
-  if (groupsLoading || colsLoading || itemsLoading) {
+  // PERMANENT FIX for the "spinner stuck after tab refocus" bug:
+  // Gate the spinner on ABSENCE OF DATA, not on isLoading. Once we
+  // have groups, columns, and itemsData all in cache at least once,
+  // a subsequent invalidation (e.g. board_watermark advances every
+  // 3s, focus-invalidate after >=5s hidden, Realtime postgres_changes)
+  // must NOT throw the entire board back to a spinner. React Query
+  // keeps the prior data in `data` during refetch — we read that. A
+  // brief stale state is much better UX than a spinner flash that
+  // unmounts every cell (and triggers a fresh wave of useCellFiles
+  // queries — the founder's "files refetching" signal in the console).
+  const hasInitialData = !!groups && !!columns && !!itemsData;
+  if (!hasInitialData) {
+    console.log('[diag] BoardContent spinner -> initial load', {
+      boardId: board.id, groupsLoading, colsLoading, itemsLoading,
+      hasGroups: !!groups, hasColumns: !!columns, hasItems: !!itemsData,
+    });
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner className="h-6 w-6 text-brand" />
