@@ -52,6 +52,30 @@ function isTransientTimeoutError(err: unknown): boolean {
   return name === 'TimeoutError' || name === 'AbortError';
 }
 
+// =====================================================================
+// networkMode: 'always' — DO NOT pause queries on navigator.onLine.
+//
+// Smoking gun for the "spinner stuck, no network request, must refresh"
+// recurrence: React Query v5 default networkMode is 'online', which
+// calls onlineManager.isOnline() before every fetch. If navigator
+// briefly reports offline (Chrome occasionally does this on alt-tab,
+// network-interface switches, or VPN reconnects), the query enters
+// fetchStatus: 'paused' and NO network request fires. It only resumes
+// when an 'online' event arrives — which won't come if navigator
+// stays online the whole time.
+//
+// Source: node_modules/@tanstack/query-core/src/retryer.ts:53-57
+//   canFetch(networkMode) returns onlineManager.isOnline() when mode
+//   is 'online', else always true.
+//
+// 'always' makes canFetch unconditionally true — queries fire
+// regardless of navigator.onLine. We get connectivity feedback the
+// honest way: the fetch itself either succeeds, returns an error, or
+// times out via our timeoutFetch wrapper. No invisible paused state.
+//
+// Mutations get the same treatment so cell-edit / save / shift-RPC
+// mutations don't silently queue when navigator flickers.
+// =====================================================================
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -59,6 +83,10 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       retry: 1,
+      networkMode: 'always',
+    },
+    mutations: {
+      networkMode: 'always',
     },
   },
   queryCache: new QueryCache({

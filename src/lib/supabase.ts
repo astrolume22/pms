@@ -69,6 +69,24 @@ if (!url || !anonKey) {
 const DATAPLANE_TIMEOUT_MS = 6_000;
 const AUTHPLANE_TIMEOUT_MS = 12_000;
 
+// Temporary diagnostic flag. Mirrors the DIAG flag in safeAuth.ts.
+// While hunting the post-refocus "spinner with no request" recurrence,
+// log every fetch entry/exit so the founder can see in DevTools whether
+// requests are actually being attempted. Flip to false later.
+const DIAG_FETCH = true;
+
+// Short label for the URL so the console isn't flooded with long
+// PostgREST query strings.
+function shortLabel(target: string): string {
+  const rest = target.split('/rest/v1/')[1];
+  if (rest) return '/rest/v1/' + rest.split('?')[0];
+  const auth = target.split('/auth/v1/')[1];
+  if (auth) return '/auth/v1/' + auth.split('?')[0];
+  const storage = target.split('/storage/v1/')[1];
+  if (storage) return '/storage/v1/' + storage.split('?')[0];
+  return target;
+}
+
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
   if (input instanceof URL) return input.href;
@@ -79,11 +97,19 @@ function isAuthPlaneUrl(target: string): boolean {
   return target.includes('/auth/v1/');
 }
 
+let fetchCounter = 0;
+
 function timeoutFetchOnce(
   input: RequestInfo | URL,
   init?: RequestInit,
   timeoutMs: number = DATAPLANE_TIMEOUT_MS,
 ): Promise<Response> {
+  // CRITICAL: a fresh AbortController per call. The old controller from
+  // a previous attempt would already be aborted (we trigger abort() in
+  // the timer below to enforce timeoutMs). Reusing it would cause this
+  // fetch to start in an already-aborted state and reject immediately,
+  // which (under React Query's retry rules) can look like "the network
+  // layer silently dropped my request." We always allocate a new one.
   const ctrl = new AbortController();
   const external = init?.signal;
   if (external) {
@@ -97,6 +123,11 @@ function timeoutFetchOnce(
       );
     }
   }
+  const id = DIAG_FETCH ? ++fetchCounter : 0;
+  const target = urlOf(input);
+  const label = shortLabel(target);
+  if (DIAG_FETCH) console.log(`[fetch #${id}] -> ${label}`);
+  const start = DIAG_FETCH ? Date.now() : 0;
   const timer = setTimeout(() => {
     try {
       ctrl.abort(new DOMException(`Request timed out after ${timeoutMs / 1000}s`, 'TimeoutError'));
@@ -104,7 +135,20 @@ function timeoutFetchOnce(
       ctrl.abort();
     }
   }, timeoutMs);
-  return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+  return fetch(input, { ...init, signal: ctrl.signal })
+    .then((resp) => {
+      if (DIAG_FETCH) console.log(`[fetch #${id}] <- ${label} status=${resp.status} in ${Date.now() - start}ms`);
+      return resp;
+    })
+    .catch((err: unknown) => {
+      if (DIAG_FETCH) {
+        const name = err instanceof Error ? err.name : 'unknown';
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[fetch #${id}] xx ${label} ${name}: ${msg} in ${Date.now() - start}ms`);
+      }
+      throw err;
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

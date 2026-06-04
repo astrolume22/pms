@@ -50,6 +50,25 @@ function useRefocusInvalidate(): void {
   // we go visible / focus.
   const hiddenSinceRef = useRef<number | null>(null);
 
+  // Belt-and-suspenders for the "spinner stuck, no network request"
+  // recurrence: even though main.tsx sets networkMode:'always' on the
+  // QueryClient defaults so queries can NEVER enter the paused state,
+  // a per-query override or a future regression could re-introduce
+  // paused queries. On every focus event we sweep the cache and force
+  // a refetch on any query whose fetchStatus is 'paused'. Cheap walk
+  // (one O(N) over the cache, no work when nothing is paused), and a
+  // hard guarantee that the wedge can't survive a focus event.
+  const kickPausedQueries = () => {
+    let kicked = 0;
+    for (const q of qc.getQueryCache().getAll()) {
+      if (q.state.fetchStatus === 'paused') {
+        void q.fetch();
+        kicked++;
+      }
+    }
+    if (kicked > 0) console.log(`[refocus] kicked ${kicked} paused queries`);
+  };
+
   useEffect(() => {
     const markHidden = () => {
       if (hiddenSinceRef.current === null) {
@@ -62,6 +81,11 @@ function useRefocusInvalidate(): void {
       // so we treat them uniformly.
       if (document.visibilityState !== 'visible') return;
 
+      // Always run the paused-query sweep, regardless of how long we
+      // were hidden. If nothing is paused (the expected case with
+      // networkMode:'always'), this is a no-op.
+      kickPausedQueries();
+
       const hiddenSince = hiddenSinceRef.current;
       hiddenSinceRef.current = null;
       // First load — no prior hidden period to compare against.
@@ -70,9 +94,7 @@ function useRefocusInvalidate(): void {
       const hiddenMs = Date.now() - hiddenSince;
       if (hiddenMs < SUSTAINED_HIDDEN_MS) {
         // Sub-5s blur — sub-second alt-tab, brief click elsewhere,
-        // mouse leaving the window. NO-OP. The whole point of this
-        // fix: the storm of refetches must not fire on these brief
-        // events.
+        // mouse leaving the window. NO-OP for the invalidate-storm.
         return;
       }
 
@@ -98,6 +120,7 @@ function useRefocusInvalidate(): void {
       window.removeEventListener('blur', markHidden);
       window.removeEventListener('focus', onVisibleOrFocus);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qc]);
 }
 
