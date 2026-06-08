@@ -10,7 +10,6 @@ import { FullPageSpinner } from '@/components/Spinner';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
 import { attachBoardSyncListener } from '@/lib/boardSync';
-import { startQueryWatchdog } from '@/lib/queryWatchdog';
 import { routeTree } from './routeTree.gen';
 
 // =====================================================================
@@ -115,15 +114,36 @@ const queryClient = new QueryClient({
 // the UI catches up within one network round-trip. See src/lib/boardSync.ts.
 attachBoardSyncListener(queryClient);
 
-// Stuck-pending watchdog — every 5s, scan the cache for queries that
-// have been in fetchStatus='fetching' or status='pending' (with no
-// in-flight fetch) for ≥ 8s, and force-cancel + force-refetch them.
-// This is the structural defence against the "spinner forever after a
-// brief alt-tab" wedge the founder reproduced in console: the abort
-// from timeoutFetch sometimes isn't translating into a clean React
-// Query error transition, leaving the query in a zombie pending state.
-// See src/lib/queryWatchdog.ts for the full mechanic.
-startQueryWatchdog(queryClient);
+// =====================================================================
+// REMOVED in this commit: startQueryWatchdog(queryClient).
+//
+// The watchdog created an infinite cancel→refetch loop. Trace:
+//   1. App boots; setInterval(5s) starts ticking.
+//   2. User navigates to /board/X; ~7 queries fire (board.detail,
+//      board-watermark, views.board, items.board, groups.board,
+//      columns.board, notifications.unread).
+//   3. First slow query (cold start, cold endpoint, large payload) is
+//      still 'fetching' at tick #1 (T+5s) → record firstSeenAt=5000.
+//   4. Tick #3 (T+15s) → stuckMs=10000 ≥ 8000 → cancelQueries +
+//      refetchQueries fire. The cancel aborts a fetch that would
+//      have succeeded seconds later.
+//   5. The refetch starts a fresh in-flight fetch. Tick #4 advances
+//      fetchFailureCount → progressed flag flips → firstSeenAt is
+//      reset to NOW.
+//   6. Tick #6 (T+10s after the reset) → stuckMs=10000 again →
+//      cancel+refetch loops forever. Query NEVER resolves.
+//
+// Symptom on live + localhost: every query stuck at exactly
+// stuckMs=10000 in the watchdog logs (it's the watchdog's own
+// arithmetic, not a real "stuck" reading). Only data that loaded
+// before T+15s ever appears; everything else hangs forever.
+//
+// The right answer for the underlying refocus-wedge bug is NOT a
+// cache-walking auto-canceller — it's narrower (e.g. per-query
+// retry semantics in the hooks themselves, or a much higher
+// threshold + once-per-query gate). To be addressed in a separate,
+// safer pass.
+// =====================================================================
 
 const router = createRouter({
   routeTree,
