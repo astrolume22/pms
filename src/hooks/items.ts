@@ -4,13 +4,25 @@
  * Boards in V1 have at most a few hundred items, so we fetch everything
  * (items + values) per board in one go.  Larger boards will need pagination
  * later but it isn't worth the complexity yet.
+ *
+ * All data calls go through src/lib/db.ts (cached-token PostgREST). The
+ * funnel jam (per-request supabase.auth.getSession) is bypassed here too.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/state/authStore';
 import { publishBoardChange } from '@/lib/boardSync';
 import { useUndoStore } from '@/lib/undoStack';
+import {
+  dbSelect,
+  dbInsertReturning,
+  dbUpdate,
+  dbDelete,
+  dbUpsert,
+  eq,
+  isNull,
+  inSet,
+} from '@/lib/db';
 import type { ItemRow, ItemColumnValueRow } from '@/lib/database.types';
 
 // =====================================================================
@@ -25,10 +37,6 @@ import type { ItemRow, ItemColumnValueRow } from '@/lib/database.types';
 // is impossible to miss: a red toast + the full error object in the
 // dev console for diagnosis. Existing optimistic-state rollbacks are
 // preserved alongside the toast.
-//
-// Cause-agnostic by design — whether the rejection is a 401, an RLS
-// denial, a 404, a timeout, or a network drop, the user gets a
-// concrete message and we get the evidence we need.
 // =====================================================================
 function reportMutationError(action: string, err: unknown) {
   const code = (err as { code?: string })?.code;
@@ -61,35 +69,21 @@ export function useBoardItems(boardId: string | undefined) {
   return useQuery<BoardItemsData>({
     queryKey: boardId ? itemKeys.board(boardId) : ['items', '_'],
     enabled: !!boardId,
-    // P4.0 fix: refetchOnWindowFocus was true here, which made FIVE
-    // board queries refetch simultaneously on tab refocus and pile
-    // onto the (possibly parked / stale-token) H/2 socket — the actual
-    // source of the refocus stampede + 401 spam. Cross-device
-    // freshness is already handled by the 3-second board_watermark
-    // poll below; that single small RPC catches up the heavy queries
-    // within 3s of refocus without the stampede. The new
-    // refreshAndProbe() in lib/supabase.ts handles the token + socket
-    // recovery before the watermark poll runs again.
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const { data: items, error } = await supabase
-        .from('items')
-        .select('*')
-        .eq('board_id', boardId!)
-        .is('deleted_at', null)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      const itemRows = (items ?? []) as ItemRow[];
+      const itemRows = await dbSelect<ItemRow>('items', {
+        filters: { board_id: eq(boardId!), deleted_at: isNull },
+        order: 'sort_order.asc',
+      });
       if (itemRows.length === 0) {
         return { items: [], valuesByItemColumn: new Map() };
       }
-      const { data: values, error: vErr } = await supabase
-        .from('item_column_values')
-        .select('id, item_id, column_id, value, updated_by, updated_at')
-        .in('item_id', itemRows.map((i) => i.id));
-      if (vErr) throw vErr;
+      const values = await dbSelect<ItemColumnValueRow>('item_column_values', {
+        select: 'id,item_id,column_id,value,updated_by,updated_at',
+        filters: { item_id: inSet(itemRows.map((i) => i.id)) },
+      });
       const map = new Map<string, unknown>();
-      for (const v of (values ?? []) as ItemColumnValueRow[]) {
+      for (const v of values) {
         map.set(cellKey(v.item_id, v.column_id), v.value);
       }
       return { items: itemRows, valuesByItemColumn: map };
@@ -104,25 +98,11 @@ export function getCellValue(data: BoardItemsData | undefined, itemId: string, c
 // ---------------------------------------------------------------------
 // useCreateItem — top-level or subitem (parent_item_id optional)
 // ---------------------------------------------------------------------
-// UI polish (batch item 4): the create flow is now optimistic. Callers
-// pre-generate the item's UUID and pass it as `id`; we paint an
-// optimistic row in the items cache immediately (with task_code='…'
-// as a placeholder — the DB before_item_insert trigger fills the real
-// "Task N" code server-side). When the insert resolves, we replace
-// the same-id row in place: React reconciles by key, so it's a
-// field-level update (task_code becomes "Task N"), not a remount.
-// On error we roll back to the previous cache snapshot. No
-// invalidateQueries — that's what made the old flow flash the whole
-// board after every add.
 export interface CreateItemInput {
   boardId: string;
   groupId: string;
   parentItemId?: string | null;
   name?: string;
-  // Optional pre-generated id. When supplied, we paint an optimistic
-  // row at this id immediately and replace it with the real row at the
-  // same id when the insert returns. When absent, we fall back to the
-  // server-default uuid and skip the optimistic path.
   id?: string;
 }
 
@@ -141,18 +121,9 @@ export function useCreateItem() {
         task_code: '',          // trigger fills it
         created_by: userId,
       };
-      const { data, error } = await supabase
-        .from('items')
-        .insert(payload as never)
-        .select('*')
-        .single();
-      if (error) throw error;
-      return data as ItemRow;
+      return await dbInsertReturning<ItemRow>('items', payload);
     },
     onMutate: async (vars) => {
-      // Skip optimistic when the caller didn't pre-generate an id —
-      // we'd have no stable key to swap on. The mutation still runs
-      // normally, just without the instant-paint.
       if (!vars.id) {
         await qc.cancelQueries({ queryKey: itemKeys.board(vars.boardId) });
         return { previous: qc.getQueryData<BoardItemsData>(itemKeys.board(vars.boardId)) };
@@ -167,8 +138,8 @@ export function useCreateItem() {
         group_id: vars.groupId,
         parent_item_id: vars.parentItemId ?? null,
         name: finalName,
-        task_code: '…',                 // ← placeholder until the trigger-filled value lands
-        sort_order: 0,                   // ← matches the DB default so position stays put on swap
+        task_code: '…',
+        sort_order: 0,
         created_by: userId ?? '',
         updated_by: null,
         created_at: now,
@@ -189,12 +160,6 @@ export function useCreateItem() {
       reportMutationError('create task', err);
     },
     onSuccess: (item) => {
-      // Replace the optimistic row (same id, when caller supplied one)
-      // with the real one — task_code goes from "…" → "Task N", any
-      // server-fixed timestamps land. If the optimistic row is missing
-      // for any reason (no pre-gen id / cache evicted mid-flight), we
-      // prepend the real row. We do NOT invalidate — that would refetch
-      // the whole board and flash the user's optimistic edits away.
       const cur = qc.getQueryData<BoardItemsData>(itemKeys.board(item.board_id));
       if (cur) {
         let found = false;
@@ -208,15 +173,10 @@ export function useCreateItem() {
         });
       }
       publishBoardChange(item.board_id);
-      // Undo: soft-delete the freshly-created item.
       useUndoStore.getState().push({
         description: 'create "' + item.name + '"',
         undo: async () => {
-          const { error } = await supabase
-            .from('items')
-            .update({ deleted_at: new Date().toISOString() } as never)
-            .eq('id', item.id);
-          if (error) throw error;
+          await dbUpdate('items', { id: eq(item.id) }, { deleted_at: new Date().toISOString() });
           void qc.invalidateQueries({ queryKey: itemKeys.board(item.board_id) });
           publishBoardChange(item.board_id);
         },
@@ -226,18 +186,14 @@ export function useCreateItem() {
 }
 
 // ---------------------------------------------------------------------
-// useRenameItem — rename a single item (used by inline edit)
+// useRenameItem
 // ---------------------------------------------------------------------
 export function useRenameItem() {
   const qc = useQueryClient();
   const userId = useAuthStore((s) => s.profile?.id);
   return useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string; boardId: string }) => {
-      const { error } = await supabase
-        .from('items')
-        .update({ name, updated_by: userId } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('items', { id: eq(id) }, { name, updated_by: userId });
     },
     onMutate: async ({ id, name, boardId }) => {
       await qc.cancelQueries({ queryKey: itemKeys.board(boardId) });
@@ -261,11 +217,7 @@ export function useRenameItem() {
       useUndoStore.getState().push({
         description: 'rename of "' + vars.name + '" → "' + oldName + '"',
         undo: async () => {
-          const { error } = await supabase
-            .from('items')
-            .update({ name: oldName, updated_by: userId } as never)
-            .eq('id', vars.id);
-          if (error) throw error;
+          await dbUpdate('items', { id: eq(vars.id) }, { name: oldName, updated_by: userId });
           void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
           publishBoardChange(vars.boardId);
         },
@@ -280,13 +232,12 @@ export function useRenameItem() {
 
 // ---------------------------------------------------------------------
 // useUpdateCellValue — upsert into item_column_values
-// Optimistic update for snappy feel.
 // ---------------------------------------------------------------------
 export interface UpdateCellInput {
   boardId: string;
   itemId: string;
   columnId: string;
-  value: unknown;       // pass null to clear
+  value: unknown;
 }
 
 export function useUpdateCellValue() {
@@ -295,19 +246,16 @@ export function useUpdateCellValue() {
   return useMutation({
     mutationFn: async ({ itemId, columnId, value }: UpdateCellInput) => {
       if (value === null || value === undefined) {
-        // Delete the row to clear the cell.
-        const { error } = await supabase
-          .from('item_column_values')
-          .delete()
-          .eq('item_id', itemId)
-          .eq('column_id', columnId);
-        if (error) throw error;
+        await dbDelete('item_column_values', {
+          item_id: eq(itemId),
+          column_id: eq(columnId),
+        });
       } else {
-        const row = { item_id: itemId, column_id: columnId, value, updated_by: userId };
-        const { error } = await supabase
-          .from('item_column_values')
-          .upsert(row as never, { onConflict: 'item_id,column_id' });
-        if (error) throw error;
+        await dbUpsert(
+          'item_column_values',
+          { item_id: itemId, column_id: columnId, value, updated_by: userId },
+          { onConflict: 'item_id,column_id' },
+        );
       }
     },
     onMutate: async ({ boardId, itemId, columnId, value }) => {
@@ -337,20 +285,16 @@ export function useUpdateCellValue() {
         description: 'cell change on "' + itemName + '"',
         undo: async () => {
           if (oldValue === null || oldValue === undefined) {
-            const { error } = await supabase
-              .from('item_column_values')
-              .delete()
-              .eq('item_id', vars.itemId)
-              .eq('column_id', vars.columnId);
-            if (error) throw error;
+            await dbDelete('item_column_values', {
+              item_id: eq(vars.itemId),
+              column_id: eq(vars.columnId),
+            });
           } else {
-            const { error } = await supabase
-              .from('item_column_values')
-              .upsert({
-                item_id: vars.itemId, column_id: vars.columnId,
-                value: oldValue, updated_by: userId,
-              } as never, { onConflict: 'item_id,column_id' });
-            if (error) throw error;
+            await dbUpsert(
+              'item_column_values',
+              { item_id: vars.itemId, column_id: vars.columnId, value: oldValue, updated_by: userId },
+              { onConflict: 'item_id,column_id' },
+            );
           }
           void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
           publishBoardChange(vars.boardId);
@@ -371,11 +315,7 @@ export function useArchiveItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id }: { id: string; boardId: string }) => {
-      const { error } = await supabase
-        .from('items')
-        .update({ archived_at: new Date().toISOString() } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('items', { id: eq(id) }, { archived_at: new Date().toISOString() });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -389,16 +329,9 @@ export function useDeleteItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id }: { id: string; boardId: string }) => {
-      const { error } = await supabase
-        .from('items')
-        .update({ deleted_at: new Date().toISOString() } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('items', { id: eq(id) }, { deleted_at: new Date().toISOString() });
     },
     onMutate: ({ id, boardId }) => {
-      // Capture the task name BEFORE we hide the row so the undo toast
-      // can name it. (No optimistic UI patch here — the existing flow
-      // relies on the onSettled invalidate to redraw.)
       const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
       const itemName = previous?.items.find((i) => i.id === id)?.name ?? 'task';
       return { itemName };
@@ -408,11 +341,7 @@ export function useDeleteItem() {
       useUndoStore.getState().push({
         description: 'delete of "' + itemName + '"',
         undo: async () => {
-          const { error } = await supabase
-            .from('items')
-            .update({ deleted_at: null } as never)
-            .eq('id', vars.id);
-          if (error) throw error;
+          await dbUpdate('items', { id: eq(vars.id) }, { deleted_at: null });
           void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
           publishBoardChange(vars.boardId);
         },
@@ -428,7 +357,6 @@ export function useDeleteItem() {
 
 // ---------------------------------------------------------------------
 // useReorderItems — persist sort_order + (optionally) move to new group
-// Accepts a list of patches: { id, sort_order, group_id? }
 // ---------------------------------------------------------------------
 export interface ItemPatch {
   id: string;
@@ -440,21 +368,15 @@ export function useReorderItems() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ boardId, patches }: { boardId: string; patches: ItemPatch[] }) => {
-      // Run each patch sequentially — PostgREST doesn't support batched updates by id.
-      // Small N (< 100 usually), so this is fine.
       for (const p of patches) {
         const { id, ...rest } = p;
-        const { error } = await supabase.from('items').update(rest as never).eq('id', id);
-        if (error) throw error;
+        await dbUpdate('items', { id: eq(id) }, rest);
       }
       return boardId;
     },
     onMutate: async ({ boardId, patches }) => {
       await qc.cancelQueries({ queryKey: itemKeys.board(boardId) });
       const previous = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
-      // Snapshot the BEFORE state for each touched item so the undo
-      // can move it back to its original group + position. (Read once
-      // from cache; closing the closure over the result.)
       const reversePatches: ItemPatch[] = previous
         ? patches.map((p) => {
             const prev = previous.items.find((i) => i.id === p.id);
@@ -484,8 +406,6 @@ export function useReorderItems() {
     onSuccess: (_d, vars, ctx) => {
       const reversePatches = ctx?.reversePatches ?? [];
       if (reversePatches.length === 0) return;
-      // Describe as "move" when at least one patch moves between
-      // groups; otherwise it's just a reorder within a single group.
       const isMove = vars.patches.some((p) => p.group_id !== undefined);
       useUndoStore.getState().push({
         description: isMove ? 'move of ' + reversePatches.length + ' task(s)'
@@ -493,8 +413,7 @@ export function useReorderItems() {
         undo: async () => {
           for (const p of reversePatches) {
             const { id, ...rest } = p;
-            const { error } = await supabase.from('items').update(rest as never).eq('id', id);
-            if (error) throw error;
+            await dbUpdate('items', { id: eq(id) }, rest);
           }
           void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
           publishBoardChange(vars.boardId);
@@ -525,11 +444,7 @@ export function useBulkItemAction() {
         args.kind === 'archive' ? { archived_at: now }
         : args.kind === 'delete' ? { deleted_at: now }
         : { group_id: args.groupId };
-      const { error } = await supabase
-        .from('items')
-        .update(patch as never)
-        .in('id', args.ids);
-      if (error) throw error;
+      await dbUpdate('items', { id: inSet(args.ids) }, patch);
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });

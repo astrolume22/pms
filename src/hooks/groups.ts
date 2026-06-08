@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 import { publishBoardChange } from '@/lib/boardSync';
 import { useUndoStore } from '@/lib/undoStack';
 import { itemKeys, type BoardItemsData } from '@/hooks/items';
+import {
+  dbSelect,
+  dbInsertReturning,
+  dbUpdate,
+  eq,
+  inSet,
+} from '@/lib/db';
 import type { GroupRow } from '@/lib/database.types';
 
 export const groupKeys = {
@@ -29,18 +35,12 @@ export function useGroups(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? groupKeys.board(boardId) : ['groups', '_'],
     enabled: !!boardId,
-    // P4.0 fix: see useBoardItems — disabled to avoid the refocus
-    // stampede. The 3s board_watermark poll catches us up.
     refetchOnWindowFocus: false,
     queryFn: async (): Promise<GroupRow[]> => {
-      const { data, error } = await supabase
-        .from('groups')
-        .select('*')
-        .eq('board_id', boardId!)
-        .is('deleted_at', null)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as GroupRow[];
+      return await dbSelect<GroupRow>('groups', {
+        filters: { board_id: eq(boardId!), deleted_at: 'is.null' },
+        order: 'sort_order.asc',
+      });
     },
   });
 }
@@ -49,19 +49,15 @@ export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ boardId, name }: { boardId: string; name: string }) => {
-      // Phase 1 EDIT 1c: insert new groups at the TOP of the board.
-      // Look up the SMALLEST existing sort_order and pick a value one
-      // below it. Single-row insert — no reindex, no other rows touched.
-      // groups.sort_order is `int NOT NULL DEFAULT 0` with no CHECK
-      // (verified in migration 0004), so negative values are legal and
-      // the ascending read path in useGroups renders them first.
-      const { data: existing } = await supabase
-        .from('groups')
-        .select('sort_order')
-        .eq('board_id', boardId)
-        .order('sort_order', { ascending: true })
-        .limit(1);
-      const minSort = (existing?.[0] as { sort_order?: number })?.sort_order;
+      // Insert new groups at the TOP of the board. Look up the smallest
+      // existing sort_order and pick one below it. Single-row insert.
+      const existing = await dbSelect<{ sort_order: number }>('groups', {
+        select: 'sort_order',
+        filters: { board_id: eq(boardId) },
+        order: 'sort_order.asc',
+        limit: 1,
+      });
+      const minSort = existing[0]?.sort_order;
       const nextSort = (minSort ?? 0) - 1;
       const payload = {
         board_id: boardId,
@@ -69,22 +65,15 @@ export function useCreateGroup() {
         color: randomColor(),
         sort_order: nextSort,
       };
-      const { data, error } = await supabase.from('groups').insert(payload as never).select('*').single();
-      if (error) throw error;
-      return data as GroupRow;
+      return await dbInsertReturning<GroupRow>('groups', payload);
     },
     onSuccess: (g) => {
       void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) });
       publishBoardChange(g.board_id);
-      // Undo: soft-delete the freshly-created group.
       useUndoStore.getState().push({
         description: 'create group "' + g.name + '"',
         undo: async () => {
-          const { error } = await supabase
-            .from('groups')
-            .update({ deleted_at: new Date().toISOString() } as never)
-            .eq('id', g.id);
-          if (error) throw error;
+          await dbUpdate('groups', { id: eq(g.id) }, { deleted_at: new Date().toISOString() });
           void qc.invalidateQueries({ queryKey: groupKeys.board(g.board_id) });
           publishBoardChange(g.board_id);
         },
@@ -100,8 +89,7 @@ export function useUpdateGroup() {
       id: string; boardId: string;
       patch: Partial<Pick<GroupRow, 'name' | 'color' | 'sort_order' | 'is_collapsed_default'>>;
     }) => {
-      const { error } = await supabase.from('groups').update(patch as never).eq('id', id);
-      if (error) throw error;
+      await dbUpdate('groups', { id: eq(id) }, patch);
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
@@ -114,18 +102,9 @@ export function useDeleteGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id }: { id: string; boardId: string }) => {
-      const { error } = await supabase
-        .from('groups')
-        .update({ deleted_at: new Date().toISOString() } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('groups', { id: eq(id) }, { deleted_at: new Date().toISOString() });
     },
     onMutate: ({ id, boardId }) => {
-      // Snapshot the group's name + the ids of every alive item inside
-      // it BEFORE we soft-delete. Even though useDeleteGroup itself
-      // does not cascade to items today, other paths (or a future
-      // trigger) might — so the undo conservatively restores any
-      // items that were soft-deleted with the same timestamp window.
       const groups = qc.getQueryData<GroupRow[]>(groupKeys.board(boardId));
       const groupName = groups?.find((g) => g.id === id)?.name ?? 'group';
       const items = qc.getQueryData<BoardItemsData>(itemKeys.board(boardId));
@@ -139,20 +118,11 @@ export function useDeleteGroup() {
         description: 'delete group "' + groupName + '"',
         undo: async () => {
           // 1. Restore the group row.
-          const { error: gErr } = await supabase
-            .from('groups')
-            .update({ deleted_at: null } as never)
-            .eq('id', vars.id);
-          if (gErr) throw gErr;
-          // 2. Restore any items that were soft-deleted as part of
-          //    the group delete. Safe even if none were — the .in()
-          //    update is a no-op on an empty array.
+          await dbUpdate('groups', { id: eq(vars.id) }, { deleted_at: null });
+          // 2. Restore any items that were soft-deleted as part of the
+          //    group delete. Safe even if none were.
           if (itemIds.length > 0) {
-            const { error: iErr } = await supabase
-              .from('items')
-              .update({ deleted_at: null } as never)
-              .in('id', itemIds);
-            if (iErr) throw iErr;
+            await dbUpdate('items', { id: inSet(itemIds) }, { deleted_at: null });
           }
           void qc.invalidateQueries({ queryKey: groupKeys.board(vars.boardId) });
           void qc.invalidateQueries({ queryKey: itemKeys.board(vars.boardId) });
@@ -172,11 +142,7 @@ export function useReorderGroups() {
   return useMutation({
     mutationFn: async ({ boardId, orderedIds }: { boardId: string; orderedIds: string[] }) => {
       for (let i = 0; i < orderedIds.length; i += 1) {
-        const { error } = await supabase
-          .from('groups')
-          .update({ sort_order: i } as never)
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
+        await dbUpdate('groups', { id: eq(orderedIds[i]) }, { sort_order: i });
       }
       return boardId;
     },

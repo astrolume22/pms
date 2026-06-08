@@ -3,16 +3,29 @@
  *
  * Conventions:
  *   • Query keys are tuples — easy to invalidate by prefix.
- *   • Mutations cast their payloads to `never` to bypass the untyped
- *     Supabase client; we'll generate proper Database types later via
- *     `supabase gen types typescript`.
- *   • Errors propagate from the Supabase client — callers surface via
- *     toast (sonner).
+ *   • All data plane calls route through src/lib/db.ts (plain fetch +
+ *     cached access token), NOT through supabase.from(). This bypasses
+ *     the per-request supabase.auth.getSession() that was the funnel
+ *     jam on tab refocus. supabase.auth.* (signIn / refreshSession /
+ *     onAuthStateChange) is still in use elsewhere for actual auth.
+ *   • Errors propagate up — callers surface via toast (sonner).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { diag } from '@/lib/diag';
 import { useAuthStore } from '@/state/authStore';
+import {
+  dbSelect,
+  dbSelectMaybeSingle,
+  dbInsert,
+  dbInsertReturning,
+  dbUpdate,
+  dbDelete,
+  dbUpsert,
+  eq,
+  isNull,
+  inSet,
+} from '@/lib/db';
 import type {
   BoardRow,
   BoardSubscriberRow,
@@ -46,18 +59,18 @@ export function useBoards() {
     queryKey: boardKeys.list(),
     enabled: !!userId,
     queryFn: async (): Promise<BoardListItem[]> => {
-      const [{ data: boards, error: boardsErr }, { data: favs, error: favsErr }] = await Promise.all([
-        supabase
-          .from('boards')
-          .select('*')
-          .is('deleted_at', null)
-          .order('name', { ascending: true }),
-        supabase.from('board_favorites').select('board_id').eq('user_id', userId!),
+      const [boards, favs] = await Promise.all([
+        dbSelect<BoardRow>('boards', {
+          filters: { deleted_at: isNull },
+          order: 'name.asc',
+        }),
+        dbSelect<{ board_id: string }>('board_favorites', {
+          select: 'board_id',
+          filters: { user_id: eq(userId!) },
+        }),
       ]);
-      if (boardsErr) throw boardsErr;
-      if (favsErr) throw favsErr;
-      const favSet = new Set((favs ?? []).map((r) => (r as { board_id: string }).board_id));
-      return ((boards ?? []) as BoardRow[]).map((b) => ({ ...b, is_favorite: favSet.has(b.id) }));
+      const favSet = new Set(favs.map((r) => r.board_id));
+      return boards.map((b) => ({ ...b, is_favorite: favSet.has(b.id) }));
     },
   });
 }
@@ -76,47 +89,38 @@ export function useBoard(boardId: string | undefined) {
     queryKey: boardId ? boardKeys.detail(boardId) : ['boards', 'detail', '_'],
     enabled: !!boardId && !!userId,
     queryFn: async (): Promise<BoardWithOwner | null> => {
-      // Refocus-wedge instrumentation. These three logs separate the
-      // three possible stall points in a single queryFn invocation:
-      //   • no "enter" line at all     → React Query is NOT calling the
-      //                                  queryFn (zombie fetchStatus left
-      //                                  by the tab-suspend; AppShell's
-      //                                  focus-gated rekick targets this)
-      //   • "enter" but no "getSession done"
-      //                                → auth-lock stall inside
-      //                                  supabase.auth.getSession()
-      //                                  (the per-tab navigatorLock
-      //                                  replacement should bound this
-      //                                  at 2s — anything > 2s = bug here)
-      //   • "getSession done" but no "boards fetch done"
-      //                                → PostgREST fetch stall (the
-      //                                  HTTP request issued but the
-      //                                  response never lands; timeoutFetch
-      //                                  budget is 6s — anything > 6s = bug)
+      // Refocus-wedge instrumentation. After the db.ts conversion the
+      // data path no longer awaits supabase.auth.getSession() per
+      // request, but we keep these breadcrumbs so a future regression
+      // is easy to spot: if "enter" lands but "boards fetch done"
+      // never follows, the stall is downstream of timeoutFetch (the
+      // [fetch #N] funnel logs will tell you which URL).
+      //
+      // The explicit getSession() below is a single read-only check
+      // per board mount (NOT per request). With autoRefreshToken:false
+      // and the per-tab auth lock, it resolves from in-memory state
+      // in single-digit milliseconds.
       diag('boardfn', 'enter board=' + (boardId ?? '_'));
       const _t0 = Date.now();
       const { data: _sess } = await supabase.auth.getSession();
       diag('boardfn', 'getSession done in ' + (Date.now() - _t0) + 'ms hasSession=' + !!_sess.session);
       const _t1 = Date.now();
-      const [{ data: board, error }, { data: fav }] = await Promise.all([
-        supabase.from('boards').select('*').eq('id', boardId!).maybeSingle(),
-        supabase
-          .from('board_favorites')
-          .select('board_id')
-          .eq('user_id', userId!)
-          .eq('board_id', boardId!)
-          .maybeSingle(),
+      const [board, fav] = await Promise.all([
+        dbSelectMaybeSingle<BoardRow>('boards', {
+          filters: { id: eq(boardId!) },
+        }),
+        dbSelectMaybeSingle<{ board_id: string }>('board_favorites', {
+          select: 'board_id',
+          filters: { user_id: eq(userId!), board_id: eq(boardId!) },
+        }),
       ]);
       diag('boardfn', 'boards fetch done in ' + (Date.now() - _t1) + 'ms');
-      if (error) throw error;
       if (!board) return null;
-      const b = board as BoardRow;
-      const { data: owner } = await supabase
-        .from('users')
-        .select('id, username, full_name, avatar_url')
-        .eq('id', b.owner_id)
-        .maybeSingle();
-      return { ...b, owner: (owner as BoardWithOwner['owner']) ?? null, is_favorite: !!fav };
+      const owner = await dbSelectMaybeSingle<BoardWithOwner['owner']>('users', {
+        select: 'id,username,full_name,avatar_url',
+        filters: { id: eq(board.owner_id) },
+      });
+      return { ...board, owner, is_favorite: !!fav };
     },
   });
 }
@@ -133,21 +137,17 @@ export function useBoardSubscribers(boardId: string | undefined) {
     queryKey: boardId ? boardKeys.subscribers(boardId) : ['boards', 'subs', '_'],
     enabled: !!boardId,
     queryFn: async (): Promise<BoardSubscriberWithUser[]> => {
-      const { data, error } = await supabase
-        .from('board_subscribers')
-        .select('board_id, user_id, role, notification_level, subscribed_at')
-        .eq('board_id', boardId!);
-      if (error) throw error;
-      const subs = (data ?? []) as BoardSubscriberRow[];
+      const subs = await dbSelect<BoardSubscriberRow>('board_subscribers', {
+        select: 'board_id,user_id,role,notification_level,subscribed_at',
+        filters: { board_id: eq(boardId!) },
+      });
       if (subs.length === 0) return [];
       const userIds = subs.map((s) => s.user_id);
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, username, full_name, avatar_url')
-        .in('id', userIds);
-      const map = new Map<string, BoardSubscriberWithUser['user']>(
-        ((users ?? []) as NonNullable<BoardSubscriberWithUser['user']>[]).map((u) => [u.id, u]),
-      );
+      const users = await dbSelect<NonNullable<BoardSubscriberWithUser['user']>>('users', {
+        select: 'id,username,full_name,avatar_url',
+        filters: { id: inSet(userIds) },
+      });
+      const map = new Map<string, BoardSubscriberWithUser['user']>(users.map((u) => [u.id, u]));
       return subs.map((s) => ({ ...s, user: map.get(s.user_id) ?? null }));
     },
   });
@@ -170,14 +170,12 @@ export function useCreateBoard() {
     mutationFn: async (input: CreateBoardInput): Promise<BoardRow> => {
       if (!userId) throw new Error('Not signed in');
       // Look up the main workspace id — single-workspace V1.
-      const { data: ws, error: wsErr } = await supabase
-        .from('workspaces')
-        .select('id')
-        .eq('is_main', true)
-        .maybeSingle();
-      if (wsErr) throw wsErr;
+      const ws = await dbSelectMaybeSingle<{ id: string }>('workspaces', {
+        select: 'id',
+        filters: { is_main: 'eq.true' },
+      });
       if (!ws) throw new Error('Main workspace not found');
-      const wsId = (ws as { id: string }).id;
+      const wsId = ws.id;
       const insert = {
         workspace_id: wsId,
         name: input.name.trim(),
@@ -187,13 +185,7 @@ export function useCreateBoard() {
         owner_id: userId,
         created_by: userId,
       };
-      const { data, error } = await supabase
-        .from('boards')
-        .insert(insert as never)
-        .select('*')
-        .single();
-      if (error) throw error;
-      return data as BoardRow;
+      return await dbInsertReturning<BoardRow>('boards', insert);
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: boardKeys.all });
@@ -213,14 +205,14 @@ export function useUpdateBoard() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, patch }: UpdateBoardInput): Promise<BoardRow> => {
-      const { data, error } = await supabase
-        .from('boards')
-        .update(patch as never)
-        .eq('id', id)
-        .select('*')
-        .single();
-      if (error) throw error;
-      return data as BoardRow;
+      await dbUpdate('boards', { id: eq(id) }, patch);
+      // Re-read the row so onSuccess can patch the cache with the live
+      // copy (same shape as the previous supabase-js .select('*').single()).
+      const row = await dbSelectMaybeSingle<BoardRow>('boards', {
+        filters: { id: eq(id) },
+      });
+      if (!row) throw new Error('Board not found after update');
+      return row;
     },
     onSuccess: (board) => {
       qc.setQueryData(boardKeys.detail(board.id), (prev: BoardWithOwner | undefined) =>
@@ -238,11 +230,7 @@ export function useArchiveBoard() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('boards')
-        .update({ archived_at: new Date().toISOString() } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('boards', { id: eq(id) }, { archived_at: new Date().toISOString() });
       return id;
     },
     onSuccess: (id) => {
@@ -256,11 +244,7 @@ export function useRestoreBoard() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('boards')
-        .update({ archived_at: null } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('boards', { id: eq(id) }, { archived_at: null });
       return id;
     },
     onSuccess: (id) => {
@@ -274,11 +258,7 @@ export function useDeleteBoard() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('boards')
-        .update({ deleted_at: new Date().toISOString() } as never)
-        .eq('id', id);
-      if (error) throw error;
+      await dbUpdate('boards', { id: eq(id) }, { deleted_at: new Date().toISOString() });
       return id;
     },
     onSuccess: () => {
@@ -297,17 +277,15 @@ export function useToggleFavorite() {
     mutationFn: async ({ boardId, makeFavorite }: { boardId: string; makeFavorite: boolean }) => {
       if (!userId) throw new Error('Not signed in');
       if (makeFavorite) {
-        const { error } = await supabase
-          .from('board_favorites')
-          .insert({ user_id: userId, board_id: boardId } as never);
-        if (error && error.code !== '23505') throw error; // ignore duplicate
+        try {
+          await dbInsert('board_favorites', { user_id: userId, board_id: boardId });
+        } catch (err) {
+          // ignore duplicate-key (Postgres 23505)
+          const code = (err as { code?: string })?.code;
+          if (code !== '23505') throw err;
+        }
       } else {
-        const { error } = await supabase
-          .from('board_favorites')
-          .delete()
-          .eq('user_id', userId)
-          .eq('board_id', boardId);
-        if (error) throw error;
+        await dbDelete('board_favorites', { user_id: eq(userId), board_id: eq(boardId) });
       }
       return { boardId, makeFavorite };
     },
@@ -333,17 +311,11 @@ export function useUpdateLastViewed() {
   return useMutation({
     mutationFn: async (boardId: string) => {
       if (!userId) throw new Error('Not signed in');
-      const { error } = await supabase
-        .from('board_last_viewed')
-        .upsert(
-          {
-            board_id: boardId,
-            user_id: userId,
-            last_viewed_at: new Date().toISOString(),
-          } as never,
-          { onConflict: 'board_id,user_id' },
-        );
-      if (error) throw error;
+      await dbUpsert('board_last_viewed', {
+        board_id: boardId,
+        user_id: userId,
+        last_viewed_at: new Date().toISOString(),
+      }, { onConflict: 'board_id,user_id' });
       return boardId;
     },
     onSuccess: () => {
@@ -366,23 +338,19 @@ export function useRecentBoards(limit = 10) {
     queryKey: [...boardKeys.recents(), limit],
     enabled: !!userId,
     queryFn: async (): Promise<RecentBoard[]> => {
-      const { data: views, error } = await supabase
-        .from('board_last_viewed')
-        .select('board_id, last_viewed_at')
-        .eq('user_id', userId!)
-        .order('last_viewed_at', { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      const rows = (views ?? []) as Pick<BoardLastViewedRow, 'board_id' | 'last_viewed_at'>[];
-      if (rows.length === 0) return [];
-      const boardIds = rows.map((r) => r.board_id);
-      const { data: boards } = await supabase
-        .from('boards')
-        .select('*')
-        .in('id', boardIds)
-        .is('deleted_at', null);
-      const map = new Map<string, BoardRow>(((boards ?? []) as BoardRow[]).map((b) => [b.id, b]));
-      return rows
+      const views = await dbSelect<Pick<BoardLastViewedRow, 'board_id' | 'last_viewed_at'>>('board_last_viewed', {
+        select: 'board_id,last_viewed_at',
+        filters: { user_id: eq(userId!) },
+        order: 'last_viewed_at.desc',
+        limit,
+      });
+      if (views.length === 0) return [];
+      const boardIds = views.map((r) => r.board_id);
+      const boards = await dbSelect<BoardRow>('boards', {
+        filters: { id: inSet(boardIds), deleted_at: isNull },
+      });
+      const map = new Map<string, BoardRow>(boards.map((b) => [b.id, b]));
+      return views
         .map((r) => {
           const b = map.get(r.board_id);
           return b ? { board: b, last_viewed_at: r.last_viewed_at } : null;

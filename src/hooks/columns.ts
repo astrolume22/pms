@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 import { publishBoardChange } from '@/lib/boardSync';
+import {
+  dbSelect,
+  dbInsertReturning,
+  dbInsertMany,
+  dbUpdate,
+  dbDelete,
+  eq,
+  isNull,
+} from '@/lib/db';
 import type { ColumnRow, ColumnType } from '@/lib/database.types';
 
 export const columnKeys = {
@@ -43,18 +51,12 @@ export function useColumns(boardId: string | undefined) {
   return useQuery({
     queryKey: boardId ? columnKeys.board(boardId) : ['columns', '_'],
     enabled: !!boardId,
-    // P4.0 fix: see useBoardItems — disabled to avoid the refocus
-    // stampede. The 3s board_watermark poll catches us up.
     refetchOnWindowFocus: false,
     queryFn: async (): Promise<ColumnRow[]> => {
-      const { data, error } = await supabase
-        .from('columns')
-        .select('*')
-        .eq('board_id', boardId!)
-        .is('archived_at', null)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as ColumnRow[];
+      return await dbSelect<ColumnRow>('columns', {
+        filters: { board_id: eq(boardId!), archived_at: isNull },
+        order: 'sort_order.asc',
+      });
     },
   });
 }
@@ -64,13 +66,13 @@ export function useCreateColumn() {
   return useMutation({
     mutationFn: async ({ boardId, type }: { boardId: string; type: Exclude<ColumnType, 'task_name'> }) => {
       // Determine next sort_order.
-      const { data: existing } = await supabase
-        .from('columns')
-        .select('sort_order')
-        .eq('board_id', boardId)
-        .order('sort_order', { ascending: false })
-        .limit(1);
-      const nextSort = ((existing?.[0] as { sort_order?: number })?.sort_order ?? -1) + 1;
+      const existing = await dbSelect<{ sort_order: number }>('columns', {
+        select: 'sort_order',
+        filters: { board_id: eq(boardId) },
+        order: 'sort_order.desc',
+        limit: 1,
+      });
+      const nextSort = (existing[0]?.sort_order ?? -1) + 1;
       const insert = {
         board_id: boardId,
         name: DEFAULT_NAME[type],
@@ -78,13 +80,7 @@ export function useCreateColumn() {
         sort_order: nextSort,
         width: DEFAULT_WIDTH[type],
       };
-      const { data, error } = await supabase
-        .from('columns')
-        .insert(insert as never)
-        .select('*')
-        .single();
-      if (error) throw error;
-      const col = data as ColumnRow;
+      const col = await dbInsertReturning<ColumnRow>('columns', insert);
 
       // For label-bearing columns, seed an empty default label so the cell
       // renders meaningfully on first click.
@@ -107,9 +103,7 @@ export function useCreateColumn() {
               { name: 'Tag 1', color: '#0086C0', sort_order: 0, is_default: false },
               { name: 'Tag 2', color: '#9CD326', sort_order: 1, is_default: false },
             ];
-        await supabase
-          .from('column_labels')
-          .insert(seeds.map((s) => ({ column_id: col.id, ...s })) as never);
+        await dbInsertMany('column_labels', seeds.map((s) => ({ column_id: col.id, ...s })));
       }
       return col;
     },
@@ -127,14 +121,8 @@ export function useUpdateColumn() {
       id: string; boardId: string;
       patch: Partial<Pick<ColumnRow, 'name' | 'width' | 'sort_order' | 'is_pinned_left' | 'is_pinned_right' | 'settings'>>;
     }) => {
-      const { error } = await supabase.from('columns').update(patch as never).eq('id', id);
-      if (error) throw error;
+      await dbUpdate('columns', { id: eq(id) }, patch);
     },
-    // Optimistic patch. Prevents the "resize snaps back" flicker that
-    // happens when the columns query takes its sweet time to refetch
-    // after onSettled — the cell layout reads `column.width` straight
-    // from the cache, so without this the UI briefly reverts to the
-    // pre-mutation width between pointerup and the server response.
     onMutate: async (vars) => {
       const qk = columnKeys.board(vars.boardId);
       await qc.cancelQueries({ queryKey: qk });
@@ -147,7 +135,6 @@ export function useUpdateColumn() {
       return { prev };
     },
     onError: (_e, vars, ctx) => {
-      // Roll back if the server rejected.
       const prev = (ctx as { prev?: ColumnRow[] } | undefined)?.prev;
       if (prev) qc.setQueryData(columnKeys.board(vars.boardId), prev);
     },
@@ -162,13 +149,8 @@ export function useReorderColumns() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ boardId, orderedIds }: { boardId: string; orderedIds: string[] }) => {
-      // task_name must remain first. Caller is responsible for keeping it pinned.
       for (let i = 0; i < orderedIds.length; i += 1) {
-        const { error } = await supabase
-          .from('columns')
-          .update({ sort_order: i } as never)
-          .eq('id', orderedIds[i]);
-        if (error) throw error;
+        await dbUpdate('columns', { id: eq(orderedIds[i]) }, { sort_order: i });
       }
       return boardId;
     },
@@ -183,9 +165,8 @@ export function useDeleteColumn() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id }: { id: string; boardId: string }) => {
-      // The DB trigger guard_task_name_column will reject task_name deletes.
-      const { error } = await supabase.from('columns').delete().eq('id', id);
-      if (error) throw error;
+      // The DB trigger guard_task_name_column rejects task_name deletes.
+      await dbDelete('columns', { id: eq(id) });
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: columnKeys.board(vars.boardId) });

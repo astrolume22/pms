@@ -165,6 +165,10 @@ async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promi
       notifyReconnecting();
       const { data, error } = await supabase.auth.refreshSession();
       if (!error && data.session?.access_token) {
+        // Update the cached token used by src/lib/db.ts so the next
+        // direct-fetch board call picks up the fresh access token without
+        // waiting for onAuthStateChange to fire.
+        cachedAccessToken = data.session.access_token;
         const retryHeaders = new Headers(init?.headers ?? undefined);
         retryHeaders.set('Authorization', `Bearer ${data.session.access_token}`);
         const retryInit: RequestInit = { ...init, headers: retryHeaders };
@@ -357,6 +361,60 @@ export const supabase = createClient(url, anonKey, {
   global: {
     fetch: timeoutFetch,
   },
+});
+
+// =====================================================================
+// CACHED ACCESS TOKEN — funnel jam fix.
+//
+// Every supabase.from()/.rpc() call internally awaits auth.getSession()
+// BEFORE issuing any HTTP request (supabase-js cjs:_getAccessToken →
+// auth.getSession → _acquireLock). After a tab refocus, that get-session
+// path was the single PROVEN choke point that left every board fetch
+// queued before timeoutFetch was ever entered — Network tab showed zero
+// requests, the [fetch #N] funnel logs showed zero entries.
+//
+// We can't pass the supabase-js top-level `accessToken` option to skip
+// per-request getSession: in this installed version (supabase-js
+// 2.106.0, index.cjs:630-637) that REPLACES supabase.auth with a Proxy
+// that throws on every property access — breaking signInWithPassword,
+// refreshSession, onAuthStateChange, and the invite-accept flow.
+//
+// Instead we keep supabase.auth fully usable for login / refresh /
+// listeners, AND we expose the latest access token here as a cache that
+// src/lib/db.ts reads PER-REQUEST without ever touching auth.getSession.
+// The cache is seeded once at boot and refreshed by onAuthStateChange;
+// the 401-retry inside timeoutFetch above also updates it whenever a
+// refreshSession lands. No focus listener, no lock acquisition per
+// request — the wedge funnel has nothing left to jam on.
+// =====================================================================
+let cachedAccessToken: string | null = null;
+
+export function getCachedAccessToken(): string | null {
+  return cachedAccessToken;
+}
+
+export function setCachedAccessToken(token: string | null): void {
+  cachedAccessToken = token;
+}
+
+// timeoutFetch + anon key + URL re-exported so src/lib/db.ts can issue
+// PostgREST calls through the same instrumented fetch wrapper (preserves
+// the [fetch #N] funnel logs and the refresh-on-401 retry) without
+// having to depend on the supabase client itself.
+export { timeoutFetch };
+export const SUPABASE_URL = url;
+export const SUPABASE_ANON_KEY = anonKey;
+
+// onAuthStateChange is a SUBSCRIPTION setup (no lock acquired). The
+// callback fires on every sign-in / sign-out / token refresh, so the
+// cache is always current. The one initial getSession() fires once at
+// app boot — the ONLY time getSession runs on the data-loading path —
+// and seeds the cache before any board hook fires its first query.
+supabase.auth.onAuthStateChange((_event, session) => {
+  cachedAccessToken = session?.access_token ?? null;
+});
+void supabase.auth.getSession().then(({ data }) => {
+  cachedAccessToken = data.session?.access_token ?? null;
 });
 
 // =====================================================================
