@@ -261,6 +261,63 @@ function notifyReconnectFailed(): void {
   }
 }
 
+// =====================================================================
+// Per-tab in-memory auth mutex with a hard 2s ceiling. Replaces
+// auth-js's origin-scoped navigatorLock (Web Locks API), which was
+// shared across every tab of this origin and could deadlock getSession()
+// on refocus — blocking every supabase call BEFORE any fetch was issued.
+//
+// Mechanism of the bug we're fixing:
+//   1. Two tabs of p-m-system.vercel.app are open. Web Locks is origin-
+//      scoped per W3C spec, so `lock:pms.auth` is one lock shared by both.
+//   2. On refocus, auth-js's own visibilitychange handler
+//      (GoTrueClient _handleVisibilityChange) acquires that lock to run
+//      _recoverAndRefresh.
+//   3. Every supabase.from()/.rpc()/mutation awaits getSession() →
+//      _acquireLock BEFORE the fetch line ever runs (supabase-js cjs:
+//      _getAccessToken → auth.getSession → _acquireLock). If the lock is
+//      held by a frozen sibling tab or the in-process pendingInLock
+//      queue-drain never settles, every call queues forever and no HTTP
+//      request is ever issued — React Query stuck pending with ZERO
+//      network traffic, matching the observed symptom exactly.
+//
+// What this lock does:
+//   • Lives inside THIS tab's JS heap (a single promise chain). No
+//     navigator.locks.request call → no origin-wide shared lock → no
+//     cross-tab contention possible.
+//   • Caps every single fn() invocation at 2s with Promise.race against a
+//     setTimeout that rejects with an AbortError. Auth-js catches the
+//     rejection and proceeds (or surfaces a clean error) — it cannot wedge.
+//   • Serializes calls so auth-js's internal invariants (one in-flight
+//     getSession at a time, refresh-then-read ordering) still hold.
+//   • A rejection in fn() does NOT poison the chain — the next caller's
+//     run() fires either way. The chain stores `void` only.
+// =====================================================================
+let authLockChain: Promise<unknown> = Promise.resolve();
+const AUTH_LOCK_TIMEOUT_MS = 2_000;
+function tabLocalAuthLock<R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> {
+  const run = async (): Promise<R> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<R>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new DOMException('auth lock timed out after 2s', 'AbortError')),
+            AUTH_LOCK_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  // Serialize on a chain, but never let a rejection poison the chain.
+  const next = authLockChain.then(run, run);
+  authLockChain = next.then(() => undefined, () => undefined);
+  return next as Promise<R>;
+}
+
 export const supabase = createClient(url, anonKey, {
   auth: {
     persistSession: true,
@@ -274,10 +331,15 @@ export const supabase = createClient(url, anonKey, {
     // /reset-password and magic-link → / flows pick up the session.
     detectSessionInUrl: true,
     storageKey: 'pms.auth',
-    // No `lock:` option — auth-js auto-selects navigatorLock (real Web
-    // Locks API mutex). See the "Auth lock" comment block above for
-    // why the previous passThroughLock shim was the root cause of the
-    // focus-then-wedge bug.
+    // Explicit per-tab lock replaces auth-js's default navigatorLock
+    // (Web Locks API). navigatorLock is ORIGIN-scoped: two tabs of this
+    // app share one `lock:pms.auth`, and a stall in tab A's
+    // _recoverAndRefresh callback wedges tab B's next supabase call
+    // forever — getSession awaits _acquireLock BEFORE issuing any
+    // fetch. The replacement is in-memory (per-tab, no cross-tab scope)
+    // and bounded to 2s so no acquire can hang indefinitely.
+    lock: tabLocalAuthLock,
+    lockAcquireTimeout: AUTH_LOCK_TIMEOUT_MS,
   },
   global: {
     fetch: timeoutFetch,
