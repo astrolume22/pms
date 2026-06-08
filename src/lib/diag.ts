@@ -1,42 +1,31 @@
 /**
- * Diagnostic flags for the post-refocus "spinner stuck, must refresh"
- * investigation.
- *
- * Two flags, one file:
+ * Diagnostic + behaviour flags for the post-refocus "spinner stuck,
+ * must refresh" fix.
  *
  *   DIAG (default true)
- *     Master switch for every instrumented console.log added during
- *     the 10-way refocus-wedge hunt. Flip to false to silence the
- *     entire DIAG channel across boardSync, AppShell, shift hooks,
- *     etc. without touching any behaviour. The fetch-layer logs in
- *     src/lib/supabase.ts and the getSession logs in safeAuth.ts have
- *     their own flags (DIAG_FETCH there, DIAG in safeAuth) — we don't
- *     reach across module boundaries to override them, but they're
- *     all already true today.
+ *     Master switch for instrumented console.logs added during the
+ *     10-way refocus-wedge hunt. Flip to false to silence the entire
+ *     DIAG channel across boardSync, AppShell, shift hooks, etc.
+ *     without touching any behaviour.
  *
- *   DISABLE_REALTIME (default false)
- *     Founder's isolation test. When true, useBoardRealtimeSync's
- *     useEffect short-circuits before opening a Supabase Realtime
- *     channel. NOTHING ELSE CHANGES: the 3-second board_watermark
- *     poll continues running, the same-browser BroadcastChannel still
- *     fires, the Save button still inserts a board_sync_pings row.
- *     What disappears: the WebSocket connection to
- *     `wss://<project>.supabase.co/realtime/v1/...`, the
- *     postgres_changes events, and the Realtime broadcast.
+ *   DISABLE_REALTIME (default TRUE — see decision below)
+ *     The Realtime WebSocket is OFF by default. The founder's live
+ *     console proved that after a sub-1s blur→focus, 3 board/shift
+ *     queries get stuck in fetchStatus='pending' forever and the
+ *     spinner never clears. With realtime disabled, the app runs on
+ *     plain HTTPS fetch + the 3-second board_watermark poll + the
+ *     BroadcastChannel for same-browser sync. Cross-machine updates
+ *     (Dr. John's edits) still arrive — they're carried by the
+ *     watermark poll, just at 3s latency instead of WebSocket
+ *     instant. We chose reliability over instant.
  *
- *     Compare WITH and WITHOUT realtime:
- *       1. DISABLE_REALTIME = false  (current)  → bug present? → yes/no
- *       2. DISABLE_REALTIME = true   → reload → bug present? → yes/no
- *
- *     If row 1 = yes AND row 2 = no, the WebSocket IS the culprit.
- *     If both rows = yes, realtime is innocent and the bug lives in
- *     the fetch/query path (candidates 4-10).
- *
- *     This is a diagnostic toggle ONLY — not a permanent off-switch.
- *     Flip back to false once we know.
+ *     Reverting to true (i.e. re-enabling realtime) is a single
+ *     character edit and rebuilds in seconds — kept as a flag, not
+ *     deleted, so the option stays available if a future fix
+ *     genuinely heals the WebSocket-after-blur teardown.
  */
 export const DIAG = true;
-export const DISABLE_REALTIME = false;
+export const DISABLE_REALTIME = true;
 
 /**
  * Common diag log entry point. Always prefixes with `[diag][<tag>]`

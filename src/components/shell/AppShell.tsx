@@ -75,6 +75,55 @@ function useRefocusInvalidate(): void {
     }
   };
 
+  // FIX 3 — refocus cancel/refetch for the known wedge-prone roots.
+  // Diagnosis confirmed the founder's exact pattern: on a sub-1s
+  // blur→focus, queries with these key prefixes go into fetchStatus=
+  // 'pending' and never resolve. The cause appears to be a half-dead
+  // promise inside React Query that survived the AbortController fire.
+  //
+  // The cure is mechanical: on every focus, walk these roots and for
+  // any query in a stuck-pending state, cancel + refetch. Cancel first
+  // so the orphaned promise is discarded; refetch fires a fresh
+  // request that actually completes.
+  //
+  // This is intentionally NARROW: only the board/shift/watermark roots
+  // we've seen wedge. Notifications, profile, auth queries are
+  // untouched — they have their own refresh cycles and are not
+  // implicated in the wedge.
+  const recoverStuckBoardQueries = () => {
+    let recovered = 0;
+    const stuckKeys: (readonly unknown[])[] = [];
+    for (const q of qc.getQueryCache().getAll()) {
+      const root = q.queryKey[0];
+      if (typeof root !== 'string') continue;
+      // 'board-watermark' is the founder's confirmed wedge target; the
+      // four board roots are the next most likely. shift queries also
+      // hit the same code path.
+      const inScope =
+        root === 'board-watermark' ||
+        REFOCUS_QUERY_ROOTS.includes(root);
+      if (!inScope) continue;
+      const fs = q.state.fetchStatus;
+      const s  = q.state.status;
+      // Stuck = fetching (no resolution) OR pending+idle (no fetch at all)
+      const isStuck = fs === 'fetching' || (s === 'pending' && fs === 'idle');
+      if (!isStuck) continue;
+      stuckKeys.push(q.queryKey);
+      recovered++;
+      // Cancel + refetch by key. Cancel awaits internally; refetch
+      // fires after.
+      void qc.cancelQueries({ queryKey: q.queryKey })
+        .then(() => qc.refetchQueries({ queryKey: q.queryKey }))
+        .catch(() => { /* watchdog catches what slips through here */ });
+    }
+    if (recovered > 0) {
+      if (DIAG) {
+        diag('refocus', 'recovered ' + recovered + ' stuck board/shift queries');
+        for (const k of stuckKeys) diag('refocus.cancelled', k);
+      }
+    }
+  };
+
   useEffect(() => {
     const markHidden = (origin: string) => {
       if (hiddenSinceRef.current === null) {
@@ -116,6 +165,13 @@ function useRefocusInvalidate(): void {
       // were hidden. If nothing is paused (the expected case with
       // networkMode:'always'), this is a no-op.
       kickPausedQueries();
+
+      // FIX 3 — also actively recover any board/shift queries that
+      // were already pending when we got hidden, in case the in-flight
+      // fetch silently died while the tab was backgrounded. Cheap walk
+      // (≤ a few dozen queries match the scope predicate) and a no-op
+      // when nothing is stuck.
+      recoverStuckBoardQueries();
 
       hiddenSinceRef.current = null;
       // First load — no prior hidden period to compare against.

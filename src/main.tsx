@@ -10,6 +10,7 @@ import { FullPageSpinner } from '@/components/Spinner';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
 import { attachBoardSyncListener } from '@/lib/boardSync';
+import { startQueryWatchdog } from '@/lib/queryWatchdog';
 import { routeTree } from './routeTree.gen';
 
 // =====================================================================
@@ -113,6 +114,16 @@ const queryClient = new QueryClient({
 // the three board-scoped query keys here, so React Query refetches and
 // the UI catches up within one network round-trip. See src/lib/boardSync.ts.
 attachBoardSyncListener(queryClient);
+
+// Stuck-pending watchdog — every 5s, scan the cache for queries that
+// have been in fetchStatus='fetching' or status='pending' (with no
+// in-flight fetch) for ≥ 8s, and force-cancel + force-refetch them.
+// This is the structural defence against the "spinner forever after a
+// brief alt-tab" wedge the founder reproduced in console: the abort
+// from timeoutFetch sometimes isn't translating into a clean React
+// Query error transition, leaving the query in a zombie pending state.
+// See src/lib/queryWatchdog.ts for the full mechanic.
+startQueryWatchdog(queryClient);
 
 const router = createRouter({
   routeTree,
