@@ -5,6 +5,7 @@ import { TopBar } from './TopBar';
 import { IconRail } from './IconRail';
 import { WorkspacePanel } from './WorkspacePanel';
 import { useAuthStore } from '@/state/authStore';
+import { DIAG, diag, logStuckQueries } from '@/lib/diag';
 
 // =====================================================================
 // useRefocusInvalidate — when the tab comes back from a SUSTAINED
@@ -60,45 +61,75 @@ function useRefocusInvalidate(): void {
   // hard guarantee that the wedge can't survive a focus event.
   const kickPausedQueries = () => {
     let kicked = 0;
+    const paused: (readonly unknown[])[] = [];
     for (const q of qc.getQueryCache().getAll()) {
       if (q.state.fetchStatus === 'paused') {
+        paused.push(q.queryKey);
         void q.fetch();
         kicked++;
       }
     }
-    if (kicked > 0) console.log(`[refocus] kicked ${kicked} paused queries`);
+    if (kicked > 0) {
+      console.log(`[refocus] kicked ${kicked} paused queries`);
+      if (DIAG) for (const k of paused) diag('refocus.kicked', k);
+    }
   };
 
   useEffect(() => {
-    const markHidden = () => {
+    const markHidden = (origin: string) => {
       if (hiddenSinceRef.current === null) {
         hiddenSinceRef.current = Date.now();
       }
+      // DIAG candidates #6, #7, #8 all key off this transition. We log
+      // the trigger (blur / visibilitychange-hidden), navigator.onLine,
+      // document.hasFocus(), document.visibilityState, and the current
+      // hiddenSinceRef so the founder can watch the guards flip.
+      if (DIAG) diag('focus', 'HIDDEN via ' + origin +
+        '  onLine=' + navigator.onLine +
+        '  visibilityState=' + document.visibilityState +
+        '  hasFocus=' + document.hasFocus() +
+        '  hiddenSinceRef=' + hiddenSinceRef.current);
     };
-    const onVisibleOrFocus = () => {
+    const onVisibleOrFocus = (origin: string) => {
       // Only act on the becoming-visible transition. The native
       // `focus` event also fires on document.visibilityState=visible,
       // so we treat them uniformly.
       if (document.visibilityState !== 'visible') return;
+
+      const hiddenSince = hiddenSinceRef.current;
+      const hiddenMs = hiddenSince === null ? 0 : Date.now() - hiddenSince;
+
+      // DIAG: log the full focus-return state so we can correlate with
+      // realtime status, fetch lines, and watermark ticks afterwards.
+      if (DIAG) diag('focus', 'VISIBLE via ' + origin +
+        '  onLine=' + navigator.onLine +
+        '  hiddenMs=' + hiddenMs +
+        '  visibilityState=' + document.visibilityState +
+        '  hasFocus=' + document.hasFocus());
+      // Walk the cache RIGHT AFTER refocus and report any stuck queries
+      // (paused / pending / errored). Candidates #4 and #8 both show
+      // up here. The output is bounded (max 1 line per cache entry) and
+      // only fires when there's something interesting.
+      if (DIAG) logStuckQueries(qc, 'focus(' + origin + ')');
 
       // Always run the paused-query sweep, regardless of how long we
       // were hidden. If nothing is paused (the expected case with
       // networkMode:'always'), this is a no-op.
       kickPausedQueries();
 
-      const hiddenSince = hiddenSinceRef.current;
       hiddenSinceRef.current = null;
       // First load — no prior hidden period to compare against.
       if (hiddenSince === null) return;
 
-      const hiddenMs = Date.now() - hiddenSince;
       if (hiddenMs < SUSTAINED_HIDDEN_MS) {
         // Sub-5s blur — sub-second alt-tab, brief click elsewhere,
         // mouse leaving the window. NO-OP for the invalidate-storm.
+        if (DIAG) diag('focus', 'sub-' + SUSTAINED_HIDDEN_MS + 'ms refocus — NO invalidate (hiddenMs=' + hiddenMs + ')');
         return;
       }
 
       const cutoff = Date.now() - STALE_WINDOW_MS;
+      if (DIAG) diag('focus', 'sustained refocus (' + hiddenMs + 'ms) — invalidating ' + REFOCUS_QUERY_ROOTS.join(','));
       void qc.invalidateQueries({
         predicate: (q) => {
           if (q.state.dataUpdatedAt >= cutoff) return false;
@@ -108,17 +139,32 @@ function useRefocusInvalidate(): void {
       });
     };
     const onHidden = () => {
-      if (document.visibilityState === 'hidden') markHidden();
+      if (document.visibilityState === 'hidden') markHidden('visibilitychange');
     };
+    const onBlur     = () => markHidden('window.blur');
+    const onFocus    = () => onVisibleOrFocus('window.focus');
+    const onVisFire  = () => onVisibleOrFocus('visibilitychange');
+    // Candidate #6 instrumentation — log navigator.onLine flips. Pure
+    // log, no behaviour change. We do NOT pause anything on offline
+    // (networkMode:'always' covers that). We just want to SEE whether
+    // navigator flickers offline during the bug window.
+    const onOnline   = () => { if (DIAG) diag('online', 'navigator -> online'); };
+    const onOffline  = () => { if (DIAG) diag('online', 'navigator -> OFFLINE'); };
     document.addEventListener('visibilitychange', onHidden);
-    document.addEventListener('visibilitychange', onVisibleOrFocus);
-    window.addEventListener('blur', markHidden);
-    window.addEventListener('focus', onVisibleOrFocus);
+    document.addEventListener('visibilitychange', onVisFire);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    if (DIAG) diag('focus', 'listeners attached  initial onLine=' + navigator.onLine +
+      '  visibilityState=' + document.visibilityState);
     return () => {
       document.removeEventListener('visibilitychange', onHidden);
-      document.removeEventListener('visibilitychange', onVisibleOrFocus);
-      window.removeEventListener('blur', markHidden);
-      window.removeEventListener('focus', onVisibleOrFocus);
+      document.removeEventListener('visibilitychange', onVisFire);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qc]);

@@ -11,9 +11,28 @@
  * Higher phases (P4.3+) add lock / break / admin mutations on top of
  * the skeleton RPCs already shipped in 0057.
  */
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DIAG, diag } from '@/lib/diag';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/state/authStore';
+
+// =====================================================================
+// DIAG candidate #9 helper — log every transition of an `enabled` flag.
+// If a shift query is stuck not running after refocus, the founder will
+// see the value flip true→false→true here. If it stays true the whole
+// time and queryFn is still not firing, candidate #9 is innocent and we
+// look at candidate #5 (fetch wrapper) next.
+// =====================================================================
+function useEnabledDiag(name: string, enabled: boolean): void {
+  const prev = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!DIAG) return;
+    if (prev.current === enabled) return;
+    diag('shift.enabled', name + ': ' + prev.current + ' → ' + enabled);
+    prev.current = enabled;
+  }, [name, enabled]);
+}
 
 export type ShiftStatus =
   | 'not_started'
@@ -110,6 +129,7 @@ export const shiftKeys = {
 // ---------------------------------------------------------------------
 export function useTodayShiftSession(enabled: boolean) {
   const userId = useAuthStore((s) => s.profile?.id);
+  useEnabledDiag('useTodayShiftSession', enabled && !!userId);
   return useQuery<ShiftSessionRow>({
     queryKey: userId ? shiftKeys.today(userId) : [...shiftKeys.all, 'today', '_'],
     enabled: enabled && !!userId,
@@ -358,6 +378,7 @@ export interface AdminShiftRow {
   expected_end_at: string | null;
 }
 export function useAdminShiftControl(enabled: boolean) {
+  useEnabledDiag('useAdminShiftControl', enabled);
   return useQuery<AdminShiftRow[]>({
     queryKey: ['admin', 'shift-control'],
     enabled,
@@ -731,6 +752,7 @@ export function useShiftCompleteIfDue() {
 }
 
 export function useShiftTick(sessionId: string | undefined, enabled: boolean) {
+  useEnabledDiag('useShiftTick', enabled && !!sessionId);
   return useQuery<ShiftTickPayload>({
     queryKey: sessionId ? shiftKeys.tick(sessionId) : [...shiftKeys.all, 'tick', '_'],
     enabled: enabled && !!sessionId,

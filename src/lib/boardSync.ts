@@ -32,6 +32,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { DIAG, DISABLE_REALTIME, diag } from '@/lib/diag';
 
 const CHANNEL_NAME = 'pms.board-sync';
 
@@ -142,6 +143,17 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
   useEffect(() => {
     if (!boardId) return;
 
+    // DIAG isolation toggle — when the founder flips DISABLE_REALTIME in
+    // src/lib/diag.ts to true, this hook does nothing. No WebSocket
+    // opens, no postgres_changes subscription, no Realtime broadcast.
+    // Cross-tab sync continues via the 3s watermark poll + Save button +
+    // BroadcastChannel only. If the refocus bug DISAPPEARS in this mode,
+    // the WebSocket is the culprit. See diag.ts for the full procedure.
+    if (DISABLE_REALTIME) {
+      diag('realtime', 'DISABLED — useBoardRealtimeSync short-circuit (board=' + boardId + ')');
+      return;
+    }
+
     const channelName = 'board:' + boardId;
     let activeChannel: RealtimeChannel | null = null;
     let teardown = false;
@@ -153,7 +165,8 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
     let attempt = 0;
     let retryTimer: number | null = null;
 
-    const invalidate = () => {
+    const invalidate = (source?: string) => {
+      if (DIAG && source) diag('realtime', 'invalidate from ' + source + ' (board=' + boardId.slice(0, 8) + ')');
       void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
       void qc.invalidateQueries({ queryKey: ['groups', 'board', boardId] });
       void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
@@ -165,31 +178,33 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
     // the old object after a hard error doesn't always recover.
     const open = () => {
       if (teardown) return;
+      if (DIAG) diag('realtime', 'open(): subscribing channel "' + channelName + '" attempt=' + attempt);
       const ch = supabase.channel(channelName);
 
       // Rows that carry board_id directly — filter server-side so we
       // only receive what's relevant. (Saves bandwidth + protects
       // against accidental cross-board leakage even if RLS were misconfigured.)
       ch.on('postgres_changes', { event: '*', schema: 'public', table: 'items',
-        filter: 'board_id=eq.' + boardId }, invalidate);
+        filter: 'board_id=eq.' + boardId }, () => invalidate('pg:items'));
       ch.on('postgres_changes', { event: '*', schema: 'public', table: 'groups',
-        filter: 'board_id=eq.' + boardId }, invalidate);
+        filter: 'board_id=eq.' + boardId }, () => invalidate('pg:groups'));
       ch.on('postgres_changes', { event: '*', schema: 'public', table: 'columns',
-        filter: 'board_id=eq.' + boardId }, invalidate);
+        filter: 'board_id=eq.' + boardId }, () => invalidate('pg:columns'));
       // item_column_values has no board_id column — subscribe globally
       // and invalidate on any change. Since the React Query queries are
       // already scoped to this board, the refetch only pulls our rows.
-      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' }, invalidate);
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'item_column_values' },
+        () => invalidate('pg:item_column_values'));
       // board_sync_pings — the Save button writes a row here on click.
       // The most reliable cross-machine signal: goes through the
       // postgres_changes pipeline cell saves use.
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_sync_pings',
-        filter: 'board_id=eq.' + boardId }, invalidate);
+        filter: 'board_id=eq.' + boardId }, () => invalidate('pg:board_sync_pings'));
       // Broadcast layer — same-name channel. Fastest signal IF the
       // broadcast service is healthy. Supplementary; postgres_changes
       // above is the actual reliability guarantee.
       ch.on('broadcast', { event: 'force-sync' }, () => {
-        invalidate();
+        invalidate('broadcast:force-sync');
       });
 
       // Self-heal status callback. Chrome aggressively suspends
@@ -203,11 +218,17 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
       // from the DB.
       ch.subscribe((status) => {
         if (teardown) return;
+        // DIAG: every status callback gets a timestamped line. After a
+        // brief blur→focus, if the socket dies the founder will see
+        // CLOSED here. If recovery is healthy, a fresh SUBSCRIBED
+        // follows within (1, 2, 4, 8…) seconds. If the founder sees
+        // CLOSED with no follow-up SUBSCRIBED, the WebSocket is parked.
+        if (DIAG) diag('realtime', 'status=' + status + ' channel="' + channelName + '" attempt=' + attempt + ' at ' + new Date().toISOString());
         if (status === 'SUBSCRIBED') {
           // First subscribe of this lifecycle: nothing missed. A
           // RE-subscribe (attempt > 0): catch up on whatever might
           // have changed while the socket was dead.
-          if (attempt > 0) invalidate();
+          if (attempt > 0) invalidate('reconnect');
           attempt = 0;
           return;
         }
@@ -216,6 +237,7 @@ export function useBoardRealtimeSync(boardId: string | undefined): void {
           // Realtime outage doesn't burn battery.
           const delay = Math.min(30_000, 1_000 * Math.pow(2, attempt));
           attempt += 1;
+          if (DIAG) diag('realtime', 'scheduling reconnect in ' + delay + 'ms (next attempt=' + attempt + ')');
           if (retryTimer !== null) clearTimeout(retryTimer);
           retryTimer = window.setTimeout(() => {
             retryTimer = null;
@@ -294,16 +316,29 @@ export function useBoardWatermarkPoll(boardId: string | undefined): void {
     retry: 1,
     queryFn: async () => {
       if (!boardId) return null;
+      // DIAG: every tick logs. If the founder sees [wm] tick lines
+      // stop arriving after a refocus, candidate #3 is confirmed — the
+      // 3s poll has died. If they keep arriving but [fetch #N] lines
+      // don't pair up, the fetch wrapper is dropping requests
+      // (candidate #5).
+      if (DIAG) diag('wm', 'tick board=' + boardId.slice(0, 8));
       const { data, error } = await supabase.rpc('board_watermark', { p_board_id: boardId });
-      if (error) throw error;
+      if (error) {
+        if (DIAG) diag('wm', 'tick error: ' + error.message);
+        throw error;
+      }
       const ts = typeof data === 'string' ? data : null;
       if (!ts) return null;
       const previous = lastSeenRef.current;
       lastSeenRef.current = ts;
       // First call: record the baseline, don't invalidate (would just
       // cause a redundant refetch right after mount).
-      if (previous === null) return ts;
+      if (previous === null) {
+        if (DIAG) diag('wm', 'baseline ts=' + ts);
+        return ts;
+      }
       if (ts !== previous) {
+        if (DIAG) diag('wm', 'advanced ' + previous + ' → ' + ts + ', invalidating board queries');
         void qc.invalidateQueries({ queryKey: ['items', 'board', boardId] });
         void qc.invalidateQueries({ queryKey: ['groups', 'board', boardId] });
         void qc.invalidateQueries({ queryKey: ['columns', 'board', boardId] });
