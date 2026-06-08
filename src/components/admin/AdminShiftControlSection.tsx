@@ -25,6 +25,7 @@ import { EmptyMessage } from '@/components/EmptyMessage';
 import {
   useAdminShiftControl,
   useShiftAdminSetAccountLock,
+  useShiftAdminUnlock,
   useShiftAdminRearm,
   useShiftAdminForceEnd,
   useBioBreakPending,
@@ -38,19 +39,28 @@ import { Check, X, Square, Clock } from 'lucide-react';
 
 // =====================================================================
 // LockToggle — a navy/gold inline switch built on a styled
-// <input type="checkbox"> + sibling <span> track. Drives the
-// ACCOUNT-level lock (shift_configs.account_locked) since 0064.
+// <input type="checkbox"> + sibling <span> track.
 //
-// Behaviour:
-//   • `checked` = the account IS currently locked. Independent of any
-//     session_id; works for offline managers and brand-new managers.
-//   • Flipping fires `onToggle(next)`; the parent owns the optimistic
-//     state and calls shift_admin_set_account_lock.
-//   • `disabled` is ONLY for the brief window while the mutation is
-//     in flight (isBusy). It is NEVER set just because the manager
-//     has no session today — that was the whole point of moving from
-//     session-level to account-level lock.
-//   • Label text right of the track flips between "Locked" / "Unlocked".
+// As of "unified lock toggle": this switch is the SINGLE SOURCE OF TRUTH
+// for "is this manager currently blocked from working?" — covering BOTH
+// lock types in one control:
+//   • `checked === true` when EITHER
+//        – shift_configs.account_locked = true   (permanent admin lock, 0064)
+//        – today's shift_sessions.status = 'locked' (auto period-lock from
+//          shift_self_period_lock OR a manual shift_admin_lock)
+//   • Toggle OFF runs whichever paths apply (could be both):
+//        – account_locked → shift_admin_set_account_lock(user, false)
+//        – session locked → shift_admin_unlock(session_id)
+//                       + shift_admin_rearm(session_id)
+//          (unlock satisfies the status='locked' precondition + writes
+//           the audit event; rearm zeroes the clock so the very next tick
+//           does NOT instantly re-lock at the previous period boundary.)
+//   • Toggle ON applies the strongest lock — account_locked = true. This
+//     also blocks shift_start server-side via the 0064 guard.
+//   • `disabled` is ONLY for the brief window while a mutation is in
+//     flight (isBusy). NEVER tied to session_id presence: the toggle
+//     must work for offline / no-session-today / brand-new / auto-locked
+//     managers alike.
 //   • Pure CSS, no new dependency.
 // =====================================================================
 function LockToggle({
@@ -157,6 +167,7 @@ export function AdminShiftControlSection() {
   const isAdmin = !!profile && (profile.role === 'admin' || profile.is_super_admin);
   const { data: rows, isLoading, refetch, isFetching } = useAdminShiftControl(isAdmin);
   const setAccountLock = useShiftAdminSetAccountLock();
+  const unlockMut  = useShiftAdminUnlock();
   const rearmMut   = useShiftAdminRearm();
   const forceMut   = useShiftAdminForceEnd();
 
@@ -206,20 +217,28 @@ export function AdminShiftControlSection() {
 
   if (!isAdmin) return null;
 
-  // Single flip handler for the ACCOUNT-LEVEL lock toggle (0064).
-  //   • next === true  → shift_admin_set_account_lock(user_id, true)
-  //   • next === false → shift_admin_set_account_lock(user_id, false)
+  // Unified flip handler — ONE switch reflects+controls BOTH lock types.
   //
-  // Critically: this NEVER requires a session_id. The toggle works for
-  // offline managers, managers without a shift today, brand-new
-  // managers — anyone. The lock is on shift_configs.account_locked.
-  // The existing session-level "Paused (locked)" / "Running" badge in
-  // the Remaining column reflects the SEPARATE session period-lock and
-  // stays untouched.
+  // Toggle ON (admin lock):
+  //   • Always applies the ACCOUNT-level lock (the strongest — also blocks
+  //     shift_start server-side via the 0064 guard at the SQL layer).
+  //   • Works regardless of session_id — offline / no-session-today /
+  //     brand-new managers are all lockable.
+  //
+  // Toggle OFF (admin unlock — free the manager to work whatever the cause):
+  //   • If account_locked === true → shift_admin_set_account_lock(user, false).
+  //   • If status === 'locked' (auto period-lock OR manual shift_admin_lock)
+  //     AND session_id is present → shift_admin_unlock(session_id) AND
+  //     shift_admin_rearm(session_id), in that order. Unlock satisfies the
+  //     status='locked' precondition and writes the unlock audit; rearm
+  //     hard-resets the clock (started_at = now(), paused_total_seconds = 0,
+  //     current_period_index = 0) so the very next tick reports
+  //     period_lock_due=false and the manager does NOT instantly re-lock.
+  //   • Both run if both apply.
   //
   // Optimistic flip BEFORE await so the switch animates immediately;
   // override cleared in finally so the next 10s poll's authoritative
-  // r.account_locked drives the rendered state.
+  // (account_locked || status==='locked') drives the rendered state.
   const runLockToggle = async (row: AdminShiftRow, next: boolean) => {
     setLockOverrides((prev) => {
       const m = new Map(prev);
@@ -228,12 +247,27 @@ export function AdminShiftControlSection() {
     });
     setBusy(row.user_id);
     try {
-      await setAccountLock.mutateAsync({ targetUserId: row.user_id, locked: next });
-      toast.success(
-        next
-          ? `Locked ${row.full_name ?? row.username}'s account`
-          : `Unlocked ${row.full_name ?? row.username}'s account`,
-      );
+      if (next) {
+        await setAccountLock.mutateAsync({ targetUserId: row.user_id, locked: true });
+        toast.success(`Locked ${row.full_name ?? row.username}`);
+      } else {
+        const ranAccount = row.account_locked === true;
+        const ranPeriod  = row.status === 'locked' && !!row.session_id;
+        if (ranAccount) {
+          await setAccountLock.mutateAsync({ targetUserId: row.user_id, locked: false });
+        }
+        if (ranPeriod) {
+          await unlockMut.mutateAsync(row.session_id!);
+          await rearmMut.mutateAsync(row.session_id!);
+        }
+        const who = row.full_name ?? row.username;
+        const msg =
+          ranAccount && ranPeriod ? `Unlocked ${who} — account + period lock cleared, timer re-armed` :
+          ranAccount               ? `Unlocked ${who}'s account` :
+          ranPeriod                ? `Unlocked ${who} — period lock cleared, timer re-armed` :
+                                     `Unlocked ${who}`;
+        toast.success(msg);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : (next ? 'Lock failed' : 'Unlock failed'));
     } finally {
@@ -392,32 +426,44 @@ export function AdminShiftControlSection() {
                     <td className="py-2 pr-0">
                       <div className="flex items-center justify-end gap-1.5">
                         {/*
-                          ACCOUNT-LEVEL toggle (0064). Reads from
-                          shift_configs.account_locked, not the session
-                          status. NEVER disabled for missing session —
-                          this is the whole point of the redesign: an
-                          offline manager / no-session-today / brand-new
-                          manager must still be lockable. `disabled`
-                          only fires while this toggle's own mutation is
-                          in flight (isBusy). The session-level "Paused
-                          (locked)" badge in the Remaining column is a
-                          DIFFERENT concept and is preserved as-is.
+                          UNIFIED lock toggle. `checked` is the OR of:
+                            • shift_configs.account_locked = true (0064
+                              permanent admin lock, also blocks shift_start)
+                            • today's shift_sessions.status = 'locked'
+                              (auto period-lock OR a manual shift_admin_lock)
+                          So an auto-locked manager shows the toggle ON,
+                          and the admin can unlock them right here. NEVER
+                          disabled for missing session — `disabled` only
+                          fires while this toggle's own mutation is in
+                          flight (isBusy). The session-level "Paused
+                          (locked)" badge in the Remaining column AND the
+                          LockedShiftsSection panel are preserved as-is.
                         */}
                         <div className="flex flex-col items-end gap-0.5">
                           <LockToggle
                             idAttr={`lock-toggle-${r.user_id}`}
-                            checked={lockOverrides.get(r.user_id) ?? (r.account_locked ?? false)}
+                            checked={lockOverrides.get(r.user_id) ?? ((r.account_locked ?? false) || r.status === 'locked')}
                             disabled={isBusy}
                             onToggle={(next) => void runLockToggle(r, next)}
                           />
-                          {(lockOverrides.get(r.user_id) ?? (r.account_locked ?? false)) && (
-                            <span
-                              className="text-[10px] font-medium text-amber-200/80"
-                              title={r.account_locked_at ? `Locked since ${new Date(r.account_locked_at).toLocaleString()}` : 'Account locked'}
-                            >
-                              Account locked
-                            </span>
-                          )}
+                          {(() => {
+                            const ov  = lockOverrides.get(r.user_id);
+                            const eff = ov ?? ((r.account_locked ?? false) || r.status === 'locked');
+                            if (!eff) return null;
+                            // Optimistic ON → just-applied account lock.
+                            // Otherwise reflect the strongest active source
+                            // (account_locked wins; else period lock).
+                            const showAccount = ov === true || r.account_locked === true;
+                            const label = showAccount ? 'Account locked' : 'Period locked';
+                            const title = showAccount
+                              ? (r.account_locked_at ? `Account locked since ${new Date(r.account_locked_at).toLocaleString()}` : 'Account locked')
+                              : (r.session_locked_reason ? `Session ${r.session_locked_reason}` : 'Session locked');
+                            return (
+                              <span className="text-[10px] font-medium text-amber-200/80" title={title}>
+                                {label}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <button type="button" onClick={() => void runRearm(r)} disabled={isBusy || !r.session_id}
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
