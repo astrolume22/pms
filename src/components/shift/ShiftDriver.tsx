@@ -23,6 +23,7 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   useTodayShiftSession,
+  useMyAccountLock,
   useShiftTick,
   useShiftMark85Alerted,
   useShiftSelfPeriodLock,
@@ -33,6 +34,7 @@ import { StartShiftGate } from './StartShiftGate';
 import { ShiftCountdownChip } from './ShiftCountdownChip';
 import { ShiftLockedOverlay } from './ShiftLockedOverlay';
 import { ShiftCompletedOverlay } from './ShiftCompletedOverlay';
+import { AccountLockedOverlay } from './AccountLockedOverlay';
 import { BreakControls } from './BreakControls';
 
 // Fire-and-forget POST to the email-alert endpoint. Caller authenticates
@@ -74,6 +76,12 @@ async function postShiftAlertEmail(sessionId: string, kind: '85' | 'lock' | 'com
 
 export function ShiftDriver() {
   const { data: session } = useTodayShiftSession(true);
+  // Account-level lock (0064). Polls every 30s on its own (see hook).
+  // Server enforces the same flag in shift_start(); this hook is the UI
+  // signal so a locked manager sees the overlay instead of the start
+  // button. If the call errors out (cold network), we fall through —
+  // shift_start will still refuse server-side.
+  const { data: accountLock } = useMyAccountLock(true);
   const sessionId = session?.id;
 
   // Tick query stays disabled until we have a session id AND the gate
@@ -191,6 +199,14 @@ export function ShiftDriver() {
   // Prefer tick when present.
   const liveStatus = tick?.status ?? session.status;
 
+  // ACCOUNT lock check (0064). Comes BEFORE the not_started branch so a
+  // locked manager never sees the Start Shift button. Falls through to
+  // the regular branches when accountLock isn't yet loaded (cold mount)
+  // — the server-side shift_start() guard refuses regardless if they
+  // somehow click Start before the lock state lands.
+  if (accountLock?.account_locked) {
+    return <AccountLockedOverlay />;
+  }
   if (liveStatus === 'not_started') {
     return <StartShiftGate />;
   }

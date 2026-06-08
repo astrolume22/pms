@@ -360,6 +360,11 @@ export interface AdminShiftRow {
   // P4.5 — per-employee tz + late-start threshold (config-level)
   timezone: string | null;
   late_start_threshold_seconds: number | null;
+  // P-AccountLock (0064) — account-level admin lock. Independent of any
+  // session: stays true even with no session row today. The admin
+  // toggle keys off this field, never off session_id.
+  account_locked: boolean;
+  account_locked_at: string | null;
   // Today's session (may be null if not_started not yet created).
   session_id: string | null;
   status: ShiftStatus | null;
@@ -387,7 +392,7 @@ export function useAdminShiftControl(enabled: boolean) {
       // Three small parallel queries — RLS lets admins read everything.
       const [usersRes, cfgRes, sessRes] = await Promise.all([
         supabase.from('users').select('id, full_name, username, email, role, status, is_super_admin').eq('role', 'manager').eq('status', 'active').eq('is_super_admin', false),
-        supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id, timezone, late_start_threshold_seconds'),
+        supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id, timezone, late_start_threshold_seconds, account_locked, account_locked_at'),
         supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today, late_start_flag, late_start_minutes, early_end_flag, early_end_minutes, scheduled_start_at, expected_end_at').eq('work_date', todayUTC),
       ]);
       if (usersRes.error) throw usersRes.error;
@@ -398,7 +403,8 @@ export function useAdminShiftControl(enabled: boolean) {
         bio_break_max_per_day: number; bio_break_warn_count: number;
         bio_break_warn_total_seconds: number; bio_break_max_seconds_each: number;
         primary_group_id: string | null; timezone: string;
-        late_start_threshold_seconds: number };
+        late_start_threshold_seconds: number;
+        account_locked: boolean; account_locked_at: string | null };
       type SessRow = { id: string; user_id: string; status: ShiftStatus; required_seconds: number;
         started_at: string | null; paused_total_seconds: number;
         current_pause_started_at: string | null; locked_reason: string | null;
@@ -438,6 +444,8 @@ export function useAdminShiftControl(enabled: boolean) {
           primary_group_name:           cfg?.primary_group_id ? (groupNames.get(cfg.primary_group_id) ?? null) : null,
           timezone:                     cfg?.timezone                      ?? null,
           late_start_threshold_seconds: cfg?.late_start_threshold_seconds  ?? null,
+          account_locked:               cfg?.account_locked                ?? false,
+          account_locked_at:            cfg?.account_locked_at             ?? null,
           session_id:                       s?.id                          ?? null,
           status:                           s?.status                      ?? null,
           session_required_seconds:         s?.required_seconds            ?? null,
@@ -542,6 +550,66 @@ export function useShiftAdminUnlock() {
       // Also kick the admin's locked-shifts list so the row disappears.
       void qc.invalidateQueries({ queryKey: ['admin', 'locked-shifts'] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useShiftAdminSetAccountLock — account-level admin lock (0064).
+//
+// Independent of any session: the toggle works even when the target
+// manager has no shift_sessions row today. Server-side, the RPC upserts
+// shift_configs and audits via 'admin_override' + meta.action.
+// ---------------------------------------------------------------------
+export function useShiftAdminSetAccountLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { targetUserId: string; locked: boolean }) => {
+      const { data, error } = await supabase.rpc('shift_admin_set_account_lock', {
+        p_target_user_id: args.targetUserId,
+        p_locked:         args.locked,
+      });
+      if (error) throw error;
+      return data as {
+        user_id: string;
+        account_locked: boolean;
+        account_locked_at: string | null;
+        account_locked_by: string | null;
+      };
+    },
+    onSuccess: () => {
+      // Refresh the admin panel so the toggle's persisted state lands
+      // and any other manager-row consumer (future widgets) catches up.
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// useMyAccountLock — candidate-side poll of the calling user's own
+// account-lock flag (0064). Self-only RPC: a non-admin user can call
+// it for themselves; an admin checks their own as well. Polls every
+// 30s so a freshly-applied admin lock kicks in within the window.
+// Returns { account_locked, account_locked_at }.
+// ---------------------------------------------------------------------
+export interface MyAccountLock { account_locked: boolean; account_locked_at: string | null }
+export function useMyAccountLock(enabled: boolean) {
+  return useQuery<MyAccountLock>({
+    queryKey: ['shift', 'my-account-lock'],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('shift_my_account_lock');
+      if (error) throw error;
+      const obj = (data ?? {}) as Partial<MyAccountLock>;
+      return {
+        account_locked:    obj.account_locked ?? false,
+        account_locked_at: obj.account_locked_at ?? null,
+      };
+    },
+    // Tight enough to feel responsive when an admin locks a working
+    // manager mid-day; small payload so cost is negligible.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
   });
 }
 
