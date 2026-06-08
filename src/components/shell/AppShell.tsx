@@ -1,215 +1,26 @@
-import { useEffect, useRef } from 'react';
 import { Outlet } from '@tanstack/react-router';
-import { useQueryClient } from '@tanstack/react-query';
 import { TopBar } from './TopBar';
 import { IconRail } from './IconRail';
 import { WorkspacePanel } from './WorkspacePanel';
 import { useAuthStore } from '@/state/authStore';
-import { DIAG, diag, logStuckQueries } from '@/lib/diag';
 
 // =====================================================================
-// useRefocusInvalidate — when the tab comes back from a SUSTAINED
-// hidden / unfocused period, invalidate stale board + shift queries so
-// the UI catches up to any changes another tab / machine made while
-// we were away.
+// Simplified data-loading model (founder decision):
 //
-// CRITICAL: this runs ONLY when the tab was hidden for >= 5 seconds.
-// A sub-second blur→focus (the founder's pattern of glancing at
-// another window then coming back) is a strict NO-OP. The previous
-// version invalidated on EVERY focus event, which combined with a
-// tight 3s timeout created a refetch-storm that left queries stuck in
-// error state and forced a manual reload — exactly the bug we are
-// fixing here.
+// All focus-driven query machinery has been REMOVED from this shell.
+// A tab refocus is now a complete no-op at the shell level — no
+// invalidate, no paused-kick, no zombie-fetch rekick, no blur/focus/
+// visibilitychange listeners, no online/offline diag. Data simply
+// loads when a page mounts; to see another machine's changes the user
+// refreshes / reopens the board (cross-machine live sync is
+// intentionally dropped here).
 //
-// We also NARROW the predicate to specific board/shift query roots
-// (instead of "every stale query"). Notifications, auth-related
-// queries, etc. don't need a refetch storm on refocus — they have
-// their own intervals.
+// Paired with src/lib/supabase.ts having autoRefreshToken:false, this
+// means a refocus event causes ZERO supabase activity. The only thing
+// that ever touches auth on focus is the user themselves clicking
+// something, and tokens rotate lazily via timeoutFetch's 401-retry.
 // =====================================================================
-const SUSTAINED_HIDDEN_MS = 5_000;
-const STALE_WINDOW_MS = 60_000;
-
-// Query-key root prefixes that get invalidated on sustained refocus.
-// Read from src/hooks/{items,groups,columns}.ts + src/hooks/shift.ts:
-//   items.ts  → ['items','board', <boardId>]
-//   groups.ts → ['groups','board', <boardId>]
-//   columns.ts→ ['columns','board', <boardId>]
-//   shift.ts  → ['shift', 'today' | 'tick', …]
-//             → ['admin','shift-control'] / ['admin','locked-shifts'] / ['admin','bio-requests']
-//                (admin queries auto-refresh via their own 10s
-//                refetchInterval; we DON'T pile on here)
-// Polled queries (board_watermark every 3s, useUnreadCount every 30s)
-// catch up on their own — no need to add to the storm.
-const REFOCUS_QUERY_ROOTS: ReadonlyArray<string> = [
-  'items', 'groups', 'columns', 'shift',
-];
-
-function useRefocusInvalidate(): void {
-  const qc = useQueryClient();
-  // Single source of truth for "how long has the tab been hidden /
-  // unfocused?" Set the moment we go hidden / blur, cleared the moment
-  // we go visible / focus.
-  const hiddenSinceRef = useRef<number | null>(null);
-
-  // Belt-and-suspenders for the "spinner stuck, no network request"
-  // recurrence: even though main.tsx sets networkMode:'always' on the
-  // QueryClient defaults so queries can NEVER enter the paused state,
-  // a per-query override or a future regression could re-introduce
-  // paused queries. On every focus event we sweep the cache and force
-  // a refetch on any query whose fetchStatus is 'paused'. Cheap walk
-  // (one O(N) over the cache, no work when nothing is paused), and a
-  // hard guarantee that the wedge can't survive a focus event.
-  const kickPausedQueries = () => {
-    let kicked = 0;
-    const paused: (readonly unknown[])[] = [];
-    for (const q of qc.getQueryCache().getAll()) {
-      if (q.state.fetchStatus === 'paused') {
-        paused.push(q.queryKey);
-        void q.fetch();
-        kicked++;
-      }
-    }
-    if (kicked > 0) {
-      console.log(`[refocus] kicked ${kicked} paused queries`);
-      if (DIAG) for (const k of paused) diag('refocus.kicked', k);
-    }
-  };
-
-  // =====================================================================
-  // REMOVED in this commit: recoverStuckBoardQueries.
-  //
-  // It also did cancelQueries → refetchQueries, which compounded the
-  // same infinite-loop bug the queryWatchdog had on a separate trigger
-  // (every focus event). See the long comment in src/main.tsx for the
-  // full mechanic. Two stacking self-healers cancelling each other's
-  // in-flight requests — the website didn't load.
-  //
-  // The original "queries hang on sub-1s blur→focus" wedge that this
-  // was meant to fix will be re-addressed with a per-hook approach
-  // (narrower scope, single-shot, no cancel of legitimately in-flight
-  // requests). Removing this restores normal first-load behaviour.
-  // =====================================================================
-
-  useEffect(() => {
-    const markHidden = (origin: string) => {
-      if (hiddenSinceRef.current === null) {
-        hiddenSinceRef.current = Date.now();
-      }
-      // DIAG candidates #6, #7, #8 all key off this transition. We log
-      // the trigger (blur / visibilitychange-hidden), navigator.onLine,
-      // document.hasFocus(), document.visibilityState, and the current
-      // hiddenSinceRef so the founder can watch the guards flip.
-      if (DIAG) diag('focus', 'HIDDEN via ' + origin +
-        '  onLine=' + navigator.onLine +
-        '  visibilityState=' + document.visibilityState +
-        '  hasFocus=' + document.hasFocus() +
-        '  hiddenSinceRef=' + hiddenSinceRef.current);
-    };
-    const onVisibleOrFocus = (origin: string) => {
-      // Only act on the becoming-visible transition. The native
-      // `focus` event also fires on document.visibilityState=visible,
-      // so we treat them uniformly.
-      if (document.visibilityState !== 'visible') return;
-
-      const hiddenSince = hiddenSinceRef.current;
-      const hiddenMs = hiddenSince === null ? 0 : Date.now() - hiddenSince;
-
-      // DIAG: log the full focus-return state so we can correlate with
-      // realtime status, fetch lines, and watermark ticks afterwards.
-      if (DIAG) diag('focus', 'VISIBLE via ' + origin +
-        '  onLine=' + navigator.onLine +
-        '  hiddenMs=' + hiddenMs +
-        '  visibilityState=' + document.visibilityState +
-        '  hasFocus=' + document.hasFocus());
-      // Walk the cache RIGHT AFTER refocus and report any stuck queries
-      // (paused / pending / errored). Candidates #4 and #8 both show
-      // up here. The output is bounded (max 1 line per cache entry) and
-      // only fires when there's something interesting.
-      if (DIAG) logStuckQueries(qc, 'focus(' + origin + ')');
-
-      // Always run the paused-query sweep, regardless of how long we
-      // were hidden. If nothing is paused (the expected case with
-      // networkMode:'always'), this is a no-op.
-      kickPausedQueries();
-
-      // Tab-suspend can leave a board fetch hanging in fetchStatus:'fetching'
-      // forever with NO network request (the AbortController timer was throttled
-      // while hidden, so the timeout never fired; React Query then dedupes new
-      // observers onto the dead promise and never re-fires). On each focus
-      // transition, cancel+refetch ONLY the board-root queries that are currently
-      // 'fetching'. This is FOCUS-GATED and SINGLE-SHOT — it fires once per real
-      // refocus, NOT on a timer — so it cannot create the cancel/refetch loop the
-      // reverted queryWatchdog (ec59373) did. Queries with data (status 'success')
-      // are left untouched.
-      const BOARD_ROOTS = ['boards','views','items','groups','columns','board-watermark'];
-      let rekicked = 0;
-      for (const q of qc.getQueryCache().getAll()) {
-        const root = q.queryKey[0];
-        if (typeof root === 'string' && BOARD_ROOTS.includes(root) && q.state.fetchStatus === 'fetching') {
-          const key = q.queryKey;
-          if (DIAG) diag('refocus.rekick', key);
-          void qc.cancelQueries({ queryKey: key, exact: true })
-            .then(() => qc.refetchQueries({ queryKey: key, exact: true }));
-          rekicked++;
-        }
-      }
-      if (rekicked > 0) console.log('[refocus] rekicked ' + rekicked + ' stuck board fetches');
-
-      hiddenSinceRef.current = null;
-      // First load — no prior hidden period to compare against.
-      if (hiddenSince === null) return;
-
-      if (hiddenMs < SUSTAINED_HIDDEN_MS) {
-        // Sub-5s blur — sub-second alt-tab, brief click elsewhere,
-        // mouse leaving the window. NO-OP for the invalidate-storm.
-        if (DIAG) diag('focus', 'sub-' + SUSTAINED_HIDDEN_MS + 'ms refocus — NO invalidate (hiddenMs=' + hiddenMs + ')');
-        return;
-      }
-
-      const cutoff = Date.now() - STALE_WINDOW_MS;
-      if (DIAG) diag('focus', 'sustained refocus (' + hiddenMs + 'ms) — invalidating ' + REFOCUS_QUERY_ROOTS.join(','));
-      void qc.invalidateQueries({
-        predicate: (q) => {
-          if (q.state.dataUpdatedAt >= cutoff) return false;
-          const root = q.queryKey[0];
-          return typeof root === 'string' && REFOCUS_QUERY_ROOTS.includes(root);
-        },
-      });
-    };
-    const onHidden = () => {
-      if (document.visibilityState === 'hidden') markHidden('visibilitychange');
-    };
-    const onBlur     = () => markHidden('window.blur');
-    const onFocus    = () => onVisibleOrFocus('window.focus');
-    const onVisFire  = () => onVisibleOrFocus('visibilitychange');
-    // Candidate #6 instrumentation — log navigator.onLine flips. Pure
-    // log, no behaviour change. We do NOT pause anything on offline
-    // (networkMode:'always' covers that). We just want to SEE whether
-    // navigator flickers offline during the bug window.
-    const onOnline   = () => { if (DIAG) diag('online', 'navigator -> online'); };
-    const onOffline  = () => { if (DIAG) diag('online', 'navigator -> OFFLINE'); };
-    document.addEventListener('visibilitychange', onHidden);
-    document.addEventListener('visibilitychange', onVisFire);
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    if (DIAG) diag('focus', 'listeners attached  initial onLine=' + navigator.onLine +
-      '  visibilityState=' + document.visibilityState);
-    return () => {
-      document.removeEventListener('visibilitychange', onHidden);
-      document.removeEventListener('visibilitychange', onVisFire);
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qc]);
-}
-
 export function AppShell() {
-  useRefocusInvalidate();
   // UI polish (batch item 3): the left sidebar (IconRail = workspace
   // switcher, WorkspacePanel = Boards list + "Add new") is admin/super
   // only. Managers see no sidebar — they get only the board area, full

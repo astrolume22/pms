@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { useBoard, useRestoreBoard, useUpdateLastViewed } from '@/hooks/boards';
 import { useAuthStore } from '@/state/authStore';
 import { useViews } from '@/hooks/views';
-import { useBoardRealtimeSync, useBoardWatermarkPoll } from '@/lib/boardSync';
 import { useUndoShortcut } from '@/hooks/useUndoShortcut';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
@@ -48,18 +47,14 @@ function BoardPage() {
   const updateLastViewed = useUpdateLastViewed();
   const restore = useRestoreBoard();
 
-  // Cross-tab + cross-machine live sync. Subscribes to Realtime
-  // postgres_changes for the four board tables; any change anywhere
-  // (Dr. John's laptop, your other tab, this same tab) invalidates
-  // the React Query cache and refetches. Mounts when boardId is
-  // known, tears down on unmount. See src/lib/boardSync.ts.
-  useBoardRealtimeSync(boardId);
-
-  // Cheap 3-second cross-device sync backstop — polls a single-
-  // timestamp RPC and invalidates the heavy queries only when the
-  // watermark advances. Guaranteed to land within 3 seconds even if
-  // every Realtime layer is broken at the project level.
-  useBoardWatermarkPoll(boardId);
+  // NOTE — live sync intentionally removed (founder decision).
+  // The Realtime websocket subscription (useBoardRealtimeSync) and the
+  // 3-second watermark poll (useBoardWatermarkPoll) used to live here.
+  // Both are gone: the board now loads once on mount and stays static
+  // until the user refreshes. To see another machine's changes, refresh
+  // or re-open the board. The BroadcastChannel same-browser sync in
+  // src/lib/boardSync.ts (attachBoardSyncListener / publishBoardChange)
+  // is unchanged and still works for multi-tab on this device.
 
   // Ctrl+Z / Cmd+Z → undo the last board action this user took in
   // this tab. Visible button lives in BoardToolbar; this hook adds

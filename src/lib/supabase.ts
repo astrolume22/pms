@@ -321,12 +321,25 @@ function tabLocalAuthLock<R>(_name: string, _acquireTimeout: number, fn: () => P
 export const supabase = createClient(url, anonKey, {
   auth: {
     persistSession: true,
-    // autoRefreshToken: true means auth-js installs its own
-    // visibilitychange listener (GoTrueClient.ts:5062) that runs
-    // _recoverAndRefresh on tab focus. That handler is the SOURCE OF
-    // TRUTH for refresh-on-focus — we no longer install our own
-    // duplicate handler.
-    autoRefreshToken: true,
+    // autoRefreshToken is intentionally OFF.
+    //
+    // When true, auth-js installs its own visibilitychange listener
+    // (GoTrueClient.ts:5062) that calls _recoverAndRefresh on every tab
+    // refocus — which acquires the auth lock BEFORE issuing any HTTP
+    // request. That handler is the confirmed trigger of the refocus
+    // wedge: a sub-second blur→focus is enough for the lock to be held
+    // briefly while every subsequent supabase.from()/.rpc() is queued
+    // behind it, and any stall in _recoverAndRefresh (cold socket,
+    // throttled timer, frozen sibling tab) leaves the whole UI hanging
+    // with zero network traffic.
+    //
+    // With autoRefreshToken:false, auth-js installs NO visibility/focus
+    // handler at all. Token rotation happens lazily via timeoutFetch's
+    // refresh-on-401 retry below: when a request comes back 401 because
+    // the access token expired, we call supabase.auth.refreshSession()
+    // ONCE, rewrite the Authorization header, and retry. That covers
+    // the only thing the background auto-refresher was buying us.
+    autoRefreshToken: false,
     // Auto-parse magic-link + recovery callbacks from the URL hash so
     // /reset-password and magic-link → / flows pick up the session.
     detectSessionInUrl: true,
