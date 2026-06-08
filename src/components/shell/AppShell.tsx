@@ -132,6 +132,29 @@ function useRefocusInvalidate(): void {
       // networkMode:'always'), this is a no-op.
       kickPausedQueries();
 
+      // Tab-suspend can leave a board fetch hanging in fetchStatus:'fetching'
+      // forever with NO network request (the AbortController timer was throttled
+      // while hidden, so the timeout never fired; React Query then dedupes new
+      // observers onto the dead promise and never re-fires). On each focus
+      // transition, cancel+refetch ONLY the board-root queries that are currently
+      // 'fetching'. This is FOCUS-GATED and SINGLE-SHOT — it fires once per real
+      // refocus, NOT on a timer — so it cannot create the cancel/refetch loop the
+      // reverted queryWatchdog (ec59373) did. Queries with data (status 'success')
+      // are left untouched.
+      const BOARD_ROOTS = ['boards','views','items','groups','columns','board-watermark'];
+      let rekicked = 0;
+      for (const q of qc.getQueryCache().getAll()) {
+        const root = q.queryKey[0];
+        if (typeof root === 'string' && BOARD_ROOTS.includes(root) && q.state.fetchStatus === 'fetching') {
+          const key = q.queryKey;
+          if (DIAG) diag('refocus.rekick', key);
+          void qc.cancelQueries({ queryKey: key, exact: true })
+            .then(() => qc.refetchQueries({ queryKey: key, exact: true }));
+          rekicked++;
+        }
+      }
+      if (rekicked > 0) console.log('[refocus] rekicked ' + rekicked + ' stuck board fetches');
+
       hiddenSinceRef.current = null;
       // First load — no prior hidden period to compare against.
       if (hiddenSince === null) return;

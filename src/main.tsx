@@ -114,6 +114,11 @@ const queryClient = new QueryClient({
 // the UI catches up within one network round-trip. See src/lib/boardSync.ts.
 attachBoardSyncListener(queryClient);
 
+// Boot stamp — confirms the focus-refetch + boardfn instrumentation build
+// is live after a hard refresh. If you don't see this line, the new bundle
+// hasn't loaded yet (Vercel cache / Service Worker / old tab).
+console.log('[diag][build] focus-refetch + boardfn instrumentation build');
+
 // =====================================================================
 // REMOVED in this commit: startQueryWatchdog(queryClient).
 //

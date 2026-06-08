@@ -11,6 +11,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { diag } from '@/lib/diag';
 import { useAuthStore } from '@/state/authStore';
 import type {
   BoardRow,
@@ -75,6 +76,28 @@ export function useBoard(boardId: string | undefined) {
     queryKey: boardId ? boardKeys.detail(boardId) : ['boards', 'detail', '_'],
     enabled: !!boardId && !!userId,
     queryFn: async (): Promise<BoardWithOwner | null> => {
+      // Refocus-wedge instrumentation. These three logs separate the
+      // three possible stall points in a single queryFn invocation:
+      //   • no "enter" line at all     → React Query is NOT calling the
+      //                                  queryFn (zombie fetchStatus left
+      //                                  by the tab-suspend; AppShell's
+      //                                  focus-gated rekick targets this)
+      //   • "enter" but no "getSession done"
+      //                                → auth-lock stall inside
+      //                                  supabase.auth.getSession()
+      //                                  (the per-tab navigatorLock
+      //                                  replacement should bound this
+      //                                  at 2s — anything > 2s = bug here)
+      //   • "getSession done" but no "boards fetch done"
+      //                                → PostgREST fetch stall (the
+      //                                  HTTP request issued but the
+      //                                  response never lands; timeoutFetch
+      //                                  budget is 6s — anything > 6s = bug)
+      diag('boardfn', 'enter board=' + (boardId ?? '_'));
+      const _t0 = Date.now();
+      const { data: _sess } = await supabase.auth.getSession();
+      diag('boardfn', 'getSession done in ' + (Date.now() - _t0) + 'ms hasSession=' + !!_sess.session);
+      const _t1 = Date.now();
       const [{ data: board, error }, { data: fav }] = await Promise.all([
         supabase.from('boards').select('*').eq('id', boardId!).maybeSingle(),
         supabase
@@ -84,6 +107,7 @@ export function useBoard(boardId: string | undefined) {
           .eq('board_id', boardId!)
           .maybeSingle(),
       ]);
+      diag('boardfn', 'boards fetch done in ' + (Date.now() - _t1) + 'ms');
       if (error) throw error;
       if (!board) return null;
       const b = board as BoardRow;
