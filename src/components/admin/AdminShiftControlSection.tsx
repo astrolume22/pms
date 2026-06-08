@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw, Unlock } from 'lucide-react';
+import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw } from 'lucide-react';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import {
@@ -36,6 +36,82 @@ import {
 import { AdminShiftEditModal } from './AdminShiftEditModal';
 import { useAuthStore } from '@/state/authStore';
 import { Check, X, Square, Clock } from 'lucide-react';
+
+// =====================================================================
+// LockToggle — a navy/gold inline switch built on a styled
+// <input type="checkbox"> + sibling <span> track. Replaces the old
+// Lock/Unlock pair of buttons per row.
+//
+// Behaviour:
+//   • `checked` = the manager IS currently locked.
+//   • Flipping fires `onToggle(next)`; the parent owns the optimistic
+//     state and the RPC call.
+//   • `disabled` greys it out (used while a mutation is in flight, or
+//     when there's no session_id to act on).
+//   • Label text right of the track flips between "Locked" / "Unlocked"
+//     so the meaning is unambiguous in both states.
+//   • Pure CSS, no new dependency — mirrors the inline-checkbox pattern
+//     used elsewhere in admin sections (GroupAccessSection, Modal).
+// =====================================================================
+function LockToggle({
+  checked, disabled, onToggle, idAttr,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onToggle: (next: boolean) => void;
+  idAttr: string;
+}) {
+  return (
+    <label
+      htmlFor={idAttr}
+      className={
+        'inline-flex items-center gap-2 select-none ' +
+        (disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')
+      }
+      title={checked ? 'Locked — flip OFF to unlock' : 'Unlocked — flip ON to lock'}
+    >
+      <span className="relative inline-flex items-center">
+        <input
+          id={idAttr}
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          // Visually hidden; the styled span beside is the visible track.
+          className="peer sr-only"
+        />
+        {/* Track */}
+        <span
+          aria-hidden
+          className={
+            'block h-5 w-9 rounded-full transition-colors duration-150 ' +
+            (checked
+              ? 'bg-brand'                // navy when locked
+              : 'bg-slate-700/60') +
+            ' peer-focus-visible:ring-2 peer-focus-visible:ring-amber-400/60'
+          }
+        />
+        {/* Knob — slides right when checked. Gold when ON for the navy/gold accent. */}
+        <span
+          aria-hidden
+          className={
+            'absolute top-0.5 left-0.5 h-4 w-4 rounded-full shadow-sm transition-transform duration-150 ' +
+            (checked
+              ? 'translate-x-4 bg-amber-300'    // gold knob = locked
+              : 'translate-x-0 bg-slate-200')
+          }
+        />
+      </span>
+      <span className={
+        'text-[12px] font-medium tabular-nums w-[60px] ' +
+        (checked ? 'text-amber-200' : 'text-text-secondary')
+      }>
+        {checked ? 'Locked' : 'Unlocked'}
+      </span>
+    </label>
+  );
+}
 
 function formatHMS(s: number): string {
   const v = Math.max(0, Math.floor(s));
@@ -87,6 +163,20 @@ export function AdminShiftControlSection() {
 
   const [editRow, setEditRow] = useState<AdminShiftRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Per-user optimistic lock override. Set the moment a toggle flips so
+  // the UI reflects the user's intent immediately; the existing 10s
+  // poll then reconciles to real DB state. Cleared on mutation success
+  // (let the poll take over) AND on error (so the visual reverts).
+  // Map key = user_id, value = the lock state the user just selected.
+  const [lockOverrides, setLockOverrides] = useState<Map<string, boolean>>(() => new Map());
+  const clearLockOverride = (userId: string) => {
+    setLockOverrides((prev) => {
+      if (!prev.has(userId)) return prev;
+      const next = new Map(prev);
+      next.delete(userId);
+      return next;
+    });
+  };
 
   // 1/sec tick so the Remaining column counts down smoothly between
   // the 10s server polls. Just a heartbeat — the actual numbers come
@@ -117,24 +207,38 @@ export function AdminShiftControlSection() {
 
   if (!isAdmin) return null;
 
-  const runLock = async (row: AdminShiftRow) => {
-    if (!row.session_id) { toast.error('No session today — nothing to lock'); return; }
-    if (!confirm(`Lock ${row.full_name ?? row.username} now? They'll see the lock overlay until you unlock.`)) return;
+  // Single flip handler for the lock toggle.
+  //   • next === true  → call shift_admin_lock with reason='admin'
+  //   • next === false → call shift_admin_unlock
+  // Optimistic: set override BEFORE awaiting the RPC so the switch
+  // animates immediately. On success: clear override + toast + let the
+  // existing 10s poll bring the authoritative status. On error: clear
+  // override (UI reverts to live `r.status`) + error toast.
+  const runLockToggle = async (row: AdminShiftRow, next: boolean) => {
+    if (!row.session_id) {
+      toast.error(next ? 'No session today — nothing to lock' : 'No session today — nothing to unlock');
+      return;
+    }
+    setLockOverrides((prev) => {
+      const m = new Map(prev);
+      m.set(row.user_id, next);
+      return m;
+    });
     setBusy(row.user_id);
     try {
-      await lockMut.mutateAsync({ sessionId: row.session_id, reason: 'admin' });
-      toast.success(`Locked ${row.full_name ?? row.username}`);
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Lock failed'); }
-    finally { setBusy(null); }
-  };
-  const runUnlock = async (row: AdminShiftRow) => {
-    if (!row.session_id) return;
-    setBusy(row.user_id);
-    try {
-      await unlockMut.mutateAsync(row.session_id);
-      toast.success(`Unlocked ${row.full_name ?? row.username}`);
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Unlock failed'); }
-    finally { setBusy(null); }
+      if (next) {
+        await lockMut.mutateAsync({ sessionId: row.session_id, reason: 'admin' });
+        toast.success(`Locked ${row.full_name ?? row.username}`);
+      } else {
+        await unlockMut.mutateAsync(row.session_id);
+        toast.success(`Unlocked ${row.full_name ?? row.username}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : (next ? 'Lock failed' : 'Unlock failed'));
+    } finally {
+      clearLockOverride(row.user_id);
+      setBusy(null);
+    }
   };
   const runForceEnd = async (row: AdminShiftRow) => {
     if (!row.session_id) { toast.error('No session today — nothing to end'); return; }
@@ -286,19 +390,25 @@ export function AdminShiftControlSection() {
                     </td>
                     <td className="py-2 pr-0">
                       <div className="flex items-center justify-end gap-1.5">
-                        {status === 'locked' ? (
-                          <button type="button" onClick={() => void runUnlock(r)} disabled={isBusy}
-                            className="btn-primary inline-flex items-center gap-1 h-8 px-2.5 text-[12px]"
-                            title="Unlock now">
-                            <Unlock className="h-3.5 w-3.5" /> Unlock
-                          </button>
-                        ) : (
-                          <button type="button" onClick={() => void runLock(r)} disabled={isBusy || !r.session_id}
-                            className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
-                            title="Lock this manager now">
-                            <Lock className="h-3.5 w-3.5" /> Lock
-                          </button>
-                        )}
+                        {/*
+                          Single lock-toggle replaces the old Lock/Unlock
+                          button pair (commit re: founder request). The
+                          live status === 'locked' tells the truth; the
+                          per-user override in lockOverrides flips it
+                          immediately on click so the switch feels
+                          instant. After the RPC settles, the override
+                          clears and the 10s poll's authoritative status
+                          is what's rendered. The "Paused (locked)" /
+                          "Running" badge in the Remaining column is
+                          kept — toggle is the control, badge is the
+                          status.
+                        */}
+                        <LockToggle
+                          idAttr={`lock-toggle-${r.user_id}`}
+                          checked={lockOverrides.get(r.user_id) ?? (status === 'locked')}
+                          disabled={isBusy || !r.session_id}
+                          onToggle={(next) => void runLockToggle(r, next)}
+                        />
                         <button type="button" onClick={() => void runRearm(r)} disabled={isBusy || !r.session_id}
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
                           title="Re-arm — reset timer fresh">
