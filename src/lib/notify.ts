@@ -108,23 +108,37 @@ primeAudioUnlock();
 function emitChime(ctx: AudioContext): void {
   try {
     const now = ctx.currentTime;
+    // Single-note builder. Sine carrier for a pure chime tone;
+    // exponential attack ~15 ms; exponential decay over `duration` so
+    // the tail rings out naturally without clicking. peak is the gain
+    // node's value (audio voltage, NOT dB) — keep below ~0.4 to avoid
+    // clipping when several notes overlap.
     const playNote = (freq: number, startOffset: number, duration: number, peak: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.value = freq;
-      // Gentle attack + decay envelope so the tone feels like a chime,
-      // not a beep.
       gain.gain.setValueAtTime(0.0001, now + startOffset);
-      gain.gain.exponentialRampToValueAtTime(peak,    now + startOffset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(peak,    now + startOffset + 0.020);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
       osc.connect(gain).connect(ctx.destination);
       osc.start(now + startOffset);
-      osc.stop(now + startOffset + duration + 0.02);
+      osc.stop(now + startOffset + duration + 0.05);
     };
-    // Two-note chime: A5 then D6 — pleasant, alerting, not jarring.
-    playNote(880,  0.00, 0.15, 0.20);
-    playNote(1175, 0.13, 0.18, 0.18);
+    // LOUDER + LONGER bell — a two-note ding-dong (A5 → D6) repeated
+    // twice with a small gap between repetitions. Per-note duration is
+    // longer so the tail rings; peak gains a notch higher than before
+    // (~0.32 / 0.28) but well below the clipping floor (~0.7). Total
+    // wall-clock ≈ 2.0 s from first attack to last decay tail.
+    //
+    //   t=0.00s  A5  (dur 0.55s, peak 0.32)
+    //   t=0.32s  D6  (dur 0.60s, peak 0.30)
+    //   t=1.00s  A5  (dur 0.55s, peak 0.28)
+    //   t=1.32s  D6  (dur 0.65s, peak 0.28)
+    playNote(880,  0.00, 0.55, 0.32);
+    playNote(1175, 0.32, 0.60, 0.30);
+    playNote(880,  1.00, 0.55, 0.28);
+    playNote(1175, 1.32, 0.65, 0.28);
   } catch {
     /* swallow — audio errors must never break the caller */
   }

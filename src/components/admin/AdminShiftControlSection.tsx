@@ -19,7 +19,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw } from 'lucide-react';
+import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw, ListChecks } from 'lucide-react';
+import { UserActivityPanel } from './UserActivityPanel';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
 import {
@@ -172,6 +173,7 @@ export function AdminShiftControlSection() {
   const forceMut   = useShiftAdminForceEnd();
 
   const [editRow, setEditRow] = useState<AdminShiftRow | null>(null);
+  const [activityRow, setActivityRow] = useState<AdminShiftRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Per-user optimistic lock override.
   //
@@ -520,6 +522,11 @@ export function AdminShiftControlSection() {
                             );
                           })()}
                         </div>
+                        <button type="button" onClick={() => setActivityRow(r)} disabled={isBusy}
+                          className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
+                          title="View activity log">
+                          <ListChecks className="h-3.5 w-3.5" /> Activity
+                        </button>
                         <button type="button" onClick={() => void runRearm(r)} disabled={isBusy || !r.session_id}
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
                           title="Re-arm — reset timer fresh">
@@ -554,6 +561,14 @@ export function AdminShiftControlSection() {
           onClose={() => setEditRow(null)}
         />
       )}
+
+      {/* Per-user activity-log drawer (read-only). */}
+      <UserActivityPanel
+        open={!!activityRow}
+        userId={activityRow?.user_id ?? null}
+        userLabel={activityRow?.full_name ?? activityRow?.username ?? ''}
+        onClose={() => setActivityRow(null)}
+      />
 
       {/*
         0067 — pending bio-break approval queue REMOVED. Bio break is

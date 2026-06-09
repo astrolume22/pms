@@ -220,6 +220,42 @@ export function useShiftBreakFreeze() {
 }
 
 // ---------------------------------------------------------------------
+// useUserShiftActivity (PHASE 0 Step — Activity Log Panel)
+// Reads the target user's shift_events newest first, capped at ~200 rows.
+// Admin RLS on public.shift_events allows cross-user SELECT
+// (USING is_admin() OR user_id = auth.uid()), so we use a direct
+// supabase.from select with no RPC. enabled-gated so the panel only
+// queries when the drawer is open.
+// ---------------------------------------------------------------------
+export interface ShiftActivityRow {
+  id: string;
+  session_id: string | null;
+  user_id: string;
+  type: string;
+  at: string;
+  by: string | null;
+  meta: Record<string, unknown> | null;
+}
+export function useUserShiftActivity(userId: string | undefined, enabled: boolean) {
+  return useQuery<ShiftActivityRow[]>({
+    queryKey: ['admin', 'user-activity', userId ?? '_'],
+    enabled: enabled && !!userId,
+    queryFn: async (): Promise<ShiftActivityRow[]> => {
+      const { data, error } = await supabase
+        .from('shift_events')
+        .select('id, session_id, user_id, type, at, by, meta')
+        .eq('user_id', userId!)
+        .order('at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return (data ?? []) as ShiftActivityRow[];
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+}
+
+// ---------------------------------------------------------------------
 // useShiftBreakOverstayLock (0069) — manager-callable, idempotent. Fires
 // when shift_tick reports overstay seconds >= grace AND status is still
 // on_shift_break. Server atomically finalizes the freeze pause, ends
