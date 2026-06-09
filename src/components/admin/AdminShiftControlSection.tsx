@@ -28,14 +28,14 @@ import {
   useShiftAdminUnlock,
   useShiftAdminRearm,
   useShiftAdminForceEnd,
-  useBioBreakPending,
-  useBioBreakRequestDecide,
   type AdminShiftRow,
-  type BioBreakRequestRow,
 } from '@/hooks/shift';
 import { AdminShiftEditModal } from './AdminShiftEditModal';
 import { useAuthStore } from '@/state/authStore';
-import { Check, X, Square, Clock } from 'lucide-react';
+// 0067 — Check, X icons used to live in BioRequestsQueue which has been
+// removed (bio is now a hard limit, no admin approval flow). Keep Square
+// (force-end + early-end flag pill) and Clock (late-start flag pill).
+import { Square, Clock } from 'lucide-react';
 
 // =====================================================================
 // LockToggle — a navy/gold inline switch built on a styled
@@ -541,75 +541,21 @@ export function AdminShiftControlSection() {
         />
       )}
 
-      {/* P4.4 — pending bio-break approval queue */}
-      <BioRequestsQueue isAdmin={isAdmin} />
+      {/*
+        0067 — pending bio-break approval queue REMOVED. Bio break is
+        now a hard limit (server cap = config.bio_break_max_per_day;
+        admin grants no longer add to the max). The bio_break_requests
+        table + RPCs remain in the DB but the manager UI no longer
+        creates new requests, so no rows reach the admin panel.
+      */}
     </section>
   );
 }
 
-// ---------------------------------------------------------------------
-// BioRequestsQueue — small sub-component inside AdminShiftControlSection
-// listing pending bio_break_requests. Admin Approve increments
-// bio_break_admin_grants_today on the manager's session (server-side).
-// ---------------------------------------------------------------------
-function BioRequestsQueue({ isAdmin }: { isAdmin: boolean }) {
-  const { data: reqs } = useBioBreakPending(isAdmin);
-  const decide = useBioBreakRequestDecide();
-  const [busy, setBusy] = useState<string | null>(null);
-
-  if (!reqs || reqs.length === 0) return null;
-
-  const handle = async (row: BioBreakRequestRow, decision: 'approved' | 'denied') => {
-    setBusy(row.id);
-    try {
-      await decide.mutateAsync({ requestId: row.id, decision });
-      toast.success(`${decision === 'approved' ? 'Approved' : 'Denied'} ${row.full_name ?? row.username}`);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Decide failed'); }
-    finally { setBusy(null); }
-  };
-
-  const relAgo = (iso: string) => {
-    const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-    if (sec < 60) return `${sec}s ago`;
-    const m = Math.floor(sec / 60);
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    return `${h}h ${m % 60}m ago`;
-  };
-
-  return (
-    <div className="mt-5 pt-5 border-t border-border-light">
-      <h3 className="text-[12px] font-semibold uppercase tracking-wide text-text-secondary mb-2">
-        Pending bio-break requests
-      </h3>
-      <ul className="divide-y divide-border-hair">
-        {reqs.map((r) => (
-          <li key={r.id} className="flex items-center gap-3 py-2">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{r.full_name ?? r.username}</p>
-              <p className="text-[11px] text-text-secondary">Requested {relAgo(r.requested_at)}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handle(r, 'approved')}
-              disabled={busy === r.id}
-              className="btn-primary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-60"
-            >
-              <Check className="h-3.5 w-3.5" />
-              Approve
-            </button>
-            <button
-              type="button"
-              onClick={() => void handle(r, 'denied')}
-              disabled={busy === r.id}
-              className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-60"
-            >
-              <X className="h-3.5 w-3.5" />
-              Deny
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+// 0067 — BioRequestsQueue sub-component fully removed.
+//   It rendered the pending bio_break_requests queue with Approve / Deny
+//   actions. Now that bio break is a HARD limit (no admin-request escape
+//   hatch), no rows reach this surface. The bio_break_requests table +
+//   useBioBreakPending / useBioBreakRequestDecide hooks + the underlying
+//   RPCs all remain in the DB / shift.ts as inert legacy — only the
+//   admin-panel render of this queue and its imports are removed here.
