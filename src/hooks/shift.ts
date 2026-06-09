@@ -301,6 +301,30 @@ export function useShiftMark85Alerted() {
 }
 
 // ---------------------------------------------------------------------
+// useShiftAdminSkipNextLock (0075) — admin-only. Arms the one-shot
+// skip flag on a session: the NEXT shift_self_period_lock call for
+// that session will NOT lock — it will consume the flag, advance
+// current_period_index by 1, and log an admin_override
+// 'period_lock_skipped' event. Idempotent: arming twice is fine.
+// ---------------------------------------------------------------------
+export function useShiftAdminSkipNextLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_admin_skip_next_lock', {
+        p_session_id: sessionId,
+      });
+      if (error) throw error;
+      return data as { session_id: string; skip_armed: boolean };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
 // Admin-only shift RPCs (P4.7). Server-side is_admin() is the truth
 // gate; the UI hides these buttons for non-admins as a UX layer.
 // ---------------------------------------------------------------------
@@ -470,6 +494,8 @@ export interface AdminShiftRow {
   early_end_minutes: number | null;
   scheduled_start_at: string | null;
   expected_end_at: string | null;
+  // 0075 — one-shot admin-armed skip flag for the NEXT period lock.
+  skip_next_period_lock: boolean;
 }
 export function useAdminShiftControl(enabled: boolean) {
   useEnabledDiag('useAdminShiftControl', enabled);
@@ -482,7 +508,7 @@ export function useAdminShiftControl(enabled: boolean) {
       const [usersRes, cfgRes, sessRes] = await Promise.all([
         supabase.from('users').select('id, full_name, username, email, role, status, is_super_admin').eq('role', 'manager').eq('status', 'active').eq('is_super_admin', false),
         supabase.from('shift_configs').select('user_id, mode, shift_break_seconds, bio_break_max_per_day, bio_break_warn_count, bio_break_warn_total_seconds, bio_break_max_seconds_each, primary_group_id, timezone, late_start_threshold_seconds, account_locked, account_locked_at'),
-        supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today, late_start_flag, late_start_minutes, early_end_flag, early_end_minutes, scheduled_start_at, expected_end_at').eq('work_date', todayUTC),
+        supabase.from('shift_sessions').select('id, user_id, status, required_seconds, started_at, paused_total_seconds, current_pause_started_at, locked_reason, bio_break_count_today, late_start_flag, late_start_minutes, early_end_flag, early_end_minutes, scheduled_start_at, expected_end_at, skip_next_period_lock').eq('work_date', todayUTC),
       ]);
       if (usersRes.error) throw usersRes.error;
       if (cfgRes.error)  throw cfgRes.error;
@@ -500,7 +526,8 @@ export function useAdminShiftControl(enabled: boolean) {
         bio_break_count_today: number;
         late_start_flag: boolean | null; late_start_minutes: number | null;
         early_end_flag: boolean | null; early_end_minutes: number | null;
-        scheduled_start_at: string | null; expected_end_at: string | null };
+        scheduled_start_at: string | null; expected_end_at: string | null;
+        skip_next_period_lock: boolean };
       const cfgByUser  = new Map<string, CfgRow>((cfgRes.data ?? []).map((r) => [r.user_id, r as CfgRow]));
       const sessByUser = new Map<string, SessRow>((sessRes.data ?? []).map((r) => [r.user_id, r as SessRow]));
 
@@ -549,6 +576,7 @@ export function useAdminShiftControl(enabled: boolean) {
           early_end_minutes:                s?.early_end_minutes           ?? null,
           scheduled_start_at:               s?.scheduled_start_at          ?? null,
           expected_end_at:                  s?.expected_end_at             ?? null,
+          skip_next_period_lock:            s?.skip_next_period_lock       ?? false,
         };
       }).sort((a, b) => (a.full_name ?? a.username).localeCompare(b.full_name ?? b.username));
     },

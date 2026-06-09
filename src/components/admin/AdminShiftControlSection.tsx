@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw, ListChecks } from 'lucide-react';
+import { Lock, Pause, Pencil, Play, RefreshCw, RotateCcw, ListChecks, SkipForward } from 'lucide-react';
 import { UserActivityPanel } from './UserActivityPanel';
 import { Spinner } from '@/components/Spinner';
 import { EmptyMessage } from '@/components/EmptyMessage';
@@ -29,6 +29,7 @@ import {
   useShiftAdminUnlock,
   useShiftAdminRearm,
   useShiftAdminForceEnd,
+  useShiftAdminSkipNextLock,
   type AdminShiftRow,
 } from '@/hooks/shift';
 import { AdminShiftEditModal } from './AdminShiftEditModal';
@@ -171,6 +172,7 @@ export function AdminShiftControlSection() {
   const unlockMut  = useShiftAdminUnlock();
   const rearmMut   = useShiftAdminRearm();
   const forceMut   = useShiftAdminForceEnd();
+  const skipNextMut = useShiftAdminSkipNextLock();
 
   const [editRow, setEditRow] = useState<AdminShiftRow | null>(null);
   const [activityRow, setActivityRow] = useState<AdminShiftRow | null>(null);
@@ -354,6 +356,22 @@ export function AdminShiftControlSection() {
     finally { setBusy(null); }
   };
 
+  // 0075 — admin arms the one-shot "skip next period lock" flag for the
+  // selected manager's session. Server-side, the very next
+  // shift_self_period_lock call will consume the flag (NOT lock + advance
+  // current_period_index by 1); the period after that locks normally.
+  // Works whether the user is online or offline — the flag lives on the
+  // session row and is read at lock time, not at click time.
+  const runSkipNext = async (row: AdminShiftRow) => {
+    if (!row.session_id) { toast.error('No session today to skip'); return; }
+    setBusy(row.user_id);
+    try {
+      await skipNextMut.mutateAsync(row.session_id);
+      toast.success(`Next lock will be skipped for ${row.full_name ?? row.username}.`);
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Skip-next failed'); }
+    finally { setBusy(null); }
+  };
+
   return (
     <section className="bg-surface border border-border-light rounded-md p-6">
       <header className="flex items-center justify-between mb-4">
@@ -526,6 +544,30 @@ export function AdminShiftControlSection() {
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
                           title="View activity log">
                           <ListChecks className="h-3.5 w-3.5" /> Activity
+                        </button>
+                        {/*
+                          0075 — "Skip next lock" (one-shot, admin-only).
+                          When clicked, the very next hourly period-lock
+                          that would fire for this manager is suppressed
+                          (the boundary advances by one; the period after
+                          locks normally). Works offline-safe — the flag
+                          lives on the session row.
+                          Armed visually = amber pill (server confirms via
+                          skip_next_period_lock on the row).
+                        */}
+                        <button type="button" onClick={() => void runSkipNext(r)}
+                          disabled={isBusy || !r.session_id}
+                          className={
+                            'inline-flex items-center gap-1 h-8 px-2.5 text-[12px] rounded-base disabled:opacity-40 ' +
+                            (r.skip_next_period_lock
+                              ? 'bg-amber-900/40 text-amber-100 border border-amber-700/40'
+                              : 'btn-secondary')
+                          }
+                          title={r.skip_next_period_lock
+                            ? 'Next period-lock is ARMED to skip. Clicking again keeps it armed.'
+                            : 'Skip this manager\'s next hourly period-lock (one shot)'}>
+                          <SkipForward className="h-3.5 w-3.5" />
+                          {r.skip_next_period_lock ? 'Skip armed' : 'Skip next lock'}
                         </button>
                         <button type="button" onClick={() => void runRearm(r)} disabled={isBusy || !r.session_id}
                           className="btn-secondary inline-flex items-center gap-1 h-8 px-2.5 text-[12px] disabled:opacity-40"
