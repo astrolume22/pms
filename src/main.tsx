@@ -10,6 +10,7 @@ import { FullPageSpinner } from '@/components/Spinner';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
 import { attachBoardSyncListener } from '@/lib/boardSync';
+import { installDumpQueriesHelper } from '@/lib/diag';
 import { WarningModal } from '@/components/shift/WarningModal';
 import { routeTree } from './routeTree.gen';
 
@@ -114,6 +115,10 @@ const queryClient = new QueryClient({
 // the three board-scoped query keys here, so React Query refetches and
 // the UI catches up within one network round-trip. See src/lib/boardSync.ts.
 attachBoardSyncListener(queryClient);
+
+// DIAG only: expose window.__dumpQueries() in DevTools console so the
+// founder can capture cache state on refocus. No behavior change.
+installDumpQueriesHelper(queryClient);
 
 // Boot stamp — confirms the focus-refetch + boardfn instrumentation build
 // is live after a hard refresh. If you don't see this line, the new bundle

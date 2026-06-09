@@ -56,6 +56,31 @@ export function diag(tag: string, ...args: unknown[]): void {
  *                                   user is staring at a stale UI.
  */
 import type { QueryClient } from '@tanstack/react-query';
+
+/**
+ * One-time helper exposed only when DIAG is on. Lets the founder run
+ * `window.__dumpQueries()` from DevTools console post-refocus and see
+ * which React Query keys are 'idle'+stale (never refetch — trigger
+ * problem) vs 'fetching' (fired but hung — network/fetch problem).
+ * Pure read; no behavior change.
+ */
+export function installDumpQueriesHelper(qc: QueryClient): void {
+  if (!DIAG) return;
+  if (typeof window === 'undefined') return;
+  (window as unknown as { __dumpQueries?: () => unknown[] }).__dumpQueries = () => {
+    const all = qc.getQueryCache().getAll();
+    return all.map((q) => ({
+      key:            q.queryKey,
+      status:         q.state.status,
+      fetchStatus:    q.state.fetchStatus,
+      isStale:        q.isStale(),
+      dataUpdatedAt:  q.state.dataUpdatedAt,
+      errorUpdatedAt: q.state.errorUpdatedAt,
+      observers:      q.getObserversCount(),
+    }));
+  };
+}
+
 export function logStuckQueries(qc: QueryClient, where: string): void {
   if (!DIAG) return;
   const all = qc.getQueryCache().getAll();

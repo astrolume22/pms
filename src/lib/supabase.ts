@@ -126,7 +126,15 @@ function timeoutFetchOnce(
   const id = DIAG_FETCH ? ++fetchCounter : 0;
   const target = urlOf(input);
   const label = shortLabel(target);
-  if (DIAG_FETCH) console.log(`[fetch #${id}] -> ${label}`);
+  if (DIAG_FETCH) {
+    // hasToken: do we have an Authorization header on this request? If
+    // the caller didn't set one (Authorization is undefined), the
+    // request would fall through to the anon key — useful to see when
+    // diagnosing a post-refocus null-token state.
+    const inHeaders = new Headers(init?.headers ?? undefined);
+    const hasToken = (inHeaders.get('Authorization') ?? '').startsWith('Bearer ');
+    console.log(`[fetch ->] #${id} ${label} hasToken=${hasToken} ts=${Date.now()}`);
+  }
   const start = DIAG_FETCH ? Date.now() : 0;
   const timer = setTimeout(() => {
     try {
@@ -137,14 +145,14 @@ function timeoutFetchOnce(
   }, timeoutMs);
   return fetch(input, { ...init, signal: ctrl.signal })
     .then((resp) => {
-      if (DIAG_FETCH) console.log(`[fetch #${id}] <- ${label} status=${resp.status} in ${Date.now() - start}ms`);
+      if (DIAG_FETCH) console.log(`[fetch <-] #${id} ${label} status=${resp.status} in ${Date.now() - start}ms`);
       return resp;
     })
     .catch((err: unknown) => {
       if (DIAG_FETCH) {
         const name = err instanceof Error ? err.name : 'unknown';
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[fetch #${id}] xx ${label} ${name}: ${msg} in ${Date.now() - start}ms`);
+        console.warn(`[fetch x] #${id} ${label} ${name}: ${msg} in ${Date.now() - start}ms`);
       }
       throw err;
     })
@@ -163,7 +171,16 @@ async function timeoutFetch(input: RequestInfo | URL, init?: RequestInit): Promi
     try {
       console.log('[fetch-auth-retry] 401 on', target.split('/rest/v1/')[1]?.split('?')[0] ?? target, '— refreshing token');
       notifyReconnecting();
+      // DIAG: time the refreshSession() await. This is the ONLY place on
+      // the data path where we await an auth-plane call (the cached-token
+      // pattern removed per-request getSession()). If a refocus wedge is
+      // really about auth-lock contention rather than fetch transport,
+      // we'd see [await-token <-] take many seconds here.
+      const __awtId = DIAG_FETCH ? ++fetchCounter : 0;
+      const __awtStart = DIAG_FETCH ? Date.now() : 0;
+      if (DIAG_FETCH) console.log(`[await-token ->] #${__awtId} refreshSession ts=${Date.now()}`);
       const { data, error } = await supabase.auth.refreshSession();
+      if (DIAG_FETCH) console.log(`[await-token <-] #${__awtId} refreshSession ok=${!error && !!data.session?.access_token} in ${Date.now() - __awtStart}ms`);
       if (!error && data.session?.access_token) {
         // Update the cached token used by src/lib/db.ts so the next
         // direct-fetch board call picks up the fresh access token without

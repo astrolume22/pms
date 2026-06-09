@@ -32,8 +32,13 @@ import {
   getCachedAccessToken,
   timeoutFetch,
 } from './supabase';
+import { DIAG } from './diag';
 
 const REST_BASE = `${SUPABASE_URL}/rest/v1`;
+
+// DIAG counter — separate from supabase.ts's fetchCounter so the two
+// log streams can be cross-referenced.
+let dbCounter = 0;
 
 // =====================================================================
 // PostgREST filter & order helpers.
@@ -119,7 +124,19 @@ class DbError extends Error {
 }
 
 async function dbFetch<T>(opts: DbRequestOpts): Promise<T> {
-  const token = getCachedAccessToken() ?? SUPABASE_ANON_KEY;
+  // DIAG: per-call id so we can correlate the [db ->] / [db <-] / [db x]
+  // lines with the [fetch ->] / [fetch <-] / [fetch x] lines emitted by
+  // timeoutFetchOnce in supabase.ts. Synchronous cached-token read — no
+  // await, no lock; if this returns null we fall back to the anon key
+  // (PostgREST will 401 and the refresh-on-401 path retries).
+  const id = DIAG ? ++dbCounter : 0;
+  const cached = getCachedAccessToken();
+  const token = cached ?? SUPABASE_ANON_KEY;
+  if (DIAG) {
+    console.log(`[db ->] #${id} ${opts.method} ${opts.path} hasToken=${!!cached} ts=${Date.now()}`);
+  }
+  const start = DIAG ? Date.now() : 0;
+
   const headers = new Headers({
     'apikey': SUPABASE_ANON_KEY,
     'Authorization': 'Bearer ' + token,
@@ -128,11 +145,24 @@ async function dbFetch<T>(opts: DbRequestOpts): Promise<T> {
   if (opts.body !== undefined) headers.set('Content-Type', 'application/json');
   if (opts.prefer) headers.set('Prefer', opts.prefer);
 
-  const resp = await timeoutFetch(REST_BASE + opts.path, {
-    method: opts.method,
-    headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  });
+  let resp: Response;
+  try {
+    resp = await timeoutFetch(REST_BASE + opts.path, {
+      method: opts.method,
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+  } catch (err) {
+    if (DIAG) {
+      const name = err instanceof Error ? err.name : 'unknown';
+      const msg  = err instanceof Error ? err.message : String(err);
+      console.warn(`[db x] #${id} ${opts.method} ${opts.path} ${name}: ${msg} in ${Date.now() - start}ms`);
+    }
+    throw err;
+  }
+  if (DIAG) {
+    console.log(`[db <-] #${id} ${opts.method} ${opts.path} status=${resp.status} in ${Date.now() - start}ms`);
+  }
 
   if (!resp.ok) {
     // PostgREST error body is JSON: { code, message, details, hint }.
