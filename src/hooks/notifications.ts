@@ -23,6 +23,12 @@ export function useNotifications(limit = 50) {
       if (error) throw error;
       return (data ?? []) as NotificationRow[];
     },
+    // 20s background poll so the notification watcher (src/lib/notify.ts
+    // useNotificationWatcher) surfaces a toast + bell chime for every new
+    // row within ~20s of arrival. refetchOnWindowFocus stays OFF — we do
+    // not re-enable refocus machinery here.
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: false,
   });
 }
 

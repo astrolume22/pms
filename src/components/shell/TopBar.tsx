@@ -7,6 +7,7 @@ import { useThemeStore } from '@/state/themeStore';
 import { Avatar } from '@/components/Avatar';
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel';
 import { useUnreadCount } from '@/hooks/notifications';
+import { useNotificationWatcher } from '@/lib/notify';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -25,6 +26,11 @@ export function TopBar() {
   const ref = useRef<HTMLDivElement>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const { data: unreadCount = 0 } = useUnreadCount();
+  // Single mount point for the notification watcher — fires a sonner
+  // toast + bell chime for every new row that arrives via the 20s
+  // notifications poll. Seed-then-fire: existing rows on page load are
+  // silent; only NEW notifications ring. See src/lib/notify.ts.
+  useNotificationWatcher();
 
   useEffect(() => {
     if (!open) return;
