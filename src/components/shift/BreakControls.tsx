@@ -32,7 +32,7 @@ import {
   type ShiftTickPayload,
 } from '@/hooks/shift';
 import { safeGetSession } from '@/lib/safeAuth';
-import { notifyNow } from '@/lib/notify';
+import { notifyImportant } from '@/lib/notify';
 
 interface BreakControlsProps {
   sessionId: string;
@@ -134,7 +134,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   // de-duped by current_break_started_at (server resets it on every
   // new break). Triggers when the interpolated elapsed crosses 12:00
   // (720s), which is also when the timer text flips to red below.
-  // notifyNow surfaces sonner toast + the bell chime in one call.
+  // notifyImportant surfaces the centered <WarningModal/> + bell chime.
   const bioWarn12FiredRef = useRef<string | null>(null);
   useEffect(() => {
     if (!tick || tick.status !== 'on_bio_break') return;
@@ -142,9 +142,30 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
     if (breakElapsed < 720) return;
     if (bioWarn12FiredRef.current === tick.current_break_started_at) return;
     bioWarn12FiredRef.current = tick.current_break_started_at;
-    notifyNow({
+    notifyImportant({
       title: 'Bio break — 3 minutes left',
-      body: 'You are approaching the 15-minute limit.',
+      body: 'You are approaching the 15-minute limit. Please wrap up.',
+    });
+  }, [tick, breakElapsed]);
+
+  // Shift "5 minutes left" warning — same once-per-break, separate ref.
+  // Fires when the interpolated countdown drops below 5:00 remaining
+  // (i.e. breakElapsed >= shiftBreakAllowance - 300). Uses the same
+  // shiftBreakAllowance constant defined just below the early returns;
+  // we duplicate it here as SHIFT_ALLOWANCE so the effect doesn't need
+  // to reach across the early-return boundary. The render-side
+  // shiftBreakAllowance below uses the same value — keep both in sync.
+  const SHIFT_ALLOWANCE_FOR_WARN = 1800;
+  const shiftWarn5FiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || tick.status !== 'on_shift_break') return;
+    if (!tick.current_break_started_at) return;
+    if (breakElapsed < SHIFT_ALLOWANCE_FOR_WARN - 300) return;
+    if (shiftWarn5FiredRef.current === tick.current_break_started_at) return;
+    shiftWarn5FiredRef.current = tick.current_break_started_at;
+    notifyImportant({
+      title: 'Shift break — 5 minutes left',
+      body: 'Your shift break is almost over. Please return soon.',
     });
   }, [tick, breakElapsed]);
 

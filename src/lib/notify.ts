@@ -24,10 +24,28 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useNotifications } from '@/hooks/notifications';
+import { useWarningModalStore } from '@/state/warningModalStore';
 import type { NotificationRow } from '@/lib/database.types';
 
 // =====================================================================
 // AudioContext singleton + autoplay unlock
+//
+// ROOT CAUSE of the silent-bell bug we're fixing here:
+//   • Old playBell() did `if (ctx.state === 'suspended') return;` →
+//     silently dropped the chime whenever it fired outside a user
+//     gesture (i.e. from the 20s notification poll).
+//   • Old primeAudioUnlock() called ctx.resume() fire-and-forget. On
+//     Safari/iOS that isn't enough — you must also play a real (silent)
+//     sound during the gesture for the context to fully arm.
+//
+// Fix:
+//   1. getAudioCtx() is memoized to ONE AudioContext instance.
+//   2. On the first pointerdown/keydown we resume() AND play a 1-sample
+//      silent buffer (the standard Safari unlock trick). Both happen
+//      synchronously inside the same gesture.
+//   3. playBell() never bails on 'suspended'. If suspended, we call
+//      resume() and chain .then(emit) so the chime lands the instant
+//      the context becomes 'running'.
 // =====================================================================
 type AudioCtxCtor = typeof AudioContext;
 let audioCtx: AudioContext | null = null;
@@ -52,10 +70,25 @@ export function primeAudioUnlock(): void {
   unlockInstalled = true;
   const unlock = () => {
     const ctx = getAudioCtx();
-    if (ctx && ctx.state === 'suspended') {
-      // resume() returns a promise; we don't await it — the next playBell()
-      // will succeed once the resume settles.
-      void ctx.resume().catch(() => { /* ignore */ });
+    if (!ctx) return;
+    try {
+      // Resume the suspended context. resume() returns a promise; we
+      // don't await it — by the time the user clicks the next thing
+      // the state will already be 'running'.
+      if (ctx.state === 'suspended') {
+        void ctx.resume().catch(() => { /* ignore */ });
+      }
+      // Play a 1-sample silent buffer INSIDE the gesture. This is the
+      // canonical Safari/iOS unlock trick — a no-op-sounding sound is
+      // what fully arms the audio output. Skipping this is what kept
+      // the chime silent on Safari even after resume() landed.
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* swallow — unlock errors must never throw to the UI */
     }
     document.removeEventListener('pointerdown', unlock);
     document.removeEventListener('keydown', unlock);
@@ -72,15 +105,7 @@ primeAudioUnlock();
 // =====================================================================
 // playBell — synthesized two-note "ding-dong"
 // =====================================================================
-/**
- * Play a short, pleasant two-note bell chime. ~0.15s per note, low
- * volume. Silently no-ops if the AudioContext is missing or still
- * suspended (autoplay-blocked) — the caller's toast still surfaces.
- */
-export function playBell(): void {
-  const ctx = getAudioCtx();
-  if (!ctx) return;
-  if (ctx.state === 'suspended') return; // waiting on first gesture
+function emitChime(ctx: AudioContext): void {
   try {
     const now = ctx.currentTime;
     const playNote = (freq: number, startOffset: number, duration: number, peak: number) => {
@@ -89,7 +114,7 @@ export function playBell(): void {
       osc.type = 'sine';
       osc.frequency.value = freq;
       // Gentle attack + decay envelope so the tone feels like a chime,
-      // not a beep. linearRampToValueAtTime keeps the curve clean.
+      // not a beep.
       gain.gain.setValueAtTime(0.0001, now + startOffset);
       gain.gain.exponentialRampToValueAtTime(peak,    now + startOffset + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
@@ -101,7 +126,32 @@ export function playBell(): void {
     playNote(880,  0.00, 0.15, 0.20);
     playNote(1175, 0.13, 0.18, 0.18);
   } catch {
-    /* swallow — audio errors must never break the toast */
+    /* swallow — audio errors must never break the caller */
+  }
+}
+
+/**
+ * Play a short two-note bell chime. If the AudioContext is suspended
+ * (no gesture yet), we resume it and emit AFTER resume settles instead
+ * of bailing out. The old early-return was the chief silent-bell bug.
+ */
+export function playBell(): void {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === 'running') {
+    emitChime(ctx);
+    return;
+  }
+  // 'suspended' (no gesture yet) OR 'closed' (very rare). Try to
+  // resume and emit. If resume rejects (autoplay still blocked), the
+  // chime stays silent — the caller's toast/modal still surfaces.
+  try {
+    void ctx.resume().then(
+      () => emitChime(ctx),
+      () => { /* swallow */ },
+    );
+  } catch {
+    /* swallow */
   }
 }
 
@@ -118,6 +168,21 @@ export function notifyNow({ title, body }: NotifyArgs): void {
     toast(title, body ? { description: body } : undefined);
   } catch {
     /* sonner not mounted yet on cold boot */
+  }
+  playBell();
+}
+
+/**
+ * HIGH-PRIORITY surface — centered <WarningModal/> popup + bell chime.
+ * Use for warnings that demand the user's attention right now (e.g.
+ * "3 minutes left on your bio break"). Does NOT use sonner toast; the
+ * single mounted <WarningModal/> renders it.
+ */
+export function notifyImportant({ title, body }: NotifyArgs): void {
+  try {
+    useWarningModalStore.getState().show(title, body ?? '');
+  } catch {
+    /* store not mounted yet on cold boot — chime still fires */
   }
   playBell();
 }

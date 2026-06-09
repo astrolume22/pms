@@ -10,6 +10,7 @@ import { FullPageSpinner } from '@/components/Spinner';
 import { useAuthStore } from '@/state/authStore';
 import { useThemeStore } from '@/state/themeStore';
 import { attachBoardSyncListener } from '@/lib/boardSync';
+import { WarningModal } from '@/components/shift/WarningModal';
 import { routeTree } from './routeTree.gen';
 
 // =====================================================================
@@ -192,6 +193,14 @@ function Root() {
           },
         }}
       />
+      {/*
+        Centered high-priority popup. Driven by useWarningModalStore;
+        fired via notifyImportant() in src/lib/notify.ts. One-slot, ESC
+        + Got-it close, 12s auto-dismiss. Lives next to <Toaster/> so
+        every route (including AppShell descendants where the break
+        warnings originate) renders it.
+      */}
+      <WarningModal />
     </>
   );
 }
