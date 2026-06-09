@@ -32,6 +32,7 @@ import {
   type ShiftTickPayload,
 } from '@/hooks/shift';
 import { safeGetSession } from '@/lib/safeAuth';
+import { notifyNow } from '@/lib/notify';
 
 interface BreakControlsProps {
   sessionId: string;
@@ -129,6 +130,24 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
     }
   }, [tick, sessionId, endBreak]);
 
+  // Bio "3 minutes left" warning — fires exactly ONCE per bio break,
+  // de-duped by current_break_started_at (server resets it on every
+  // new break). Triggers when the interpolated elapsed crosses 12:00
+  // (720s), which is also when the timer text flips to red below.
+  // notifyNow surfaces sonner toast + the bell chime in one call.
+  const bioWarn12FiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || tick.status !== 'on_bio_break') return;
+    if (!tick.current_break_started_at) return;
+    if (breakElapsed < 720) return;
+    if (bioWarn12FiredRef.current === tick.current_break_started_at) return;
+    bioWarn12FiredRef.current = tick.current_break_started_at;
+    notifyNow({
+      title: 'Bio break — 3 minutes left',
+      body: 'You are approaching the 15-minute limit.',
+    });
+  }, [tick, breakElapsed]);
+
   // Reset request flag whenever counts change (admin granted +1 → bumps)
   useEffect(() => { setRequested(false); }, [tick?.bio_break_admin_grants_today]);
 
@@ -143,6 +162,35 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   const onShiftBreak = tick.status === 'on_shift_break';
   const onBioBreak   = tick.status === 'on_bio_break';
   const onBreak = onShiftBreak || onBioBreak;
+
+  // ===================================================================
+  // Per-kind break timer direction (display-only — server values still
+  // drive auto-end + audit).
+  //
+  //   SHIFT break → COUNTS DOWN from the manager's shift_break_seconds
+  //     allowance to 0:00. shift_tick does NOT currently surface
+  //     shift_break_seconds in its payload, so we fall back to 1800s
+  //     (30 min). When shift_tick is extended to expose this field,
+  //     swap the constant for the value off `tick`.
+  //     TODO: read from tick.shift_break_seconds (= shift_configs.shift_break_seconds)
+  //           once exposed; the constant fallback is acceptable until then.
+  //
+  //   BIO break   → COUNTS UP from 0:01 (we floor the display to 1s so
+  //     the chip never reads "0:00" at the very start of the break),
+  //     capped at bio_break_max_seconds_each (default 900 / 15:00) so
+  //     the displayed value never overshoots the cap. The server-side
+  //     auto-end-at-15-min effect (autoEndFiredRef above) still ends
+  //     the actual break, reading tick.current_break_elapsed_seconds.
+  // ===================================================================
+  const SHIFT_BREAK_FALLBACK_SECS = 1800;
+  const shiftBreakAllowance = SHIFT_BREAK_FALLBACK_SECS;
+  const bioCapSecs = tick.bio_break_max_seconds_each ?? 900;
+  const displayedBreakSecs = onShiftBreak
+    ? Math.max(0, shiftBreakAllowance - breakElapsed)
+    : Math.min(bioCapSecs, Math.max(1, breakElapsed));
+  // Red at the 12:00 (720s) crossing for bio only — paired with the
+  // once-per-break notifyNow above.
+  const bioRedWarn = onBioBreak && breakElapsed >= 720;
 
   const bioCount = tick.bio_break_count_today;
   const bioMax   = tick.bio_break_max_per_day ?? 7;
@@ -196,9 +244,16 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
       <div className="inline-flex items-center gap-2 pointer-events-auto">
         {onBreak ? (
           <>
-            <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium text-amber-100 bg-amber-900/40 border border-amber-700/40">
+            <span
+              className={
+                'inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium ' +
+                (bioRedWarn
+                  ? 'text-rose-400 bg-rose-950/40 border border-rose-700/50'
+                  : 'text-amber-100 bg-amber-900/40 border border-amber-700/40')
+              }
+            >
               {onBioBreak ? <User className="h-3.5 w-3.5" /> : <Coffee className="h-3.5 w-3.5" />}
-              On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(breakElapsed)}
+              On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(displayedBreakSecs)}
             </span>
             <button
               type="button"
