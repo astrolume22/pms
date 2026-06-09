@@ -265,11 +265,23 @@ export function AdminShiftControlSection() {
   //     session — credits the pause duration to paused_total_seconds and
   //     restores status='active'. So zero time is lost during the lock.)
   //   • If the session is in a TRUE period-lock (status='locked' AND
-  //     session_locked_reason='period_lock'), additionally call
-  //     shift_admin_unlock(session_id) + shift_admin_rearm(session_id).
-  //     Crucially we do NOT call those for admin-locked sessions — rearm
-  //     would zero started_at and wipe the manager's worked time. The
-  //     reason check is what scopes us to period-locks only.
+  //     session_locked_reason='period_lock'), call shift_admin_unlock —
+  //     and ONLY shift_admin_unlock. It cleanly resumes the session:
+  //     status='active', credits the pause to paused_total_seconds,
+  //     advances current_period_index by 1 so the next period boundary
+  //     moves forward and shift_tick does NOT immediately report
+  //     period_lock_due=true again.
+  //
+  //   • CRITICAL — we do NOT call shift_admin_rearm here. Rearm is a
+  //     deliberate FULL RESET (started_at=now(), paused_total_seconds=0,
+  //     period_index=0, bio_break_count_today=0,
+  //     bio_break_total_seconds_today=0). Calling it on unlock was the
+  //     founder's bug: the manager's bio break counter was zeroed every
+  //     time the periodic lock fired and the admin unlocked them.
+  //
+  //     Rearm stays wired to the separate "Re-arm" button (runRearm
+  //     below) which the admin clicks deliberately. That is the ONLY
+  //     path that resets counts/timer.
   //   • Both account-unlock and period-unlock run when both apply.
   //
   // Optimistic flip BEFORE await so the switch animates immediately.
@@ -296,14 +308,16 @@ export function AdminShiftControlSection() {
           await setAccountLock.mutateAsync({ targetUserId: row.user_id, locked: false });
         }
         if (ranPeriod) {
+          // ONLY resume — no rearm. shift_admin_unlock advances the
+          // period index by 1 so a re-lock is impossible until the
+          // next period actually ends.
           await unlockMut.mutateAsync(row.session_id!);
-          await rearmMut.mutateAsync(row.session_id!);
         }
         const who = row.full_name ?? row.username;
         const msg =
-          ranAccount && ranPeriod ? `Unlocked ${who} — account + period lock cleared, timer re-armed` :
+          ranAccount && ranPeriod ? `Unlocked ${who} — account + period lock cleared, break counts preserved` :
           ranAccount               ? `Unlocked ${who}'s account` :
-          ranPeriod                ? `Unlocked ${who} — period lock cleared, timer re-armed` :
+          ranPeriod                ? `Unlocked ${who} — period lock cleared, break counts preserved` :
                                      `Unlocked ${who}`;
         toast.success(msg);
       }
