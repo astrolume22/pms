@@ -129,8 +129,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
     const kind = typeof body.kind === 'string' ? body.kind : '';
     if (!UUID_RE.test(sessionId)
-        || (kind !== '85' && kind !== 'lock' && kind !== 'bio_total_warn' && kind !== 'complete')) {
-      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock"|"bio_total_warn"|"complete")' });
+        || (kind !== '85'
+            && kind !== 'lock'
+            && kind !== 'bio_total_warn'
+            && kind !== 'complete'
+            && kind !== 'break_overstay_lock')) {
+      res.status(400).json({ ok: false, error: 'invalid body — need session_id (uuid) and kind ("85"|"lock"|"bio_total_warn"|"complete"|"break_overstay_lock")' });
       return;
     }
 
@@ -180,7 +184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ADMIN_ALERT_EMAIL env override so the founder can redirect alerts
     // to a personal address without rewriting their users row.
     let adminEmail: string | null = null;
-    if (kind === 'lock' || kind === 'bio_total_warn') {
+    if (kind === 'lock' || kind === 'bio_total_warn' || kind === 'break_overstay_lock') {
       if (adminAlertEmailEnv) {
         adminEmail = adminAlertEmailEnv;
       } else {
@@ -243,6 +247,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `— EIA Projects (automated)`;
       const r = await sendResend({ apiKey: resendKey, from: resendFrom, to: adminEmail, subject, text });
       sent.push({ to: adminEmail, id: r.id, error: r.error });
+    } else if (kind === 'break_overstay_lock') {
+      // Step 4c — calm no-blame email to manager + admin when the
+      // shift-break overstay lock fires. Sent once per lock (the
+      // client gates this call on shift_mark_overstay_lock_emailed
+      // returning emailed_now=true, which atomically transitions
+      // overstay_lock_email_sent_at NULL → now() exactly once per
+      // lock instance).
+      const subject = 'Shift break exceeded — screen locked';
+      const managerText =
+        `Hi ${managerName},\n\n` +
+        `Your break ran past the allowed time, so your screen has been locked. ` +
+        `Please contact your admin to unlock and resume your shift.\n\n` +
+        `— EIA Projects (automated)`;
+      const r1 = await sendResend({ apiKey: resendKey, from: resendFrom, to: manager.email, subject, text: managerText });
+      sent.push({ to: manager.email, id: r1.id, error: r1.error });
+      if (adminEmail && adminEmail.toLowerCase() !== manager.email.toLowerCase()) {
+        const adminText =
+          `${managerName} exceeded their shift break time and their screen is now locked. ` +
+          `You can unlock them from the Shift Control panel.\n\n` +
+          `— EIA Projects (automated)`;
+        const r2 = await sendResend({
+          apiKey: resendKey, from: resendFrom, to: adminEmail,
+          subject: `[admin] ${managerName} — shift break exceeded`,
+          text: adminText,
+        });
+        sent.push({ to: adminEmail, id: r2.id, error: r2.error });
+      }
     } else if (kind === '85') {
       const subject = 'Check-in coming up';
       const text =

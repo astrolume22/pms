@@ -42,6 +42,7 @@ import {
 } from '@/hooks/shift';
 import { safeGetSession } from '@/lib/safeAuth';
 import { notifyImportant } from '@/lib/notify';
+import { supabase } from '@/lib/supabase';
 
 // Local extension for the tick fields added since the original
 // ShiftTickPayload type was authored:
@@ -88,6 +89,29 @@ async function postBioTotalWarn(sessionId: string): Promise<void> {
     });
   } catch (e) {
     console.warn('[shift] bio_total_warn email failed:', e);
+  }
+}
+
+// Fire-and-forget critical "break overstay → locked" email to BOTH
+// the manager and the admin recipient. Re-uses /api/shift-alert-email
+// with the new kind='break_overstay_lock' branch (subject "Shift break
+// exceeded — screen locked"). Caller MUST gate on
+// shift_mark_overstay_lock_emailed returning emailed_now=true so this
+// runs exactly once per lock instance.
+async function postBreakOverstayLockEmail(sessionId: string): Promise<void> {
+  try {
+    const { data: { session }, timedOut } = await safeGetSession('shift-break-overstay-lock');
+    if (timedOut) return;
+    const token = session?.access_token;
+    if (!token) return;
+    await fetch('/api/shift-alert-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ session_id: sessionId, kind: 'break_overstay_lock' }),
+      keepalive: true,
+    });
+  } catch (e) {
+    console.warn('[shift] break_overstay_lock email failed:', e);
   }
 }
 
@@ -241,6 +265,14 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   // de-dupe ref) when overstay >= grace AND status is still
   // on_shift_break. Server is authoritative; the RPC re-checks
   // eligibility and is idempotent (double calls return {applied:false}).
+  //
+  // 0070 (Step 4c) — IMMEDIATELY after the lock RPC succeeds, chain:
+  //   1) shift_mark_overstay_lock_emailed → atomic NULL→now() guard.
+  //   2) ONLY if it returns emailed_now=true (we won the race), POST
+  //      /api/shift-alert-email kind='break_overstay_lock' to send
+  //      ONE critical email to both manager + admin.
+  // The DB guard means re-running this effect (poll cycle, hot-reload,
+  // a second tab) will return emailed_now=false and skip the POST.
   const shiftLockFiredRef = useRef<string | null>(null);
   useEffect(() => {
     if (!tick || tick.status !== 'on_shift_break') return;
@@ -252,8 +284,18 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
     if (shiftLockFiredRef.current === tick.current_break_started_at) return;
     shiftLockFiredRef.current = tick.current_break_started_at;
     void (async () => {
-      try { await breakOverstayLock.mutateAsync(sessionId); }
-      catch (e) { console.warn('[shift] break_overstay_lock failed:', e); }
+      try {
+        await breakOverstayLock.mutateAsync(sessionId);
+        // Mark + email (once-only via DB guard).
+        const { data, error } = await supabase.rpc('shift_mark_overstay_lock_emailed', {
+          p_session_id: sessionId,
+        });
+        if (error) { console.warn('[shift] mark_overstay_lock_emailed failed:', error); return; }
+        const emailedNow = (data as { emailed_now?: boolean } | null)?.emailed_now === true;
+        if (emailedNow) await postBreakOverstayLockEmail(sessionId);
+      } catch (e) {
+        console.warn('[shift] break_overstay_lock chain failed:', e);
+      }
     })();
   }, [tick, sessionId, breakOverstayLock]);
 
