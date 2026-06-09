@@ -36,17 +36,26 @@ import {
   useShiftTakeShiftBreak,
   useShiftTakeBioBreak,
   useShiftEndBreak,
+  useShiftBreakFreeze,
   type ShiftTickPayload,
 } from '@/hooks/shift';
 import { safeGetSession } from '@/lib/safeAuth';
 import { notifyImportant } from '@/lib/notify';
 
-// 0067 — local extension for the new fields shift_tick now returns.
-// We don't edit src/hooks/shift.ts (out of scope), so we widen the
-// payload here via intersection at the read site.
+// Local extension for the tick fields added since the original
+// ShiftTickPayload type was authored:
+//   0067 — shift_break_used_today / shift_break_count_today
+//   0068 — shift_break_seconds / shift_break_overstay /
+//          shift_break_overstay_seconds / shift_break_frozen
+// We don't widen the shared type in src/hooks/shift.ts here; the read
+// site narrows via intersection.
 type BreakTickExt = {
   shift_break_used_today?: boolean;
   shift_break_count_today?: number;
+  shift_break_seconds?: number;
+  shift_break_overstay?: boolean;
+  shift_break_overstay_seconds?: number;
+  shift_break_frozen?: boolean;
 };
 
 interface BreakControlsProps {
@@ -83,6 +92,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   const takeShift = useShiftTakeShiftBreak();
   const takeBio   = useShiftTakeBioBreak();
   const endBreak  = useShiftEndBreak();
+  const breakFreeze = useShiftBreakFreeze();
 
   // Local 1/sec interpolation for the "On {kind} break · MM:SS" display.
   // Mirrors ShiftCountdownChip but COUNTS UP. On every shift_tick poll
@@ -163,13 +173,15 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
 
   // Shift "5 minutes left" warning — same once-per-break, separate ref.
   // Fires when the interpolated countdown drops below 5:00 remaining
-  // (i.e. breakElapsed >= shiftBreakAllowance - 300).
-  const SHIFT_ALLOWANCE_FOR_WARN = 1800;
+  // (i.e. breakElapsed >= shiftBreakAllowance - 300). Uses the live
+  // admin-set allowance from tick.shift_break_seconds (0068); falls
+  // back to 1800 only if the field is missing.
   const shiftWarn5FiredRef = useRef<string | null>(null);
   useEffect(() => {
     if (!tick || tick.status !== 'on_shift_break') return;
     if (!tick.current_break_started_at) return;
-    if (breakElapsed < SHIFT_ALLOWANCE_FOR_WARN - 300) return;
+    const allowance = (tick as ShiftTickPayload & BreakTickExt).shift_break_seconds ?? 1800;
+    if (breakElapsed < allowance - 300) return;
     if (shiftWarn5FiredRef.current === tick.current_break_started_at) return;
     shiftWarn5FiredRef.current = tick.current_break_started_at;
     notifyImportant({
@@ -177,6 +189,26 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
       body: 'Your shift break is almost over. Please return soon.',
     });
   }, [tick, breakElapsed]);
+
+  // 0068 — Shift-break OVERSTAY: when the server confirms the break
+  // ran past the allowance and the freeze hasn't been applied yet,
+  // call shift_break_freeze(sessionId) EXACTLY ONCE per break (mirror
+  // the period self-lock pattern). The RPC is idempotent server-side
+  // so even if the client lags one poll, double calls are safe.
+  const shiftFreezeFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || tick.status !== 'on_shift_break') return;
+    if (!tick.current_break_started_at) return;
+    const ext = tick as ShiftTickPayload & BreakTickExt;
+    if (!ext.shift_break_overstay) return;
+    if (ext.shift_break_frozen) return;   // already frozen
+    if (shiftFreezeFiredRef.current === tick.current_break_started_at) return;
+    shiftFreezeFiredRef.current = tick.current_break_started_at;
+    void (async () => {
+      try { await breakFreeze.mutateAsync(sessionId); }
+      catch (e) { console.warn('[shift] break_freeze failed:', e); }
+    })();
+  }, [tick, sessionId, breakFreeze]);
 
   if (!tick) return null;
 
@@ -190,9 +222,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   const onBioBreak   = tick.status === 'on_bio_break';
   const onBreak = onShiftBreak || onBioBreak;
 
-  // 0067 — read the two new tick fields. The local extension narrows
-  // these to (boolean | undefined) so we tolerate an old payload during
-  // a cache miss / cold boot.
+  // 0067/0068 — read new tick fields via the local extension.
   const tickExt = tick as ShiftTickPayload & BreakTickExt;
   const shiftBreakUsedToday = !!tickExt.shift_break_used_today;
 
@@ -200,11 +230,13 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   // Per-kind break timer direction (display-only — server values still
   // drive auto-end + audit).
   //
-  //   SHIFT break → COUNTS DOWN from the manager's shift_break_seconds
-  //     allowance to 0:00. shift_tick does NOT currently surface
-  //     shift_break_seconds in its payload, so we fall back to 1800s
-  //     (30 min). When shift_tick is extended to expose this field,
-  //     swap the constant for the value off `tick`.
+  //   SHIFT break → COUNTS DOWN from the admin-set per-user allowance
+  //     (shift_configs.shift_break_seconds, surfaced as
+  //     tick.shift_break_seconds in 0068). Falls back to 1800 only if
+  //     the field is missing on a stale payload. The countdown clamps
+  //     at 0:00 even after the break overstays — once it hits zero, the
+  //     0068 freeze logic kicks in (8h timer pauses) and the pill flips
+  //     RED with the "Break over — time frozen" copy below.
   //
   //   BIO break   → COUNTS UP from 0:01 (we floor the display to 1s so
   //     the chip never reads "0:00" at the very start of the break),
@@ -213,14 +245,20 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   //     auto-end-at-15-min effect (autoEndFiredRef above) still ends
   //     the actual break, reading tick.current_break_elapsed_seconds.
   // ===================================================================
-  const SHIFT_BREAK_FALLBACK_SECS = 1800;
-  const shiftBreakAllowance = SHIFT_BREAK_FALLBACK_SECS;
+  const shiftBreakAllowance = tickExt.shift_break_seconds ?? 1800;
   const bioCapSecs = tick.bio_break_max_seconds_each ?? 900;
   const displayedBreakSecs = onShiftBreak
     ? Math.max(0, shiftBreakAllowance - breakElapsed)
     : Math.min(bioCapSecs, Math.max(1, breakElapsed));
-  // Red at the 12:00 (720s) crossing for bio only.
+  // Red state for the on-break pill:
+  //   • SHIFT break overstaying (server-confirmed via shift_break_overstay,
+  //     or local breakElapsed past allowance as a defensive fallback
+  //     between polls) → red "Break over — time frozen" pill.
+  //   • BIO break past 12:00 (720s) → existing red warning.
+  const shiftOverstay = onShiftBreak
+    && (!!tickExt.shift_break_overstay || breakElapsed >= shiftBreakAllowance);
   const bioRedWarn = onBioBreak && breakElapsed >= 720;
+  const pillRed = shiftOverstay || bioRedWarn;
 
   // 0067 — hard cap (admin grants no longer add to the max). effMax
   // matches the server's v_eff_max in shift_tick.
@@ -278,13 +316,16 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
             <span
               className={
                 'inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium ' +
-                (bioRedWarn
+                (pillRed
                   ? 'text-rose-400 bg-rose-950/40 border border-rose-700/50'
                   : 'text-amber-100 bg-amber-900/40 border border-amber-700/40')
               }
             >
               {onBioBreak ? <User className="h-3.5 w-3.5" /> : <Coffee className="h-3.5 w-3.5" />}
-              On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(displayedBreakSecs)}
+              {shiftOverstay
+                ? <>Break over — time frozen · end your break</>
+                : <>On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(displayedBreakSecs)}</>
+              }
             </span>
             <button
               type="button"

@@ -194,6 +194,32 @@ export function useShiftSelfPeriodLock() {
 }
 
 // ---------------------------------------------------------------------
+// useShiftBreakFreeze (0068) — manager-callable, idempotent. The client
+// fires it when shift_tick reports shift_break_overstay=true AND
+// shift_break_frozen=false. The RPC re-checks eligibility server-side
+// so a stale client never freezes something it shouldn't, and double
+// calls are safe (returns {applied:false}).
+// ---------------------------------------------------------------------
+export function useShiftBreakFreeze() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_break_freeze', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string;
+        status: ShiftStatus;
+        frozen: boolean;
+        applied: boolean;
+      };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
 // useShiftMark85Alerted — manager-callable; flips period_85_due to
 // false for the current period so the toast never re-fires.
 // ---------------------------------------------------------------------
