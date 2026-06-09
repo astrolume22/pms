@@ -173,11 +173,21 @@ export function AdminShiftControlSection() {
 
   const [editRow, setEditRow] = useState<AdminShiftRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  // Per-user optimistic lock override. Set the moment a toggle flips so
-  // the UI reflects the user's intent immediately; the existing 10s
-  // poll then reconciles to real DB state. Cleared on mutation success
-  // (let the poll take over) AND on error (so the visual reverts).
-  // Map key = user_id, value = the lock state the user just selected.
+  // Per-user optimistic lock override.
+  //
+  // Flicker fix — RECONCILE-ON-MATCH (not "clear in finally"):
+  //   The toggle flips → override is set to `next` immediately so the
+  //   switch animates without waiting for the network.
+  //   The override is then KEPT until the polled `rows` actually
+  //   reflects the new server state. An effect below watches `rows`
+  //   and clears any user's override ONLY when the polled row's
+  //   derived locked state == that user's override. This eliminates
+  //   the old finally-clear → stale-poll → next-poll-flip cycle that
+  //   caused the on→off→on flicker.
+  //
+  // Cleared in two cases:
+  //   • RECONCILE: polled row's derived state matches the override.
+  //   • REVERT  : the RPC threw (manual clear in the catch block).
   const [lockOverrides, setLockOverrides] = useState<Map<string, boolean>>(() => new Map());
   const clearLockOverride = (userId: string) => {
     setLockOverrides((prev) => {
@@ -187,6 +197,30 @@ export function AdminShiftControlSection() {
       return next;
     });
   };
+
+  // Reconcile-on-match: when the 10s poll lands, drop overrides whose
+  // server state has caught up. This is the ONLY non-error path that
+  // clears an override, so the optimistic UI never reverts to stale
+  // data and never flips on the in-between poll.
+  useEffect(() => {
+    if (!rows) return;
+    if (lockOverrides.size === 0) return;
+    setLockOverrides((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const [userId, want] of prev) {
+        const row = rows.find((r) => r.user_id === userId);
+        if (!row) continue;
+        const have = (row.account_locked ?? false) || row.status === 'locked';
+        if (have === want) {
+          next.delete(userId);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [rows, lockOverrides]);
 
   // 1/sec tick so the Remaining column counts down smoothly between
   // the 10s server polls. Just a heartbeat — the actual numbers come
@@ -227,18 +261,21 @@ export function AdminShiftControlSection() {
   //
   // Toggle OFF (admin unlock — free the manager to work whatever the cause):
   //   • If account_locked === true → shift_admin_set_account_lock(user, false).
-  //   • If status === 'locked' (auto period-lock OR manual shift_admin_lock)
-  //     AND session_id is present → shift_admin_unlock(session_id) AND
-  //     shift_admin_rearm(session_id), in that order. Unlock satisfies the
-  //     status='locked' precondition and writes the unlock audit; rearm
-  //     hard-resets the clock (started_at = now(), paused_total_seconds = 0,
-  //     current_period_index = 0) so the very next tick reports
-  //     period_lock_due=false and the manager does NOT instantly re-lock.
-  //   • Both run if both apply.
+  //     (As of migration 0065, that RPC ALSO finalizes any admin-paused
+  //     session — credits the pause duration to paused_total_seconds and
+  //     restores status='active'. So zero time is lost during the lock.)
+  //   • If the session is in a TRUE period-lock (status='locked' AND
+  //     session_locked_reason='period_lock'), additionally call
+  //     shift_admin_unlock(session_id) + shift_admin_rearm(session_id).
+  //     Crucially we do NOT call those for admin-locked sessions — rearm
+  //     would zero started_at and wipe the manager's worked time. The
+  //     reason check is what scopes us to period-locks only.
+  //   • Both account-unlock and period-unlock run when both apply.
   //
-  // Optimistic flip BEFORE await so the switch animates immediately;
-  // override cleared in finally so the next 10s poll's authoritative
-  // (account_locked || status==='locked') drives the rendered state.
+  // Optimistic flip BEFORE await so the switch animates immediately.
+  // Override is RECONCILED with the polled row (see the effect above) —
+  // never cleared in finally — so there's no on→off→on flip while the
+  // 10s poll catches up.
   const runLockToggle = async (row: AdminShiftRow, next: boolean) => {
     setLockOverrides((prev) => {
       const m = new Map(prev);
@@ -252,7 +289,9 @@ export function AdminShiftControlSection() {
         toast.success(`Locked ${row.full_name ?? row.username}`);
       } else {
         const ranAccount = row.account_locked === true;
-        const ranPeriod  = row.status === 'locked' && !!row.session_id;
+        const ranPeriod  = row.status === 'locked'
+                        && row.session_locked_reason === 'period_lock'
+                        && !!row.session_id;
         if (ranAccount) {
           await setAccountLock.mutateAsync({ targetUserId: row.user_id, locked: false });
         }
@@ -270,8 +309,10 @@ export function AdminShiftControlSection() {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : (next ? 'Lock failed' : 'Unlock failed'));
-    } finally {
+      // Revert the optimistic flip on error so the toggle snaps back to
+      // server truth. Reconcile-on-match handles the success path.
       clearLockOverride(row.user_id);
+    } finally {
       setBusy(null);
     }
   };

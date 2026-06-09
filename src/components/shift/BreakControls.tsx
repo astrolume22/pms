@@ -70,6 +70,32 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   const createReq = useBioBreakRequestCreate();
   const [requested, setRequested] = useState(false);
 
+  // Local 1/sec interpolation for the "On {kind} break · MM:SS" display.
+  // Mirrors ShiftCountdownChip but COUNTS UP. On every shift_tick poll
+  // (10s) we snap to the server value via lastBreakSnapRef so refresh /
+  // refocus / clock-change cannot fudge the displayed value; between
+  // polls we increment locally so the timer feels live.
+  //
+  // CRITICAL: the auto-end-at-15-min effect + the bio-total warn email
+  // BELOW must keep reading tick.current_break_elapsed_seconds /
+  // tick.bio_break_total_seconds_today directly — those are SERVER-
+  // AUTHORITATIVE decisions, not display-only.
+  const [breakElapsed, setBreakElapsed] = useState<number>(0);
+  const lastBreakSnapRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!tick) return;
+    if (lastBreakSnapRef.current !== tick.current_break_elapsed_seconds) {
+      lastBreakSnapRef.current = tick.current_break_elapsed_seconds;
+      setBreakElapsed(tick.current_break_elapsed_seconds);
+    }
+  }, [tick]);
+  const isOnBreakLocal = tick?.status === 'on_shift_break' || tick?.status === 'on_bio_break';
+  useEffect(() => {
+    if (!isOnBreakLocal) return;
+    const id = setInterval(() => setBreakElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [isOnBreakLocal]);
+
   // Email-warn debouncer: once per shift, when total bio time hits warn.
   const warnEmailFiredRef = useRef(false);
   useEffect(() => {
@@ -172,7 +198,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
           <>
             <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium text-amber-100 bg-amber-900/40 border border-amber-700/40">
               {onBioBreak ? <User className="h-3.5 w-3.5" /> : <Coffee className="h-3.5 w-3.5" />}
-              On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(tick.current_break_elapsed_seconds)}
+              On {onBioBreak ? 'bio' : 'shift'} break · {formatMS(breakElapsed)}
             </span>
             <button
               type="button"
@@ -230,13 +256,25 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
         )}
       </div>
 
-      {(showCountWarn || showTotalWarn) && !onBreak && (
+      {/*
+        Bio count is ALWAYS visible when the manager is working (active +
+        not on break). Muted/neutral until the warn threshold, amber from
+        warn-count onwards (and on limitReached). Status check up top
+        already filters out locked / completed / not_started, so this
+        only renders during 'active'.
+      */}
+      {!onBreak && (
         <div className="pointer-events-auto inline-flex flex-col items-center gap-0.5 text-center">
-          {showCountWarn && (
-            <span className="text-[11px] text-amber-200 bg-amber-900/30 px-2 py-0.5 rounded-full">
-              You&apos;ve used {bioCount} of {effMax} bio breaks today.
-            </span>
-          )}
+          <span
+            className={
+              'text-[11px] px-2 py-0.5 rounded-full ' +
+              ((showCountWarn || limitReached)
+                ? 'text-amber-200 bg-amber-900/30'
+                : 'text-text-secondary bg-slate-700/30')
+            }
+          >
+            You&apos;ve used {bioCount} of {effMax} bio breaks today.
+          </span>
           {showTotalWarn && (
             <span className="text-[11px] text-amber-200 bg-amber-900/30 px-2 py-0.5 rounded-full">
               Over an hour of bio breaks today — admin notified.

@@ -549,6 +549,9 @@ export function useShiftAdminUnlock() {
       void qc.invalidateQueries({ queryKey: shiftKeys.all });
       // Also kick the admin's locked-shifts list so the row disappears.
       void qc.invalidateQueries({ queryKey: ['admin', 'locked-shifts'] });
+      // And the unified Shift Control panel so the toggle's reconcile
+      // effect picks up the fresh row promptly (no up-to-10s lag).
+      void qc.invalidateQueries({ queryKey: ['admin', 'shift-control'] });
     },
   });
 }
