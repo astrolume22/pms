@@ -220,6 +220,33 @@ export function useShiftBreakFreeze() {
 }
 
 // ---------------------------------------------------------------------
+// useShiftBreakOverstayLock (0069) — manager-callable, idempotent. Fires
+// when shift_tick reports overstay seconds >= grace AND status is still
+// on_shift_break. Server atomically finalizes the freeze pause, ends
+// the break, opens a fresh break_overstay pause, and flips status to
+// 'locked' / locked_reason='break_overstay'. The work-timer freeze is
+// continuous — no paid time leaks across overstay → lock.
+// ---------------------------------------------------------------------
+export function useShiftBreakOverstayLock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error } = await supabase.rpc('shift_break_overstay_lock', { p_session_id: sessionId });
+      if (error) throw error;
+      return data as {
+        session_id: string;
+        status: ShiftStatus;
+        locked: boolean;
+        applied: boolean;
+      };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: shiftKeys.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
 // useShiftMark85Alerted — manager-callable; flips period_85_due to
 // false for the current period so the toast never re-fires.
 // ---------------------------------------------------------------------

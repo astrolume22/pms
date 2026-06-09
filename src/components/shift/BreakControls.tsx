@@ -37,6 +37,7 @@ import {
   useShiftTakeBioBreak,
   useShiftEndBreak,
   useShiftBreakFreeze,
+  useShiftBreakOverstayLock,
   type ShiftTickPayload,
 } from '@/hooks/shift';
 import { safeGetSession } from '@/lib/safeAuth';
@@ -47,6 +48,7 @@ import { notifyImportant } from '@/lib/notify';
 //   0067 — shift_break_used_today / shift_break_count_today
 //   0068 — shift_break_seconds / shift_break_overstay /
 //          shift_break_overstay_seconds / shift_break_frozen
+//   0069 — shift_break_overstay_grace_seconds
 // We don't widen the shared type in src/hooks/shift.ts here; the read
 // site narrows via intersection.
 type BreakTickExt = {
@@ -56,6 +58,7 @@ type BreakTickExt = {
   shift_break_overstay?: boolean;
   shift_break_overstay_seconds?: number;
   shift_break_frozen?: boolean;
+  shift_break_overstay_grace_seconds?: number;
 };
 
 interface BreakControlsProps {
@@ -93,6 +96,7 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
   const takeBio   = useShiftTakeBioBreak();
   const endBreak  = useShiftEndBreak();
   const breakFreeze = useShiftBreakFreeze();
+  const breakOverstayLock = useShiftBreakOverstayLock();
 
   // Local 1/sec interpolation for the "On {kind} break · MM:SS" display.
   // Mirrors ShiftCountdownChip but COUNTS UP. On every shift_tick poll
@@ -209,6 +213,49 @@ export function BreakControls({ sessionId, tick }: BreakControlsProps) {
       catch (e) { console.warn('[shift] break_freeze failed:', e); }
     })();
   }, [tick, sessionId, breakFreeze]);
+
+  // 0069 — Shift-break overstay LOCK WARNING (60s before the lock).
+  // Fires once per break (separate de-dupe ref) when:
+  //   overstay >= max(0, grace - 60) AND overstay < grace
+  // Surfaces the centered <WarningModal/> + bell chime via
+  // notifyImportant. After the lock applies, status flips to 'locked'
+  // and ShiftDriver swaps to the break-overstay overlay.
+  const shiftLockWarnFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || tick.status !== 'on_shift_break') return;
+    if (!tick.current_break_started_at) return;
+    const ext = tick as ShiftTickPayload & BreakTickExt;
+    const overstay = ext.shift_break_overstay_seconds ?? 0;
+    const grace    = ext.shift_break_overstay_grace_seconds ?? 900;
+    const warnAt   = Math.max(0, grace - 60);
+    if (overstay < warnAt || overstay >= grace) return;
+    if (shiftLockWarnFiredRef.current === tick.current_break_started_at) return;
+    shiftLockWarnFiredRef.current = tick.current_break_started_at;
+    notifyImportant({
+      title: 'Break ending',
+      body: 'Your break is over. Resume now or your screen will lock in 60 seconds.',
+    });
+  }, [tick]);
+
+  // 0069 — Shift-break overstay LOCK. Fires once per break (separate
+  // de-dupe ref) when overstay >= grace AND status is still
+  // on_shift_break. Server is authoritative; the RPC re-checks
+  // eligibility and is idempotent (double calls return {applied:false}).
+  const shiftLockFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tick || tick.status !== 'on_shift_break') return;
+    if (!tick.current_break_started_at) return;
+    const ext = tick as ShiftTickPayload & BreakTickExt;
+    const overstay = ext.shift_break_overstay_seconds ?? 0;
+    const grace    = ext.shift_break_overstay_grace_seconds ?? 900;
+    if (overstay < grace) return;
+    if (shiftLockFiredRef.current === tick.current_break_started_at) return;
+    shiftLockFiredRef.current = tick.current_break_started_at;
+    void (async () => {
+      try { await breakOverstayLock.mutateAsync(sessionId); }
+      catch (e) { console.warn('[shift] break_overstay_lock failed:', e); }
+    })();
+  }, [tick, sessionId, breakOverstayLock]);
 
   if (!tick) return null;
 

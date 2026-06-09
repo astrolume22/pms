@@ -211,6 +211,62 @@ export function ShiftDriver() {
     return <StartShiftGate />;
   }
   if (liveStatus === 'locked') {
+    // 0069 — when the lock is a break-overstay (manager's shift break
+    // ran past the allowance + the grace window), surface a calm
+    // no-blame overlay. Same EIA navy/gold markup pattern as
+    // ShiftLockedOverlay; ONLY the copy changes. No Start button —
+    // admin must unlock via the Shift Control toggle. locked_reason
+    // is surfaced by shift_tick (live shape + 0069 migration).
+    // Use `as unknown as` to widen locked_reason past the existing
+    // literal-union type in src/hooks/shift.ts (which doesn't include
+    // 'break_overstay' yet and isn't in scope for this step's edit).
+    const lockedReason =
+      (tick as unknown as { locked_reason?: string | null } | undefined)?.locked_reason;
+    if (lockedReason === 'break_overstay') {
+      const EIA_NAVY = '#0F1E36';
+      const EIA_GOLD = '#E1B978';
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md"
+          style={{ background: 'rgba(15, 30, 54, 0.65)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="break-overstay-lock-heading"
+        >
+          <div
+            className="rounded-md shadow-2xl flex flex-col items-center gap-5 mx-4 max-w-md w-full"
+            style={{
+              background: EIA_NAVY,
+              border: `1px solid ${EIA_GOLD}55`,
+              padding: '44px 52px',
+            }}
+          >
+            <h2
+              id="break-overstay-lock-heading"
+              className="text-[36px] leading-none m-0 text-center"
+              style={{
+                fontFamily: '"Cormorant Garamond", "Cormorant", serif',
+                fontWeight: 500,
+                color: EIA_GOLD,
+                letterSpacing: '0.01em',
+              }}
+            >
+              Break time exceeded
+            </h2>
+            <p
+              className="text-[13.5px] text-center m-0 max-w-xs"
+              style={{
+                color: 'rgba(255,255,255,0.85)',
+                letterSpacing: '0.02em',
+                lineHeight: 1.55,
+              }}
+            >
+              Your break ran over the allowed time, so your screen is locked. Please contact your admin to unlock and resume your shift.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return <ShiftLockedOverlay />;
   }
   if (liveStatus === 'completed') {
