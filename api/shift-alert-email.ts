@@ -99,22 +99,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const resendFrom = process.env.RESEND_FROM_EMAIL;
     const adminAlertEmailEnv = process.env.ADMIN_ALERT_EMAIL?.trim() || null;
 
-    // ---- auth: verify the caller's Supabase JWT ----
-    const authHeader = req.headers.authorization ?? '';
-    const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : '';
-    if (!token) {
-      res.status(401).json({ ok: false, error: 'Unauthorized — missing Bearer token' });
-      return;
+    // ---- auth: either (a) a valid Supabase user JWT (Bearer header,
+    //          existing client path), OR (b) the cron shared secret
+    //          (X-Cron-Secret header, server-internal path for the
+    //          per-minute pg_cron sweep, 0073). The cron path has no
+    //          user JWT — it's the postgres-owned shift_break_sweep
+    //          firing pg_net after a server-side lock — so we honor
+    //          a shared-secret header instead.
+    //
+    //          The shared secret is set via Vercel env CRON_SHARED_SECRET
+    //          AND stored in private.config('cron_shared_secret', ...)
+    //          on the DB side; both must match.
+    const cronSecretEnv = process.env.CRON_SHARED_SECRET ?? '';
+    const cronSecretHeader = req.headers['x-cron-secret'];
+    const isCronCall = typeof cronSecretHeader === 'string'
+                    && cronSecretEnv.length > 0
+                    && cronSecretHeader === cronSecretEnv;
+
+    let callerId: string | null = null;
+    if (!isCronCall) {
+      const authHeader = req.headers.authorization ?? '';
+      const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+        ? authHeader.slice(7).trim()
+        : '';
+      if (!token) {
+        res.status(401).json({ ok: false, error: 'Unauthorized — missing Bearer token' });
+        return;
+      }
+      const verify = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
+      const { data: userData, error: userErr } = await verify.auth.getUser(token);
+      if (userErr || !userData.user) {
+        res.status(401).json({ ok: false, error: 'Unauthorized — invalid token' });
+        return;
+      }
+      callerId = userData.user.id;
     }
-    const verify = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
-    const { data: userData, error: userErr } = await verify.auth.getUser(token);
-    if (userErr || !userData.user) {
-      res.status(401).json({ ok: false, error: 'Unauthorized — invalid token' });
-      return;
-    }
-    const callerId = userData.user.id;
 
     // ---- parse + validate body ----
     let body: ReqBody;
@@ -153,19 +172,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!sess) { res.status(400).json({ ok: false, error: 'session not found' }); return; }
 
     // Authz: caller must be the session's user OR an admin/super.
-    const { data: caller, error: cErr } = await sb
-      .from('users')
-      .select('id, role, is_super_admin, status')
-      .eq('id', callerId)
-      .maybeSingle();
-    if (cErr || !caller) {
-      res.status(403).json({ ok: false, error: 'Forbidden — caller profile not found' });
-      return;
-    }
-    const callerIsAdmin = caller.role === 'admin' || caller.is_super_admin === true;
-    if (callerId !== sess.user_id && !callerIsAdmin) {
-      res.status(403).json({ ok: false, error: 'Forbidden — not session owner or admin' });
-      return;
+    // Skipped entirely for the cron-secret path (server-internal sweep).
+    if (!isCronCall) {
+      const { data: caller, error: cErr } = await sb
+        .from('users')
+        .select('id, role, is_super_admin, status')
+        .eq('id', callerId)
+        .maybeSingle();
+      if (cErr || !caller) {
+        res.status(403).json({ ok: false, error: 'Forbidden — caller profile not found' });
+        return;
+      }
+      const callerIsAdmin = caller.role === 'admin' || caller.is_super_admin === true;
+      if (callerId !== sess.user_id && !callerIsAdmin) {
+        res.status(403).json({ ok: false, error: 'Forbidden — not session owner or admin' });
+        return;
+      }
     }
 
     // Manager (the session owner).
